@@ -2,7 +2,7 @@
   "name": "NBA",
   "short_name": "NBA",
   "description": "Personal NBA dashboard: live scores, standings, stats, odds, news and games.",
-  "start_url": "./#schedule",
+  "start_url": "./#home",
   "scope": "./",
   "display": "standalone",
   "background_color": "#F1F3F6",

@@ -64,6 +64,8 @@ const GAMES = [
   { id: 'pickem', name: "Pick'em", ico: 'W/L', blurb: 'Pick the winner of every game today and tomorrow. Your record updates itself when games go final.', status: pickStatus, view: pickView },
   { id: 'props', name: 'Breakout Calls', ico: '↗', blurb: 'Call over or under on a player\'s next game, or swing for a breakout night. Graded automatically after they play.', status: propStatus, view: propView },
 ];
+// For the Home tab's "Play today" card
+NBA.gamesMenu = () => GAMES.map(g => ({ id: g.id, name: g.name, ico: g.ico, daily: !!g.daily, status: g.status() }));
 V.games = arg => {
   NBA.use('players'); NBA.use('standings'); NBA.use('teamstats'); NBA.use('day:');
   resolvePicks(); resolveProps();

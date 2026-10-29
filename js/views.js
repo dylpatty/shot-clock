@@ -82,18 +82,112 @@ function myTeamCard() {
   return `<div class="card"><div class="card-h"><h3>${esc(t.name || 'Your team')}</h3><div class="end"><a class="chip" href="#myteam">Team page</a></div></div>
     <ul class="glist">${last ? glistItem(last) : ''}${next ? glistItem(next) : ''}</ul>${!next && !last ? '<p class="empty">No games scheduled.</p>' : ''}</div>`;
 }
+const dayCard = (iso, games) => `<div class="card day"><div class="card-h"><h3>${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'short', day: 'numeric' }))}<small>${games.length} game${games.length > 1 ? 's' : ''}</small></h3></div>
+  <ol class="lines">${games.map(UI.line).join('')}</ol></div>`;
 function upcoming() {
   const days = Array.from({ length: 7 }, (_, i) => NBA.shiftIso(NBA.today, i + 1));
   const cards = days.map(iso => {
     const d = NBA.use('day:' + NBA.paramOf(iso));
     if (!d) return `<div class="card day"><div class="card-h"><h3>${esc(NBA.fmtDay(iso))}</h3></div>${stateOf('day:' + NBA.paramOf(iso), 'games')}</div>`;
-    if (!d.games.length) return '';
-    const games = NBA.sortGames(d.games);
-    return `<div class="card day"><div class="card-h"><h3>${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'short', day: 'numeric' }))}<small>${games.length} game${games.length > 1 ? 's' : ''}</small></h3></div>
-      <ol class="lines">${games.map(UI.line).join('')}</ol></div>`;
+    return d.games.length ? dayCard(iso, NBA.sortGames(d.games)) : '';
   }).join('');
   return `<section class="sec"><div class="sec-h"><h2>Upcoming</h2><span class="sub">Next 7 days · times in ${esc(NBA.tzLabel())} · away team on the left, home team on the right</span></div><div class="days">${cards}</div></section>`;
 }
+
+/* ================= Rest of the season =================
+   Lives in its own element under the Schedule view, so live-score repaints above never redraw it.
+   Each month loads from ESPN in one request as you scroll near it. */
+st.seasonReq = new Set();
+const monthLabel = (ym, opts) => NBA.fmtDay(`${ym.slice(0, 4)}-${ym.slice(4)}-15`, opts || { month: 'long', year: 'numeric' });
+const seasonDays = () => { const from = NBA.shiftIso(NBA.today, 8); return (NBA.calendar || []).filter(d => d >= from); };
+function seasonSkeleton(days, months) {
+  const t = NBA.T(NBA.S.myTeam);
+  const range = `${NBA.fmtDay(days[0], { month: 'short', day: 'numeric' })} – ${NBA.fmtDay(days[days.length - 1], { month: 'short', day: 'numeric' })}`;
+  return `<div class="sbump" id="season-bump">
+      <div class="eyebrow">Past the next 7 days</div>
+      <h2>Rest of the season</h2>
+      <p class="sub">${esc(range)} · ${days.length} game days · times in ${esc(NBA.tzLabel())}</p>
+      <div class="bump-tools">${seg('seasonmine', st.seasonMine ? '1' : '', [['', 'All games'], ['1', `${esc(t.name || 'My team')} only`]], 'Show')}
+        <nav class="bump-months" aria-label="Jump to a month">${months.map(ym => `<button class="chip" data-act="seasonjump" data-ym="${ym}">${esc(monthLabel(ym, { month: 'short' }))}</button>`).join('')}</nav></div>
+      <span class="bump-arrow" aria-hidden="true">${UI.I.down}</span>
+    </div>
+    ${months.map(ym => `<section class="smonth" id="sm-${ym}" data-ym="${ym}" aria-label="${esc(monthLabel(ym))}"></section>`).join('')}`;
+}
+function monthHtml(ym, days) {
+  const key = 'month:' + ym;
+  const m = st.seasonReq.has(ym) ? NBA.use(key) : NBA.data(key);
+  const head = sub => `<div class="sm-h"><h3>${esc(monthLabel(ym))}</h3><span class="sub">${sub}</span></div>`;
+  if (!m) return head(NBA.status(key).err ? "Couldn't load from ESPN. It will try again shortly." : 'Loading…') + '<div class="sm-wait"></div>';
+  const mine = st.seasonMine ? NBA.S.myTeam : '';
+  const prefix = `${ym.slice(0, 4)}-${ym.slice(4)}`;
+  let n = 0;
+  const cards = days.filter(d => d.startsWith(prefix)).map(iso => {
+    let games = m.days[iso] || [];
+    if (mine) games = games.filter(g => g.away.id === mine || g.home.id === mine);
+    n += games.length;
+    return games.length ? dayCard(iso, NBA.sortGames(games)) : '';
+  }).join('');
+  return head(`${n} game${n === 1 ? '' : 's'}`) + (cards ? `<div class="days">${cards}</div>` : '<p class="empty">No games this month.</p>');
+}
+// Load a month once it comes within about a screen of view
+function loadNearMonths() {
+  document.querySelectorAll('#season .smonth').forEach(s => {
+    if (!st.seasonReq.has(s.dataset.ym) && s.getBoundingClientRect().top < innerHeight + 900) requestMonth(s.dataset.ym);
+  });
+}
+window.addEventListener('scroll', loadNearMonths, { passive: true });
+function requestMonth(ym) {
+  if (st.seasonReq.has(ym)) return NBA.need('month:' + ym);
+  st.seasonReq.add(ym);
+  const p = NBA.need('month:' + ym);
+  p.then(paintSeason, paintSeason);
+  return p;
+}
+function paintSeason() {
+  const el = document.getElementById('season');
+  if (!el || UI.route().tab !== 'schedule') return;
+  const days = seasonDays();
+  if (!days.length) { UI.paint(el, ''); return; }
+  const months = [...new Set(days.map(d => d.slice(0, 4) + d.slice(5, 7)))];
+  const top = document.getElementById('top');
+  if (top) document.documentElement.style.setProperty('--top-h', top.offsetHeight + 'px');
+  UI.paint(el, seasonSkeleton(days, months));
+  months.forEach(ym => UI.paint(document.getElementById('sm-' + ym), monthHtml(ym, days)));
+  loadNearMonths();
+}
+NBA.after.schedule = () => paintSeason();
+NBA.actions.seasonmine = a => {
+  st.seasonMine = !!a.dataset.v;
+  paintSeason();
+  const b = document.getElementById('season-bump');
+  if (b && b.getBoundingClientRect().top < 0) b.scrollIntoView({ block: 'start' });
+};
+// Jumping ahead loads every month up to the target first, so the page doesn't shift under the scroll
+NBA.actions.seasonjump = a => {
+  const ym = a.dataset.ym;
+  const before = [...document.querySelectorAll('#season .smonth')].map(s => s.dataset.ym).filter(x => x <= ym);
+  Promise.allSettled(before.map(requestMonth)).then(() => {
+    paintSeason();
+    const s = document.getElementById('sm-' + ym);
+    if (s) s.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+};
+NBA.actions.jumpto = a => { const el = document.getElementById(a.dataset.to); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+
+/* The speed bump: as a rest-of-season divider comes up, mouse-wheel scrolling slows to a third and settles on it.
+   On phones and trackpads, CSS scroll snapping does the same job (html:has(.sbump) in the stylesheet). */
+window.addEventListener('wheel', e => {
+  if (e.deltaY <= 0 || e.ctrlKey || e.defaultPrevented) return;
+  const b = document.querySelector('#view .sbump, #season .sbump');
+  if (!b || (e.target.closest && e.target.closest('.drawer, .tblwrap, .ask-panel, #ask-panel'))) return;
+  const top = document.getElementById('top');
+  const y = b.getBoundingClientRect().top - (top ? top.offsetHeight : 0);
+  if (y > 16 && y < innerHeight * .6) {
+    e.preventDefault();
+    const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * innerHeight : e.deltaY;
+    window.scrollBy(0, Math.max(1, Math.min(px * .3, y - 10)));
+  }
+}, { passive: false });
 NBA.actions.date = a => {
   const v = +a.dataset.v;
   if (v === 0) NBA.dayParam = '';
@@ -275,10 +369,22 @@ V.odds = () => {
   const rest = markets.filter(m => !used.has(m.id));
   const card = (m, title, opts = {}) => m ? `<div class="card ${opts.cls || ''}"><div class="card-h"><h3>${esc(title || m.name)}</h3><div class="end"><span class="eyebrow">${esc(m.provider)}</span></div></div>${oddsList(m, opts)}</div>` : '';
   const awards = [[mvp, 'MVP'], [roy, 'Rookie of the Year'], [dpoy, 'Defensive Player of the Year'], [smoy, 'Sixth Man of the Year'], [mip, 'Most Improved Player'], [clutch, 'Clutch Player of the Year'], [coy, 'Coach of the Year']].filter(x => x[0]);
+  // When ESPN's feed has no Rookie of the Year market, show the rookie race by the numbers instead
+  const rookieRace = () => {
+    if (roy) return '';
+    NBA.loadRosters();
+    const list = NBA.rookies();
+    const h = `<div class="card-h"><h3>Rookie of the Year race</h3><div class="end"><span class="eyebrow">No odds posted</span></div></div>`;
+    if (!list) return `<div class="card">${h}<p class="loading" style="padding:var(--pad)">Finding this year's rookies…</p></div>`;
+    const top = list.filter(p => p.gp >= 2).map(p => ({ p, v: NBA.gameScore(p) })).sort((a, b) => b.v - a.v).slice(0, 8);
+    return `<div class="card">${h}<p class="note" style="padding:12px var(--pad) 0">DraftKings isn't offering Rookie of the Year odds through ESPN right now, so this ranks rookies by Game Score per game. Real odds show here as soon as they're posted.</p>
+      <ol class="rank">${top.map((x, i) => `<li data-act="player" data-id="${x.p.id}" style="cursor:pointer"><span class="rk">${i + 1}</span><span class="nm">${esc(x.p.name)}<small>${esc(x.p.team)} · ${NBA.fix(x.p.pts)} pts, ${NBA.fix(x.p.reb)} reb, ${NBA.fix(x.p.ast)} ast</small></span><span class="v">${NBA.fix(x.v)}</span></li>`).join('')}</ol></div>`;
+  };
   return `<section class="sec">${head}<div class="odds-grid">
       ${card(champ, 'NBA Championship', { cls: 'w8', cols: 2, limit: 30 })}
       ${gameLines(days)}
       ${awards.map(([m, t], i) => card(m, t, { cls: i === 0 ? 'w6' : '', limit: i === 0 ? 15 : 8, athletes: true })).join('')}
+      ${rookieRace()}
       ${east || west ? `<div class="card w6"><div class="card-h"><h3>Conference winners</h3><div class="end"><span class="eyebrow">DraftKings</span></div></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))">${[[east, 'East'], [west, 'West']].filter(x => x[0]).map(([m, l]) => `<div><div class="eyebrow" style="padding:12px var(--pad) 0">${l}</div>${oddsList(m, { limit: 15 })}</div>`).join('')}</div></div>` : ''}
       ${card(cup, 'NBA Cup winner', { limit: 12 })}
@@ -291,6 +397,7 @@ function oddsList(m, { limit = 10, cols = 1 } = {}) {
   const list = m.entries.slice(0, limit);
   const max = Math.max(...list.map(e => e.implied), .01);
   const fav = new Set(NBA.S.favorites);
+  const coachMarket = /Coach/i.test(m.name || '');
   return `<ol class="olist" style="--cols:${cols}">${list.map((e, i) => {
     let img, name, sub = '', isFav = false;
     if (e.kind === 'team') {
@@ -299,7 +406,9 @@ function oddsList(m, { limit = 10, cols = 1 } = {}) {
     } else {
       const a = NBA.athleteInfo(e.id) || {};
       const t = a.teamId ? NBA.T(a.teamId) : null; isFav = !!(t && fav.has(t.id));
-      img = a.headshot ? `<img class="hs" src="${esc(a.headshot)}" alt="" loading="lazy">` : (t ? UI.logo(t, 30) : '<span></span>');
+      // Coaches get their team's logo rather than a photo
+      img = (a.coach || coachMarket) ? (t ? UI.logo(t, 30) : '<span></span>')
+        : a.headshot ? `<img class="hs" src="${esc(a.headshot)}" alt="" loading="lazy">` : (t ? UI.logo(t, 30) : '<span></span>');
       name = a.name || 'Loading…'; sub = [t && t.abbr, a.coach ? 'Coach' : ''].filter(Boolean).join(' · ');
     }
     const pct = e.implied * 100;
@@ -369,14 +478,36 @@ NBA.actions.injstatus = a => { st.injStatus = a.dataset.v; NBA.changed(); };
 NBA.changes.injteam = t => { st.injTeam = t.value; NBA.changed(); };
 
 /* ================= Team pages ================= */
-function glistItem(e) {
+function glistItem(e, tags = '') {
   const op = NBA.T(e.oppId);
   let rs;
   if (e.state === 'post') rs = NBA.S.spoilers ? '<span class="mut">Final</span>' : `<span class="${e.won ? 'W' : 'L'}">${e.won ? 'W' : 'L'}</span> ${esc(e.my)}–${esc(e.their)}`;
   else if (e.state === 'in') rs = `<span class="st-live"><i class="dot blink"></i>Live</span>`;
   else rs = `<span class="mut">${esc(/TBD/i.test(e.detail || '') ? 'TBD' : NBA.fmtTime(e.date))}</span>`;
   return `<li data-act="game" data-id="${e.id}" role="button" tabindex="0"><span class="dt">${esc(NBA.fmtDate(e.date, { weekday: 'short', month: 'numeric', day: 'numeric' }))}</span>
-    <span class="ha">${e.home ? 'vs' : '@'}</span>${UI.logo(op.abbr ? op : { logo: '' }, 26)}<span class="op">${esc(op.name || e.oppName || e.oppAbbr || '')}</span><span class="rs">${rs}</span></li>`;
+    <span class="ha">${e.home ? 'vs' : '@'}</span>${UI.logo(op.abbr ? op : { logo: '' }, 26)}<span class="op">${esc(op.name || e.oppName || e.oppAbbr || '')}${tags}</span><span class="rs">${rs}</span></li>`;
+}
+/* A team's whole remaining schedule, month by month, behind the same speed-bump divider as the Schedule tab */
+function teamSeason(t, evs) {
+  const all = evs.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+  const left = all.filter(e => e.state === 'pre');
+  if (!left.length) return '';
+  // Second night of a back-to-back: the team also played the day before
+  const days = new Set(all.map(e => NBA.etDay(e.date)));
+  const b2b = e => days.has(NBA.shiftIso(NBA.etDay(e.date), -1));
+  const tags = e => (b2b(e) ? '<span class="tag b2b" title="Second night of a back-to-back">B2B</span>' : '') + (e.tv ? `<span class="tag">${esc(e.tv)}</span>` : '');
+  const months = [];
+  left.forEach(e => { const ym = NBA.etDay(e.date).slice(0, 7).replace('-', ''); const m = months[months.length - 1]; if (m && m[0] === ym) m[1].push(e); else months.push([ym, [e]]); });
+  const home = left.filter(e => e.home).length, backs = left.filter(b2b).length, tv = left.filter(e => e.tv).length;
+  return `<div class="sbump">
+      <div class="eyebrow">${esc(t.full)}</div>
+      <h2>Rest of the season</h2>
+      <p class="sub">${left.length} games left · ${home} home, ${left.length - home} away · ${backs} back-to-backs · ${tv} on national TV</p>
+      <nav class="bump-months" aria-label="Jump to a month">${months.map(([ym]) => `<button class="chip" data-act="jumpto" data-to="tm-${ym}">${esc(monthLabel(ym, { month: 'short' }))}</button>`).join('')}</nav>
+      <span class="bump-arrow" aria-hidden="true">${UI.I.down}</span>
+    </div>
+    <div class="season-months">${months.map(([ym, list]) => `<div class="card sm-card" id="tm-${ym}"><div class="card-h"><h3>${esc(monthLabel(ym))}</h3><div class="end"><span class="eyebrow">${list.length} game${list.length > 1 ? 's' : ''} · ${list.filter(e => e.home).length} home</span></div></div>
+      <ul class="glist">${list.map(e => glistItem(e, tags(e))).join('')}</ul></div>`).join('')}</div>`;
 }
 function teamView(id) {
   id = String(id);
@@ -459,7 +590,8 @@ function teamView(id) {
     <div class="card w12"><div class="card-h"><h3>Roster</h3><div class="end"><span class="eyebrow">Season averages</span></div></div><div class="card-b">${rosterHtml}</div></div>
     <div class="card"><div class="card-h"><h3>Injuries</h3></div>${injHtml}</div>
     <div class="card w8"><div class="card-h"><h3>${esc(t.name)} news</h3></div>${newsHtml}</div>
-  </div>`;
+  </div>
+  ${sch ? `<section class="sec team-season">${teamSeason(t, evs)}</section>` : ''}`;
 }
 V.myteam = () => teamView(NBA.S.myTeam);
 V.teams = arg => {
@@ -525,12 +657,12 @@ function teamsOverview() {
 NBA.actions.prsort = a => { const k = a.dataset.k; st.prSort = st.prSort.k === k ? { k, desc: !st.prSort.desc } : { k, desc: k !== 'drtg' }; NBA.changed(); };
 
 /* ================= Fun Facts ================= */
-V.facts = () => {
+/* Every fact card, grouped; Fun Facts and the Home deck both deal from this */
+NBA.factGroups = () => {
   const confs = NBA.use('standings'), players = NBA.use('players'), ts = NBA.use('teamstats');
   const pastKeys = Array.from({ length: 7 }, (_, i) => i === 0 ? 'day:' : 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -i)));
   const past = pastKeys.map(k => NBA.use(k)).filter(Boolean);
-  const head = `<div class="sec-h"><h2>Fun facts</h2><span class="sub">Trends, extremes and oddities from this season and the past week</span></div>`;
-  if (!confs) return `<section class="sec">${head}${stateOf('standings', 'standings')}</section>`;
+  if (!confs) return null;
   const rows = confs.flatMap(c => c.rows);
   // Facts land in three groups; `into` is the group being filled
   const league = [], people = [], week = [];
@@ -671,12 +803,18 @@ V.facts = () => {
     const roadW = finals.filter(g => +g.away.score > +g.home.score).length, ot = finals.filter(g => g.away.lines.length > 4).length;
     fact('Road vs. home', `${roadW}-${finals.length - roadW}`, `Road teams' record over the last 7 days. ${ot ? `${ot} of the ${finals.length} games went to overtime.` : 'None of them went to overtime.'}`);
   }
+  return { rows, league, people, week };
+};
+V.facts = () => {
+  const head = `<div class="sec-h"><h2>Fun facts</h2><span class="sub">Charts, trends, extremes and oddities, recalculated from live ESPN data every time you open the page</span></div>`;
+  const f = NBA.factGroups();
+  if (!f) return `<section class="sec">${head}${stateOf('standings', 'standings')}</section>`;
   const group = (title, sub, list) => list.length ? `<section class="sec"><div class="sec-h"><h2>${title}</h2><span class="sub">${sub}</span></div><div class="facts">${list.join('')}</div></section>` : '';
-  return `<section class="sec">${head}${scatter(rows)}</section>
-    <section class="sec">${luckCard(rows)}</section>
-    ${group('Around the league', 'Team records, styles and extremes', league)}
-    ${group('Player oddities', 'Season numbers that stand out', people)}
-    ${group('This week', 'From every game in the last 7 days', week)}`;
+  return `<section class="sec">${head}${NBA.chartDeck()}</section>
+    <section class="sec">${luckCard(f.rows)}</section>
+    ${group('Around the league', 'Team records, styles and extremes', f.league)}
+    ${group('Player oddities', 'Season numbers that stand out', f.people)}
+    ${group('This week', 'From every game in the last 7 days', f.week)}`;
 };
 const rec = s => { const m = /^(\d+)-(\d+)/.exec(s || ''); return m ? { w: +m[1], l: +m[2] } : null; };
 
@@ -696,76 +834,4 @@ function luckCard(rows) {
     }).join('')}</ol>
     <p class="note" style="padding:12px var(--pad) var(--pad)">Over a season, points scored and allowed predict a team's record closely. Teams with green bars have won more than their margin suggests, usually by taking close games. Red bars have lost more. It tends to even out. Tap a team for its page.</p></div>`;
 }
-/* The chart is drawn after layout at the card's real size, so it always fits one screen with no scrolling or zooming */
-function scatter(rows) {
-  if (!rows.length || !rows.some(r => r.ppg)) return '';
-  return `<div class="card"><div class="card-h"><h3>Offense vs. defense</h3><div class="end"><span class="eyebrow">Points per game · all 30 teams</span></div></div>
-    <div class="scatter-wrap" id="scatter"></div>
-    <p class="note" style="padding:0 var(--pad) var(--pad)">Dashed lines mark the league averages. Hover or tap a logo for details; click it to open the team.</p></div>`;
-}
-function drawScatter(wrap) {
-  const rows = (NBA.data('standings') || []).flatMap(c => c.rows);
-  if (!wrap || !rows.length) return;
-  const cs = getComputedStyle(wrap);
-  const W = Math.max(260, Math.floor(wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)));
-  const narrow = W < 600;
-  const avail = window.innerHeight - document.getElementById('top').offsetHeight - 150;
-  const H = Math.round(Math.max(300, Math.min(avail, W * (narrow ? 1.25 : .6))));
-  const m = narrow ? { l: 38, r: 10, t: 14, b: 44 } : { l: 64, r: 24, t: 24, b: 56 };
-  const rad = narrow ? 11 : W < 1200 ? 16 : 20;
-  const xs = rows.map(r => r.ppg), ys = rows.map(r => r.opp);
-  const x0 = Math.floor(Math.min(...xs) - 2), x1 = Math.ceil(Math.max(...xs) + 2), y0 = Math.floor(Math.min(...ys) - 2), y1 = Math.ceil(Math.max(...ys) + 2);
-  const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
-  const Y = v => m.t + (v - y0) / (y1 - y0) * (H - m.t - m.b);
-  const ax = rows.reduce((n, r) => n + r.ppg, 0) / rows.length, ay = rows.reduce((n, r) => n + r.opp, 0) / rows.length;
-  const step = narrow || (x1 - x0) > 24 ? 5 : 2;
-  let grid = '';
-  for (let v = Math.ceil(x0 / step) * step; v <= x1; v += step) grid += `<line class="gl" x1="${X(v)}" x2="${X(v)}" y1="${m.t}" y2="${H - m.b}"/><text class="ax" x="${X(v)}" y="${H - m.b + 18}" text-anchor="middle">${v}</text>`;
-  for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) grid += `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="ax" x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
-  const fav = new Set(NBA.S.favorites);
-  const pts = rows.map(r => {
-    const t = NBA.T(r.id);
-    return `<g class="pt${fav.has(r.id) ? ' on' : ''}" data-id="${r.id}" data-tip="${esc(`${r.full}|${r.w}-${r.l} · ${NBA.fix(r.ppg)} scored · ${NBA.fix(r.opp)} allowed`)}" transform="translate(${X(r.ppg).toFixed(1)},${Y(r.opp).toFixed(1)})" data-act="team" tabindex="0" role="button" aria-label="${esc(r.full)}: ${NBA.fix(r.ppg)} points scored, ${NBA.fix(r.opp)} allowed">
-      <circle r="${rad}"/><image href="${esc(NBA.lg(t.logo ? t : r))}" x="${-rad * .74}" y="${-rad * .74}" width="${rad * 1.48}" height="${rad * 1.48}"/></g>`;
-  }).join('');
-  const q = narrow ? ['Best of both', 'Defense first', 'Shootouts', 'Struggling'] : ['Score a lot · allow little', 'Defense first', 'Shootouts', 'Struggling both ends'];
-  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Scatter chart of points scored versus points allowed per game for every team. Teams up and to the right score more and allow less.">
-      ${grid}
-      <line class="avg" x1="${X(ax)}" x2="${X(ax)}" y1="${m.t}" y2="${H - m.b}"/><line class="avg" x1="${m.l}" x2="${W - m.r}" y1="${Y(ay)}" y2="${Y(ay)}"/>
-      <text class="quad" x="${W - m.r - 6}" y="${m.t + 16}" text-anchor="end">${q[0]}</text>
-      <text class="quad" x="${m.l + 6}" y="${m.t + 16}">${q[1]}</text>
-      <text class="quad" x="${W - m.r - 6}" y="${H - m.b - 8}" text-anchor="end">${q[2]}</text>
-      <text class="quad" x="${m.l + 6}" y="${H - m.b - 8}">${q[3]}</text>
-      <text class="axt" x="${(m.l + W - m.r) / 2}" y="${H - 8}" text-anchor="middle">Points scored per game →</text>
-      <text class="axt" transform="translate(12 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle">${narrow ? '← Points allowed (fewer is higher)' : '← Points allowed per game (fewer is higher)'}</text>
-      ${pts}
-    </svg><div class="tip" id="sc-tip" hidden></div>`;
-  bindScatter(wrap);
-}
-let scatterW = 0;
-window.addEventListener('resize', () => {
-  const wrap = document.getElementById('scatter');
-  if (wrap && wrap.clientWidth !== scatterW) { scatterW = wrap.clientWidth; drawScatter(wrap); }
-});
-NBA.after.facts = (view, changed) => {
-  const wrap = view.querySelector('#scatter');
-  if (wrap && (changed || !wrap.firstChild)) { scatterW = wrap.clientWidth; drawScatter(wrap); }
-};
-function bindScatter(wrap) {
-  const tip = wrap.querySelector('#sc-tip');
-  const show = g => {
-    const [name, line] = g.dataset.tip.split('|');
-    tip.innerHTML = `<b>${esc(name)}</b>${esc(line)}`;
-    const r = wrap.getBoundingClientRect(), b = g.getBoundingClientRect();
-    tip.style.left = Math.max(80, Math.min(r.width - 80, b.left + b.width / 2 - r.left)) + 'px';
-    tip.style.top = (b.top - r.top) + 'px';
-    tip.hidden = false;
-  };
-  wrap.querySelectorAll('.pt').forEach(g => {
-    g.addEventListener('pointerenter', () => show(g));
-    g.addEventListener('focus', () => show(g));
-    g.addEventListener('pointerleave', () => { tip.hidden = true; });
-    g.addEventListener('blur', () => { tip.hidden = true; });
-  });
-};
 })();

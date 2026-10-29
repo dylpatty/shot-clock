@@ -15,6 +15,7 @@ UI.I = {
   left: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   right: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   close: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  down: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   star: '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M8 1.5l1.9 4 4.4.5-3.3 3 .9 4.4L8 11.2 4.1 13.4 5 9 1.7 6l4.4-.5z" fill="currentColor"/></svg>',
   gear: '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 6h8M15 6h2M3 14h2M9 14h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/><circle cx="13" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7" cy="14" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
 };
@@ -129,6 +130,7 @@ UI.paint = (el, html) => {
 
 /* ---------- routing ---------- */
 const TABS = [
+  { id: 'home', label: 'Home' },
   { id: 'schedule', label: 'Schedule' },
   { id: 'standings', label: 'Standings' },
   { id: 'stats', label: 'Stats' },
@@ -142,7 +144,7 @@ const TABS = [
 UI.route = () => {
   const h = decodeURIComponent(location.hash.replace(/^#/, ''));
   const [tab, arg] = h.split('/');
-  return { tab: TABS.some(t => t.id === tab) ? tab : 'schedule', arg: arg || '' };
+  return { tab: TABS.some(t => t.id === tab) ? tab : 'home', arg: arg || '' };
 };
 function renderTabs() {
   const { tab } = UI.route();
@@ -188,6 +190,8 @@ function renderView() {
   if (!fn) return;
   if (tab !== lastTab) { view._html = null; lastTab = tab; }
   const changed = UI.paint(view, fn(arg));
+  // The rest-of-season list under the schedule only shows on that tab
+  if (tab !== 'schedule') UI.paint($('#season'), '');
   if (NBA.after[tab]) NBA.after[tab](view, changed);
 }
 NBA.render = () => {
@@ -200,7 +204,7 @@ NBA.render = () => {
 };
 window.addEventListener('hashchange', () => {
   const { tab } = UI.route();
-  document.title = tab === 'schedule' ? 'NBA' : `${(TABS.find(t => t.id === tab) || {}).label || NBA.T(NBA.S.myTeam).name || 'NBA'} · NBA`;
+  document.title = tab === 'home' ? 'NBA' : `${(TABS.find(t => t.id === tab) || {}).label || NBA.T(NBA.S.myTeam).name || 'NBA'} · NBA`;
   window.scrollTo(0, 0);
   NBA.render();
 });
@@ -586,7 +590,7 @@ document.addEventListener('keydown', e => {
 NBA.boot = () => {
   applyLook();
   const { tab } = UI.route();
-  if (tab !== 'schedule') document.title = `${(TABS.find(t => t.id === tab) || {}).label || 'NBA'} · NBA`;
+  if (tab !== 'home') document.title = `${(TABS.find(t => t.id === tab) || {}).label || 'NBA'} · NBA`;
   NBA.need('standings').catch(() => {});
   NBA.render();
   setInterval(renderUpdated, 1000);

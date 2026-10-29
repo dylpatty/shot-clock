@@ -456,6 +456,8 @@ function parseRoster(j) {
       id: String(a.id), name: a.displayName, jersey: a.jersey, pos: a.position && a.position.abbreviation, age: a.age,
       ht: a.displayHeight, wt: a.displayWeight, exp: a.experience && a.experience.years, college: a.college && (a.college.shortName || a.college.name),
       injury: a.injuries && a.injuries[0] ? a.injuries[0].status : '', headshot: headshotOf(a.headshot),
+      // This season's salary from ESPN's contract list (0 when unknown)
+      salary: ((a.contracts || []).find(c => c.season && c.season.year === NBA.SEASON) || {}).salary || 0,
     })),
   };
 }
@@ -471,6 +473,9 @@ def('day', p => (p ? 30 * 60000 : 60000), async p => {
   if (season && season.type && (season.type.type === 2 || season.type.type === 3)) NBA.seasonType = season.type.type;
   if (!p) {
     if (j.day && j.day.date) NBA.today = j.day.date;
+    // Every date with games this season (ET), used to lay out the rest-of-season list
+    const cal = j.leagues && j.leagues[0] && j.leagues[0].calendar;
+    if (Array.isArray(cal) && cal.length) NBA.calendar = cal.map(c => String((c && c.date) || c).slice(0, 10));
     const bumps = new Set();
     games.forEach(g => [g.away, g.home].forEach(t => {
       const k = g.id + ':' + t.id, prev = prevScores.get(k);
@@ -480,6 +485,14 @@ def('day', p => (p ? 30 * 60000 : 60000), async p => {
     NBA.bumps = bumps;
   }
   return { day: (j.day && j.day.date) || NBA.isoFromParam(p), games };
+});
+/* A whole month of games in one request (about 230 KB compressed), grouped by ESPN's ET game day */
+NBA.etDay = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+def('month', 2 * 3600000, async ym => {
+  const j = await getJSON(`${API}/scoreboard?dates=${ym}&limit=500`);
+  const days = {};
+  (j.events || []).map(parseGame).forEach(g => { const d = NBA.etDay(g.date); (days[d] = days[d] || []).push(g); });
+  return { ym, days };
 });
 def('standings', 10 * 60000, async () => {
   const conf = parseStandings(await getJSON(`https://site.api.espn.com/apis/v2/sports/basketball/nba/standings`));

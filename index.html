@@ -30,7 +30,7 @@
 <body>
 <header class="top" id="top">
   <div class="page top-row">
-    <a class="brand" href="#schedule" aria-label="NBA, go to schedule">NBA</a>
+    <a class="brand" href="#home" aria-label="NBA, go to home">NBA</a>
     <form class="ask" id="ask-form" role="search" autocomplete="off">
       <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m13 13 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       <label class="sr" for="ask-input">Ask anything about the NBA</label>
@@ -53,6 +53,7 @@
 <section class="ask-panel" id="ask-panel" hidden aria-label="Answers" aria-live="polite"></section>
 
 <main class="page view" id="view"></main>
+<section class="page season-host" id="season" aria-label="Rest of the season"></section>
 <footer class="page foot">Data from ESPN's public feeds, with odds from DraftKings via ESPN. These feeds are unofficial and can change without notice. Not affiliated with the NBA or ESPN. Settings are saved in this browser.</footer>
 
 <div class="scrim" id="scrim" hidden data-act="close"></div>
@@ -63,6 +64,7 @@
 <script src="js/ui.js"></script>
 <script src="js/views.js"></script>
 <script src="js/games.js"></script>
+<script src="js/home.js"></script>
 <script src="js/ask.js"></script>
 <script>NBA.boot();</script>
 </body>
