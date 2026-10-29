@@ -25,6 +25,7 @@ const DEFAULTS = {
   boxCols: 'compact',
   statsMode: 'game',
   aiModel: 'claude-opus-5-5',
+  tz: 'et',
 };
 const clone = o => JSON.parse(JSON.stringify(o));
 function readJSON(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
@@ -67,8 +68,11 @@ NBA.dateOfIso = iso => { const [y, m, d] = iso.split('-').map(Number); return ne
 NBA.shiftIso = (iso, n) => { const dt = NBA.dateOfIso(iso); dt.setDate(dt.getDate() + n); return NBA.isoOf(dt); };
 NBA.today = NBA.isoOf(started);
 NBA.fmtDay = (iso, opts) => NBA.dateOfIso(iso).toLocaleDateString([], opts || { weekday: 'short', month: 'short', day: 'numeric' });
-NBA.fmtTime = iso => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-NBA.fmtDate = (iso, opts) => new Date(iso).toLocaleDateString([], opts || { weekday: 'short', month: 'short', day: 'numeric' });
+/* Game times show in Eastern Time (labelled ET) unless the viewer picks their device's time zone */
+const tz = () => NBA.S.tz === 'local' ? undefined : 'America/New_York';
+NBA.tzLabel = () => NBA.S.tz === 'local' ? 'your time zone' : 'Eastern Time (ET)';
+NBA.fmtTime = iso => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz() }) + (NBA.S.tz === 'local' ? '' : ' ET');
+NBA.fmtDate = (iso, opts) => new Date(iso).toLocaleDateString([], Object.assign({}, opts || { weekday: 'short', month: 'short', day: 'numeric' }, { timeZone: tz() }));
 NBA.relTime = iso => {
   const m = Math.round((Date.now() - new Date(iso)) / 60000);
   if (m < 1) return 'just now';

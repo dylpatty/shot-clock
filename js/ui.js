@@ -53,7 +53,8 @@ UI.gameCard = (g, big) => {
   if (g.state === 'in') status = `<span class="st-live"><i class="dot blink"></i>${esc(g.detail)}</span>`;
   else if (g.state === 'pre') status = `<span>${esc(UI.tipTime(g))}</span>`;
   else status = `<span>${esc(g.detail)}</span>`;
-  const right = [g.note, g.tv].filter(Boolean).join(' · ');
+  const started = g.state !== 'pre' && !/TBD/i.test(g.detail) ? 'Started ' + NBA.fmtTime(g.date) : '';
+  const right = [started, g.note, g.tv].filter(Boolean).join(' · ');
   let extra = '';
   if (hide) extra = `<button class="chip reveal" data-act="reveal" data-id="${g.id}">Show score</button>`;
   else {
@@ -83,7 +84,7 @@ UI.line = g => {
   let time;
   if (g.state === 'pre') time = `${esc(/TBD/i.test(g.detail) ? 'TBD' : NBA.fmtTime(g.date))}<small>${esc(g.tv || '')}</small>`;
   else if (g.state === 'in') time = `<span class="st-live"><i class="dot blink"></i>Live</span><small>${esc(g.detail)}</small>`;
-  else time = `Final<small>${esc(g.detail.replace(/^Final\/?/, '') || '')}</small>`;
+  else time = `${esc(g.detail || 'Final')}<small>Started ${esc(NBA.fmtTime(g.date))}</small>`;
   const side = (t, home) => {
     const sc = g.state !== 'pre' && !hide ? `<span class="ln-score">${esc(t.score)}</span>` : '';
     const name = `<b><span class="full">${esc(t.name || t.abbr)}</span><span class="abbr">${esc(t.abbr)}</span></b>`;
@@ -459,6 +460,7 @@ function renderSettings() {
         <select id="refresh" data-ch="refresh">${[10, 15, 30, 60].map(s => `<option value="${s}" ${S.refresh === s ? 'selected' : ''}>Every ${s} seconds</option>`).join('')}</select></div>
         <p class="hint">With no live games it checks every 2 minutes, and it pauses while this tab is in the background.</p></section>
       <section class="cz-sec"><h3>Look</h3>
+        <div class="row2"><span>Game times</span>${seg('tz', [['et', 'Eastern (ET)'], ['local', 'My time zone']], 'Game times')}</div>
         <div class="row2"><span>Theme</span>${seg('theme', [['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']], 'Theme')}</div>
         <div class="row2"><span>Density</span>${seg('density', [['comfortable', 'Comfortable'], ['compact', 'Compact']], 'Density')}</div>
         <div class="row2"><span>Box score columns</span>${seg('boxCols', [['compact', 'Key stats'], ['full', 'All stats']], 'Box score columns')}</div></section>

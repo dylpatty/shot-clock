@@ -39,7 +39,7 @@ V.schedule = () => {
       <span class="datelbl">${esc(label)}</span>
       <button class="ib" data-act="date" data-v="1" aria-label="Next day">${UI.I.right}</button></div>
     ${isToday ? '' : `<button class="chip" data-act="date" data-v="0">Back to today</button>`}
-    <span class="end sub">Times in your time zone</span></div>`;
+    <span class="end sub">Times in ${esc(NBA.tzLabel())}</span></div>`;
   const side = performers(day ? day.games : []) + myTeamCard();
   return `<section class="sec"><div class="sched"><div class="sec" style="gap:12px">${head}${main}</div><aside class="sched-side">${side}</aside></div></section>${upcoming()}`;
 };
@@ -83,7 +83,7 @@ function upcoming() {
     return `<div class="card day"><div class="card-h"><h3>${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'short', day: 'numeric' }))}<small>${games.length} game${games.length > 1 ? 's' : ''}</small></h3></div>
       <ol class="lines">${games.map(UI.line).join('')}</ol></div>`;
   }).join('');
-  return `<section class="sec"><div class="sec-h"><h2>Upcoming</h2><span class="sub">Next 7 days · away team on the left, home team on the right</span></div><div class="days">${cards}</div></section>`;
+  return `<section class="sec"><div class="sec-h"><h2>Upcoming</h2><span class="sub">Next 7 days · times in ${esc(NBA.tzLabel())} · away team on the left, home team on the right</span></div><div class="days">${cards}</div></section>`;
 }
 NBA.actions.date = a => {
   const v = +a.dataset.v;

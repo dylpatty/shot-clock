@@ -351,13 +351,13 @@ How to answer:
 - Look facts up with the tools. Never guess records, stats, schedules, injuries or odds. If the tools can't answer something, say what's missing.
 - Lead with the direct answer in one sentence. Add a short Markdown table or list only when it helps, such as for more than three items.
 - Keep it tight: no preamble, no restating the question, no sign-off.
-- Dates and times from the tools are already in the viewer's local time zone. Use them as given.
+- Dates and times from the tools are already in the time zone named at the start of each question. Use them as given.
 - "Last week" means the last 7 days. For "best player" questions, rank by average Game Score from get_recent_performances or by season stats, and say which measure you used.
 - Odds are American odds from DraftKings. You may give the implied chance. Don't give betting advice.
 - Use common team names (Warriors, Lakers) and full player names.`;
 function contextLine() {
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return `Today is ${NBA.fmtDay(NBA.today, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} (viewer's time zone: ${tz}). Season: ${NBA.SEASON_LABEL}. Viewer's team: ${NBA.T(NBA.S.myTeam).full || 'Golden State Warriors'}.`;
+  const zone = NBA.S.tz === 'local' ? `the viewer's time zone (${Intl.DateTimeFormat().resolvedOptions().timeZone})` : 'Eastern Time (ET)';
+  return `Today is ${NBA.fmtDay(NBA.today, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Times are in ${zone}. Season: ${NBA.SEASON_LABEL}. Viewer's team: ${NBA.T(NBA.S.myTeam).full || 'Golden State Warriors'}.`;
 }
 async function askClaude(turn, q) {
   const Anthropic = await loadSdk();
