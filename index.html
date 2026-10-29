@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Shot Clock</title>
+<title>NBA</title>
 <meta name="description" content="A personal NBA dashboard: live scores, box scores, standings and headlines from ESPN's public feed.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,8 +26,6 @@
   --loss:#BE3326;
   --loss-soft:#F8E0DC;
   --hl:#FFF3EA;
-  --clock-bg:#14171C;
-  --clock-fg:#FF6A1A;
   --scrim:rgba(12,15,20,.45);
   --shadow:0 18px 50px rgba(10,14,20,.18);
   --neutral-team:#59626E;
@@ -44,7 +42,7 @@
     --bg:#0C0F14; --panel:#141820; --panel-2:#1A1F28; --ink:#E8EBEF; --muted:#8E97A3; --line:#272D37;
     --accent:#FF7A2F; --accent-soft:#3A2214; --accent-ink:#1B0E05; --live:#FF4B53;
     --win:#41C47F; --win-soft:#143324; --loss:#FF6E61; --loss-soft:#3A1A17; --hl:#231A14;
-    --clock-bg:#05070A; --clock-fg:#FF7A2F; --scrim:rgba(0,0,0,.6); --shadow:0 18px 50px rgba(0,0,0,.5);
+    --scrim:rgba(0,0,0,.6); --shadow:0 18px 50px rgba(0,0,0,.5);
     --neutral-team:#9AA3AE;
     color-scheme:dark;
   }
@@ -53,7 +51,7 @@
   --bg:#0C0F14; --panel:#141820; --panel-2:#1A1F28; --ink:#E8EBEF; --muted:#8E97A3; --line:#272D37;
   --accent:#FF7A2F; --accent-soft:#3A2214; --accent-ink:#1B0E05; --live:#FF4B53;
   --win:#41C47F; --win-soft:#143324; --loss:#FF6E61; --loss-soft:#3A1A17; --hl:#231A14;
-  --clock-bg:#05070A; --clock-fg:#FF7A2F; --scrim:rgba(0,0,0,.6); --shadow:0 18px 50px rgba(0,0,0,.5);
+  --scrim:rgba(0,0,0,.6); --shadow:0 18px 50px rgba(0,0,0,.5);
   --neutral-team:#9AA3AE;
   color-scheme:dark;
 }
@@ -76,8 +74,6 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .top-in{max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
   padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .brand{display:flex;align-items:center;gap:10px;margin:0;font-family:var(--f-display);font-weight:800;font-size:24px;letter-spacing:.05em;text-transform:uppercase;line-height:1}
-.clock{display:inline-grid;place-items:center;min-width:40px;height:32px;padding:0 6px;border-radius:6px;background:var(--clock-bg);color:var(--clock-fg);
-  font-family:var(--f-display);font-weight:800;font-size:22px;letter-spacing:.02em;font-variant-numeric:tabular-nums;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
 .top-meta{display:flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap}
 .livepill{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .livepill.on{color:var(--live)}
@@ -331,7 +327,7 @@ select{height:32px;border-radius:8px;border:1px solid var(--line);background:var
 <body>
 <header class="top">
   <div class="top-in">
-    <h1 class="brand"><span class="clock" id="clock" aria-hidden="true">24</span>Shot Clock</h1>
+    <h1 class="brand">NBA</h1>
     <div class="top-meta">
       <span class="livepill" id="livepill"></span>
       <span class="upd" id="upd" aria-live="polite"></span>
@@ -718,7 +714,6 @@ function renderHeader() {
   const pill = $('#livepill');
   pill.className = 'livepill' + (live ? ' on' : '');
   pill.innerHTML = live == null ? '' : live ? `<i class="dot"></i>${live} live` : 'No games live';
-  $('#clock').textContent = live ? String(live).padStart(2, '0') : '24';
   renderUpdated();
 }
 function renderUpdated() {
