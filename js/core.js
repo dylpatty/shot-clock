@@ -405,6 +405,42 @@ function parseGameLog(j) {
     };
   }).sort((a, b) => new Date(b.date) - new Date(a.date));
 }
+/* Season-by-season per-game lines, laid out like Basketball-Reference. A season split across teams comes back as one
+   row per team plus a season total; the total goes first (as "2TM") with the team rows under it. */
+function parseCareer(j) {
+  const cat = n => (j.categories || []).find(c => c.name === n) || {};
+  const av = cat('averages'), tot = cat('totals');
+  const teams = j.teams || {};
+  const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : NaN; };
+  const line = (avg, totals) => {
+    const a = {}; (av.labels || []).forEach((l, i) => { a[l] = (avg || [])[i]; });
+    const t = {}; (tot.labels || []).forEach((l, i) => { t[l] = (totals || [])[i]; });
+    const pair = s => String(s || '').split('-').map(num);
+    const [fg, fga] = pair(a.FG), [tp, tpa] = pair(a['3PT']), [ft, fta] = pair(a.FT);
+    // Percentages come from season totals, which are exact; the per-game averages are rounded to one decimal
+    const [fgM, fgA] = pair(t.FG), [tpM, tpA] = pair(t['3PT']), [ftM, ftA] = pair(t.FT);
+    const pct = (m, n, fallback) => n > 0 ? m / n : fallback > 0 ? num(fallback) / 100 : NaN;
+    const g = num(a.GP), exact = g > 0 && Number.isFinite(fgA) && Number.isFinite(tpA);
+    return {
+      g, gs: num(a.GS), mp: num(a.MIN), fg, fga, fgp: pct(fgM, fgA, fga && a['FG%']), tp, tpa, tpp: pct(tpM, tpA, tpa && a['3P%']),
+      two: exact ? (fgM - tpM) / g : fg - tp, twoa: exact ? (fgA - tpA) / g : fga - tpa, twop: pct(fgM - tpM, fgA - tpA), efg: fgA > 0 ? (fgM + .5 * tpM) / fgA : NaN,
+      ft, fta, ftp: pct(ftM, ftA, fta && a['FT%']), orb: num(a.OR), drb: num(a.DR), trb: num(a.REB), ast: num(a.AST), stl: num(a.STL), blk: num(a.BLK),
+      tov: num(a.TO), pf: num(a.PF), pts: num(a.PTS),
+    };
+  };
+  const raw = (av.statistics || []).map((s, i) => {
+    const tm = s.teamSlug && teams[s.teamSlug];
+    return { yr: s.season ? s.season.year : 0, season: s.season ? s.season.displayName : '', teamId: s.teamId ? String(s.teamId) : '', team: tm ? tm.abbreviation : '',
+      pos: s.position || '', total: !s.teamId, ...line(s.stats, ((tot.statistics || [])[i] || {}).stats) };
+  });
+  const rows = [];
+  [...new Set(raw.map(r => r.yr))].forEach(yr => {
+    const of = raw.filter(r => r.yr === yr), parts = of.filter(r => !r.total), sum = of.find(r => r.total);
+    if (sum && parts.length > 1) rows.push({ ...sum, team: `${parts.length}TM`, pos: parts[parts.length - 1].pos }, ...parts.map(p => ({ ...p, part: true })));
+    else rows.push(...(parts.length ? parts : of));
+  });
+  return { rows, career: av.totals ? line(av.totals, tot.totals) : null, seasons: new Set(rows.map(r => r.yr)).size };
+}
 function catValues(defs, cats) {
   const v = {};
   (cats || []).forEach((c, i) => {
@@ -497,26 +533,43 @@ function parseInjuries(j) {
     }),
   })).filter(t => t.list.length);
 }
-function parseRoster(j) {
+/* ESPN's roster plus data/extras.json, which a daily GitHub Action builds from other sites: this and future seasons'
+   salaries (with option years) where ESPN hasn't posted them, and wingspans */
+function parseRoster(j, extras) {
+  const more = (extras && extras.players) || {};
   return {
     coach: j.coach ? `${j.coach.firstName || ''} ${j.coach.lastName || ''}`.trim() : '',
     standing: j.team && j.team.standingSummary, record: j.team && j.team.recordSummary,
-    players: (j.athletes || []).map(a => ({
-      id: String(a.id), name: a.displayName, jersey: a.jersey, pos: a.position && a.position.abbreviation, age: a.age,
-      ht: a.displayHeight, wt: a.displayWeight, exp: a.experience && a.experience.years, college: a.college && (a.college.shortName || a.college.name),
-      injury: a.injuries && a.injuries[0] ? a.injuries[0].status : '', headshot: headshotOf(a.headshot),
-      // This season's salary from ESPN's contract list, or the current deal when the list hasn't caught up (0 when unknown)
-      salary: ((a.contracts || []).find(c => c.season && c.season.year === NBA.SEASON) || {}).salary
-        || (a.contract && a.contract.season && a.contract.season.year === NBA.SEASON && a.contract.salary) || 0,
-      // An active deal with no salary is a two-way contract, which doesn't count against the cap
-      deal: !!(a.contract && a.contract.active),
-      htIn: a.height || 0,
-      first: a.firstName || '', last: a.lastName || '', dob: a.dateOfBirth || '',
-      born: a.birthPlace ? [a.birthPlace.city, a.birthPlace.state || a.birthPlace.country].filter(Boolean).join(', ') : '',
-      // Seasons left on the deal, counting this one, and every season's salary ESPN has on record
-      years: a.contract && a.contract.active ? a.contract.yearsRemaining || 0 : 0,
-      pay: (a.contracts || []).filter(c => c.season && c.salary).map(c => ({ yr: c.season.year, salary: c.salary })).sort((x, y) => x.yr - y.yr),
-    })),
+    players: (j.athletes || []).map(a => {
+      const x = more[String(a.id)] || {};
+      // This season's salary from ESPN's contract list, or the current deal when the list hasn't caught up
+      const espn = ((a.contracts || []).find(c => c.season && c.season.year === NBA.SEASON) || {}).salary
+        || (a.contract && a.contract.season && a.contract.season.year === NBA.SEASON && a.contract.salary) || 0;
+      // Seasons still to be paid, counting this one: [season year, salary, option] with option P (player) or T (team).
+      // These win over ESPN's figure, which is out of date for some players who signed new deals. In late summer
+      // Basketball-Reference moves to the next season before the site does; until then its years are left out.
+      const future = extras && extras.season > NBA.SEASON ? [] : (x.pay || []).filter(p => p[0] >= NBA.SEASON).sort((p, q) => p[0] - q[0]);
+      const now = future.find(p => p[0] === NBA.SEASON);
+      const pay = (a.contracts || []).filter(c => c.season && c.salary && !(now && c.season.year === NBA.SEASON)).map(c => ({ yr: c.season.year, salary: c.salary }));
+      if (now) pay.push({ yr: NBA.SEASON, salary: now[1] });
+      return {
+        id: String(a.id), name: a.displayName, jersey: a.jersey, pos: a.position && a.position.abbreviation, age: a.age,
+        ht: a.displayHeight, wt: a.displayWeight, exp: a.experience && a.experience.years, college: a.college && (a.college.shortName || a.college.name),
+        injury: a.injuries && a.injuries[0] ? a.injuries[0].status : '', headshot: headshotOf(a.headshot),
+        salary: (now && now[1]) || espn || 0,
+        salaryFrom: now ? (extras.sources && extras.sources.salary) || 'extras' : espn ? 'ESPN' : '',
+        gtd: now && x.gtd != null ? x.gtd : null,
+        // An active deal with no salary is a two-way contract, which doesn't count against the cap
+        deal: !!(a.contract && a.contract.active) || !!now,
+        // Wingspan with the barefoot height from the same measurement (ESPN's listed height is in shoes)
+        htIn: a.height || 0, wingIn: x.wing || 0, wingHt: x.wht || 0,
+        first: a.firstName || '', last: a.lastName || '', dob: a.dateOfBirth || '',
+        born: a.birthPlace ? [a.birthPlace.city, a.birthPlace.state || a.birthPlace.country].filter(Boolean).join(', ') : '',
+        // Seasons left on the deal, counting this one, and every season's salary on record
+        years: future.length || (a.contract && a.contract.active ? a.contract.yearsRemaining || 0 : 0),
+        future, pay: pay.sort((p, q) => p.yr - q.yr),
+      };
+    }),
   };
 }
 
@@ -594,9 +647,32 @@ def('tsched', (id, d) => d && d.events.some(e => e.state !== 'post' && Date.now(
   if (j.team && j.team.color && !(reg && reg.color && reg.color !== '#888888')) mergeTeam({ id: String(id), color: '#' + j.team.color });
   return { standing: j.team && j.team.standingSummary, record: j.team && j.team.recordSummary, events: parseSchedule(j, id) };
 });
-def('roster', 60 * 60000, async id => parseRoster(await getJSON(`${API}/teams/${id}/roster`)));
+// A roster built without data/extras.json is rebuilt after 5 minutes instead of an hour, in case it has turned up
+def('roster', (id, d) => d && d.noExtras ? 5 * 60000 : 60 * 60000, async id => {
+  const [j, extras] = await Promise.all([getJSON(`${API}/teams/${id}/roster`), need('extras').catch(() => NBA.data('extras') || null)]);
+  return Object.assign(parseRoster(j, extras), { noExtras: !(extras && extras.updated) });
+});
+/* Built once a day by .github/workflows/extras.yml. Before its first run the file doesn't exist (404), which means
+   ESPN alone, checked again in 5 minutes; any other failure retries in 30 seconds and keeps the last good copy. */
+def('extras', (a, d) => d && d.updated ? 3 * 3600000 : 5 * 60000,
+  () => getJSON('data/extras.json').catch(e => { if (e.message === 'HTTP 404') return { players: {} }; throw e; }));
 def('summary', (id, d) => (d && d.state === 'post' ? 6 * 3600000 : 15000), async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
 def('gamelog', 15 * 60000, async id => parseGameLog(await getJSON(`${WEB}/common/v3/sports/basketball/nba/athletes/${id}/gamelog?season=${NBA.SEASON}`)));
+// 'career:<id>.2' is the regular season, 'career:<id>.3' the playoffs
+def('career', 30 * 60000, async arg => {
+  const [id, type] = arg.split('.');
+  // ESPN answers 404 for a player with no stats at all, and for one with no playoff games it sends regular-season stats
+  const j = await getJSON(`${WEB}/common/v3/sports/basketball/nba/athletes/${id}/stats?region=us&lang=en&contentorigin=espn&seasontype=${type === '3' ? 3 : 2}`)
+    .catch(e => { if (e.message === 'HTTP 404') return {}; throw e; });
+  const got = ((j.filters || []).find(f => f.name === 'seasontype') || {}).value;
+  return type === '3' && got != null && String(got) !== '3' ? parseCareer({}) : parseCareer(j);
+});
+// Awards a player has won, by season: ESPN lists links, one request per award
+def('awards', 24 * 3600000, async id => {
+  const j = await getJSON(`https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/athletes/${id}/awards?lang=en&limit=200`);
+  const items = await Promise.all((j.items || []).map(i => getJSON(String(i.$ref).replace(/^http:/, 'https:')).catch(() => null)));
+  return items.filter(Boolean).map(a => ({ yr: +((/seasons\/(\d{4})/.exec((a.season && a.season.$ref) || '') || [])[1] || 0), name: a.name || '' })).filter(a => a.yr && a.name);
+});
 /* Season plus-minus per player (ESPN keeps it only in per-player season stats) */
 def('pm', 6 * 3600000, async id => {
   const j = await getJSON(`${CORE}/seasons/${NBA.SEASON}/types/${NBA.seasonType}/athletes/${id}/statistics/0?lang=en&region=us`);
