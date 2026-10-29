@@ -29,9 +29,13 @@ V.schedule = () => {
   else if (!day.games.length) main = `<p class="empty">No games on ${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'long', day: 'numeric' }))}.</p>`;
   else {
     const games = NBA.sortGames(day.games);
-    const live = games.filter(g => g.state === 'in'), rest = games.filter(g => g.state !== 'in');
+    const live = games.filter(g => g.state === 'in'), next = games.filter(g => g.state === 'pre');
+    // ESPN gives no finish time: latest start first, and overtime games ahead of others that started at the same time
+    const done = games.filter(g => g.state === 'post').sort((a, b) => (new Date(b.date) - new Date(a.date)) || (b.home.lines.length - a.home.lines.length));
+    const group = (label, list) => list.length ? `<div class="sub-h">${label} · ${list.length}</div><div class="games">${list.map(g => UI.gameCard(g, false)).join('')}</div>` : '';
     main = (live.length ? `<div class="sub-h live"><i class="dot blink"></i>Live now · ${live.length}</div><div class="games live-grid">${live.map(g => UI.gameCard(g, true)).join('')}</div>` : '')
-      + (rest.length ? `<div class="sub-h">${live.length ? 'Rest of the slate' : 'The slate'} · ${rest.length} by tip-off</div><div class="games">${rest.map(g => UI.gameCard(g, false)).join('')}</div>` : '');
+      + group('Up next by tip-off', next)
+      + group('Final · most recent first', done);
   }
   const head = `<div class="sec-h"><h2>${isToday ? 'Schedule' : 'Games'}</h2>
     <div class="datenav" role="group" aria-label="Choose a day">
