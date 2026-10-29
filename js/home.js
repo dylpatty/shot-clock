@@ -361,10 +361,10 @@ V.home = () => {
       <p class="note" style="padding:0 var(--pad) var(--pad)">Game Score rolls a player's whole box score into one number per game. Regulars only (20+ minutes, most of their team's games).${prev ? ` Arrows show moves since ${esc(NBA.fmtDay(prev.day, { month: 'short', day: 'numeric' }))}.` : ' Come back tomorrow to see who moved.'}</p>`
       : '<p class="loading" style="padding:var(--pad)">Loading player stats…</p>'}</div>`;
 
-  // Standings snapshot
+  // Standings: all 30 teams, East and West side by side
   const standRow = r => `<li class="${r.id === myId ? 'me' : ''}${r.seed === 6 ? ' cut' : ''}${r.seed === 10 ? ' cut2' : ''}" data-act="team" data-id="${r.id}"><span class="sd">${r.seed || ''}</span>${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 20)}<span class="ab">${esc(r.abbr)}</span><span class="wl">${r.w}-${r.l}</span><span class="${/^W/.test(r.strk) ? 'w' : 'lo'} sk">${esc(r.strk || '')}</span></li>`;
   const standCard = `<div class="card hm hm-stand"><div class="card-h"><h3>Standings</h3><div class="end"><a class="chip" href="#standings">Full table</a></div></div>
-    ${confs ? `<div class="hs-cols">${confs.map(c => `<div><div class="eyebrow">${esc(c.abbr)}</div><ol class="hs-list">${c.rows.slice().sort((a, b) => (a.seed || 99) - (b.seed || 99)).slice(0, 10).map(standRow).join('')}</ol></div>`).join('')}</div>
+    ${confs ? `<div class="hs-cols">${confs.map(c => `<div><div class="eyebrow">${esc(c.name || c.abbr)}</div><ol class="hs-list">${c.rows.slice().sort((a, b) => (a.seed || 99) - (b.seed || 99)).map(standRow).join('')}</ol></div>`).join('')}</div>
       <p class="note" style="padding:0 var(--pad) var(--pad)">Top 6 make the playoffs; 7–10 play in.</p>` : '<p class="loading" style="padding:var(--pad)">Loading standings…</p>'}</div>`;
 
   // Chart of the day, from the charts that don't need all 30 rosters
@@ -388,7 +388,7 @@ V.home = () => {
   const playCard = menu.length ? `<div class="card hm hm-play"><div class="card-h"><h3>Play today</h3><div class="end"><a class="chip" href="#games">All games</a></div></div>
     <div class="hp-list">${menu.slice(0, 4).map(g => `<a class="hp" href="#games/${g.id}"><span class="gm-ico sm">${g.ico}</span><span><b>${esc(g.name)}${g.daily ? ' <em>Daily</em>' : ''}</b><small>${esc(g.status)}</small></span></a>`).join('')}</div></div>` : '';
 
-  return `${hero}${gamesSec}<section class="sec"><div class="home-grid">${factCard}${teamCard}${topCard}${chartDay}${standCard}${leadCard}${playCard}${newsCard}</div></section>`;
+  return `${hero}${gamesSec}<section class="sec"><div class="home-grid">${standCard}${factCard}${teamCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div></section>`;
 };
 NBA.after.home = view => { bindDecks(view); drawCharts(view); };
 })();
