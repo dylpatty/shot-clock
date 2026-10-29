@@ -1,0 +1,51 @@
+# Once a day, fill in what ESPN's feeds leave out (salaries it hasn't posted, future contract years, wingspans)
+# and commit it to data/extras.json, which the site reads alongside ESPN's rosters.
+name: Daily salaries and wingspans
+
+on:
+  schedule:
+    - cron: '23 10 * * *'   # 6:23 AM Eastern in summer time, 5:23 AM in winter
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: extras
+  cancel-in-progress: false
+
+jobs:
+  extras:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The branch as it is when the job starts, not when the run was queued
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Fetch salaries and wingspans
+        run: node scripts/extras.js
+
+      - name: Commit and publish if anything changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add data/extras.json
+          if git diff --cached --quiet; then
+            echo "Nothing changed today."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Daily salaries and wingspans"
+          # Anything pushed to main during the run goes underneath this commit; this file is the bot's, so its copy wins
+          git pull --rebase -X theirs origin "$GITHUB_REF_NAME"
+          git push
+          # Pushes made by this job don't always start a Pages build on their own, so ask for one
+          gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "Pages build request failed; it will go out with the next push."
