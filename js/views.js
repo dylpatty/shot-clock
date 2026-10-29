@@ -129,12 +129,40 @@ V.standings = () => {
     const all = confs.flatMap(c => c.rows).sort((a, b) => b.pctV - a.pctV || b.diff - a.diff);
     body = table('League', all, { conf: true });
   } else {
-    body = `<div class="st-pair">${confs.map(c => table(c.name, c.rows)).join('')}</div>
-      <div class="legend"><span><i class="l1"></i>Top 6 make the playoffs</span><span><i class="l2"></i>7–10 go to the play-in</span>${fav.size ? '<span>Your highlighted teams are shaded</span>' : ''}<span>Click a team for its page</span></div>`;
+    // On phones the two conferences sit side by side in a swipe track; it opens on your team's conference
+    if (st.confIdx == null) st.confIdx = Math.max(0, confs.findIndex(c => c.rows.some(r => r.id === NBA.S.myTeam)));
+    body = `<div class="conf-tabs" role="tablist" aria-label="Conference">${confs.map((c, i) => `<button role="tab" data-act="confgo" data-i="${i}" aria-selected="${i === st.confIdx}">${esc(conferenceName(c.abbr))}</button>`).join('')}</div>
+      <div class="st-pair" id="st-pair">${confs.map(c => table(c.name, c.rows)).join('')}</div>
+      <div class="legend"><span><i class="l1"></i>Top 6 make the playoffs</span><span><i class="l2"></i>7–10 go to the play-in</span>${fav.size ? '<span>Your highlighted teams are shaded</span>' : ''}<span class="ph-only">Swipe sideways to switch conferences</span><span>Click a team for its page</span></div>`;
   }
   return `<section class="sec">${head}${body}</section>`;
 };
 NBA.actions.standmode = a => { st.standMode = a.dataset.v; NBA.changed(); };
+const confSlides = track => [...track.children];
+const markConf = (view, i) => view.querySelectorAll('.conf-tabs [role=tab]').forEach((b, k) => b.setAttribute('aria-selected', String(k === i)));
+NBA.actions.confgo = a => {
+  const track = document.getElementById('st-pair'), i = +a.dataset.i;
+  if (!track) return;
+  st.confIdx = i;
+  markConf(document, i);
+  const s = confSlides(track);
+  track.scrollTo({ left: s[i].offsetLeft - s[0].offsetLeft, behavior: 'smooth' });
+};
+NBA.after.standings = (view, changed) => {
+  const track = view.querySelector('#st-pair');
+  if (!track) return;
+  const s = confSlides(track);
+  // Re-renders replace the track, so put it back on the conference being viewed
+  if (changed && s[st.confIdx] && track.scrollWidth > track.clientWidth + 4) track.scrollLeft = s[st.confIdx].offsetLeft - s[0].offsetLeft;
+  if (track._bound) return;
+  track._bound = true;
+  track.addEventListener('scroll', () => {
+    const x = track.scrollLeft;
+    let best = 0;
+    s.forEach((el, k) => { if (Math.abs(el.offsetLeft - s[0].offsetLeft - x) < Math.abs(s[best].offsetLeft - s[0].offsetLeft - x)) best = k; });
+    if (best !== st.confIdx) { st.confIdx = best; markConf(view, best); }
+  }, { passive: true });
+};
 NBA.actions.team = a => { location.hash = '#teams/' + a.dataset.id; };
 
 /* ================= Stats ================= */
@@ -504,14 +532,18 @@ V.facts = () => {
   const head = `<div class="sec-h"><h2>Fun facts</h2><span class="sub">Trends, extremes and oddities from this season and the past week</span></div>`;
   if (!confs) return `<section class="sec">${head}${stateOf('standings', 'standings')}</section>`;
   const rows = confs.flatMap(c => c.rows);
-  const cards = [];
-  const fact = (eyebrow, big, text, who) => cards.push(`<div class="card fact"><div class="eyebrow">${eyebrow}</div>${who || ''}<div class="big">${big}</div><p>${text}</p></div>`);
-  const teamWho = r => `<div class="who3">${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 34)}${esc(r.full)}</div>`;
+  // Facts land in three groups; `into` is the group being filled
+  const league = [], people = [], week = [];
+  let into = league;
+  const fact = (eyebrow, big, text, who) => into.push(`<div class="card fact"><div class="eyebrow">${eyebrow}</div>${who || ''}<div class="big">${big}</div><p>${text}</p></div>`);
+  const teamWho = r => r ? `<div class="who3">${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 34)}${esc(r.full)}</div>` : '';
   const playerWho = p => `<div class="who3">${UI.hs(p.headshot)}${esc(p.name)} <span class="mut" style="font-weight:600">${esc(p.team)}</span></div>`;
+  const rowOf = id => rows.find(r => r.id === id);
+  const tname = id => (rowOf(id) || NBA.T(id) || {}).name || '';
 
   const gamesPlayed = rows.reduce((n, r) => n + r.w + r.l, 0) / 2;
   const totalGames = 1230;
-  cards.push(`<div class="card fact"><div class="eyebrow">Season progress</div><div class="big">${Math.round(gamesPlayed)}<small>of ${totalGames} games</small></div>
+  league.push(`<div class="card fact"><div class="eyebrow">Season progress</div><div class="big">${Math.round(gamesPlayed)}<small>of ${totalGames} games</small></div>
     <div class="progress"><i style="width:${Math.min(100, gamesPlayed / totalGames * 100).toFixed(1)}%"></i></div><p>${(gamesPlayed / totalGames * 100).toFixed(1)}% of the regular season is in the books.</p></div>`);
   const hot = rows.filter(r => r.strkV > 0 && /^W/.test(r.strk)).sort((a, b) => b.strkV - a.strkV)[0];
   if (hot) fact('Hottest team', esc(hot.strk), `${esc(hot.name)} have won ${hot.strkV} straight and sit ${NBA.ord(hot.seed)} in the ${esc(hot.conf)}.`, teamWho(hot));
@@ -531,7 +563,32 @@ V.facts = () => {
     const lgTpa = ts.reduce((n, t) => n + t.tpa, 0) / ts.length, lgPpg = ts.reduce((n, t) => n + t.ppg, 0) / ts.length;
     const bomb = ts.slice().sort((a, b) => b.tpa - a.tpa)[0];
     fact('League average', NBA.fix(lgPpg) + '<small>points per team</small>', `Teams average ${NBA.fix(lgTpa)} three-point attempts a game. ${esc(NBA.T(bomb.id).name)} fire the most at ${NBA.fix(bomb.tpa)}.`);
+    const byPace = ts.slice().sort((a, b) => b.pace - a.pace), fast = byPace[0], slow = byPace[byPace.length - 1];
+    fact('Need for speed', NBA.fix(fast.pace) + '<small>possessions a game</small>', `The ${esc(tname(fast.id))} play the fastest. The ${esc(tname(slow.id))} are the slowest at ${NBA.fix(slow.pace)}.`, teamWho(rowOf(fast.id)));
+    const share3 = t => t.tpm * 3 / t.ppg * 100, arc = ts.slice().sort((a, b) => share3(b) - share3(a)), lowArc = arc[arc.length - 1];
+    fact('Living by the three', Math.round(share3(arc[0])) + '%<small>of points from 3s</small>', `The ${esc(tname(arc[0].id))} get the biggest share of their points from deep. The ${esc(tname(lowArc.id))} rely on it least, at ${Math.round(share3(lowArc))}%.`, teamWho(rowOf(arc[0].id)));
+    const glass = ts.slice().sort((a, b) => b.orpg - a.orpg)[0];
+    fact('Second chances', NBA.fix(glass.orpg) + '<small>offensive rebounds</small>', `The ${esc(tname(glass.id))} grab the most offensive rebounds per game.`, teamWho(rowOf(glass.id)));
+    const line = ts.slice().sort((a, b) => b.fta - a.fta)[0];
+    fact('Living at the line', NBA.fix(line.fta) + '<small>free throws a game</small>', `The ${esc(tname(line.id))} get to the free-throw line most often and make ${NBA.fix(line.ftp)}% of them.`, teamWho(rowOf(line.id)));
   }
+  // Best home and road records, noting ties
+  const bestRec = key => {
+    const pct = o => o.x.w / (o.x.w + o.x.l);
+    const list = rows.map(r => ({ r, x: rec(r[key]) })).filter(o => o.x && o.x.w + o.x.l >= 2).sort((a, b) => pct(b) - pct(a) || b.x.w - a.x.w);
+    if (!list.length) return null;
+    return Object.assign(list[0], { ties: list.filter(o => pct(o) === pct(list[0]) && o.x.w === list[0].x.w).length - 1 });
+  };
+  const tieNote = n => n > 0 ? ` (tied with ${n} other team${n > 1 ? 's' : ''})` : '';
+  const home = bestRec('home'), road = bestRec('road');
+  if (home) fact('Home cooking', `${home.x.w}-${home.x.l}<small>at home</small>`, `The ${esc(home.r.name)} have the best home record${tieNote(home.ties)}. They are ${esc(home.r.road || '0-0')} on the road.`, teamWho(home.r));
+  if (road) fact('Road warriors', `${road.x.w}-${road.x.l}<small>on the road</small>`, `The ${esc(road.r.name)} have the best road record${tieNote(road.ties)}. They are ${esc(road.r.home || '0-0')} at home.`, teamWho(road.r));
+  // Each team's record outside its conference adds up to the East vs. West series
+  const inter = { East: { w: 0, l: 0 }, West: { w: 0, l: 0 } };
+  const interOk = rows.every(r => { const c = rec(r.confRec); if (!c || !inter[r.conf]) return false; inter[r.conf].w += r.w - c.w; inter[r.conf].l += r.l - c.l; return true; });
+  const ew = inter.East;
+  if (interOk && ew.w + ew.l > 0) fact('East vs. West', `${Math.max(ew.w, ew.l)}-${Math.min(ew.w, ew.l)}`, ew.w === ew.l ? 'The conferences are dead even in games against each other this season.' : `The ${ew.w > ew.l ? 'East' : 'West'} leads the head-to-head series between the conferences this season.`);
+  into = people;
   if (players && players.length) {
     const scorers = NBA.leaders({ stat: 'ts', limit: 50 }).filter(p => p.pts >= 15);
     if (scorers[0]) fact('Most efficient scorer', NBA.fix(scorers[0].ts) + '%<small>true shooting</small>', `Best true shooting among players scoring 15 or more a game, on ${NBA.fix(scorers[0].pts)} points per game.`, playerWho(scorers[0]));
@@ -543,7 +600,45 @@ V.facts = () => {
     if (iron) fact('Iron man', NBA.fix(iron.min) + '<small>minutes a game</small>', `${esc(iron.name)} logs the most minutes per game.`, playerWho(iron));
     const sniper = NBA.leaders({ stat: 'tpp', limit: 30 }).filter(p => p.tpa >= 5)[0];
     if (sniper) fact('Sharpshooter', NBA.fix(sniper.tpp) + '%<small>from three</small>', `Best 3-point percentage among players taking 5+ threes a game (${NBA.fix(sniper.tpm)} made per game).`, playerWho(sniper));
+
+    // Regulars: players who have appeared in at least half their team's games
+    const tsBy = Object.fromEntries((ts || []).map(t => [t.id, t]));
+    const regular = players.filter(p => p.gp >= Math.max(2, ((tsBy[p.teamId] || {}).gp || 0) / 2));
+    const byTeam = {};
+    regular.forEach(p => { (byTeam[p.teamId] = byTeam[p.teamId] || []).push(p); });
+    const show = regular.filter(p => tsBy[p.teamId] && tsBy[p.teamId].ppg).map(p => ({ p, s: p.pts / tsBy[p.teamId].ppg * 100 })).sort((a, b) => b.s - a.s)[0];
+    if (show) fact('One-man show', Math.round(show.s) + '%<small>of team scoring</small>', `${esc(show.p.name)} averages ${NBA.fix(show.p.pts)} points, ${Math.round(show.s)}% of everything the ${esc(tname(show.p.teamId) || show.p.team)} score. Nobody carries a bigger share.`, playerWho(show.p));
+    const allround = Object.values(byTeam).filter(list => list.length >= 5).map(list => {
+      const top = k => list.reduce((b, p) => p[k] > b[k] ? p : b, list[0]);
+      const a = top('pts');
+      return a === top('reb') && a === top('ast') ? a : null;
+    }).filter(Boolean).sort((a, b) => b.pra - a.pra);
+    if (allround.length) fact('Does it all', String(allround.length) + `<small>${allround.length === 1 ? 'player' : 'players'}</small>`, `${allround.length === 1 ? 'The only player' : 'Players'} leading their team in points, rebounds and assists: ${allround.slice(0, 4).map(p => `${esc(p.name)} (${esc(p.team)})`).join(', ')}${allround.length > 4 ? ` and ${allround.length - 4} more` : ''}.`, playerWho(allround[0]));
+    const big = regular.filter(p => p.pos === 'C' && p.tpm > 0).sort((a, b) => b.tpm - a.tpm)[0];
+    if (big) fact('Stretch big', NBA.fix(big.tpm) + '<small>threes a game</small>', `The center making the most 3-pointers, shooting ${NBA.fix(big.tpp)}% from deep.`, playerWho(big));
+    const ft = regular.slice().sort((a, b) => b.fta - a.fta)[0];
+    if (ft) fact('Foul magnet', NBA.fix(ft.fta) + '<small>free throws a game</small>', `Gets to the line more than anyone and makes ${NBA.fix(ft.ftp)}% of them.`, playerWho(ft));
+    const vet = regular.filter(p => p.age && p.min >= 24).sort((a, b) => b.age - a.age)[0];
+    if (vet) fact('Ageless', `${vet.age}<small>years old</small>`, `The oldest player logging 24+ minutes a game, putting up ${NBA.fix(vet.pts)} points, ${NBA.fix(vet.reb)} rebounds and ${NBA.fix(vet.ast)} assists.`, playerWho(vet));
+    const safe = regular.filter(p => p.ast >= 5 && p.tov > 0).sort((a, b) => b.astTo - a.astTo)[0];
+    if (safe) fact('Safe hands', NBA.fix(safe.astTo) + '<small>assists per turnover</small>', `Best ratio among players averaging 5+ assists: ${NBA.fix(safe.ast)} assists to ${NBA.fix(safe.tov)} turnovers a game.`, playerWho(safe));
+
+    // Team facts that come from player numbers go in the league group
+    into = league;
+    const depthAll = Object.keys(byTeam).map(id => ({ id, n: byTeam[id].filter(p => p.pts >= 10).length })).sort((a, b) => b.n - a.n);
+    const depth = depthAll[0];
+    if (depth && depth.n >= 4) {
+      const tied = depthAll.filter(x => x.n === depth.n).length - 1;
+      fact('Deepest roster', `${depth.n}<small>double-digit scorers</small>`, `The ${esc(tname(depth.id))} have ${depth.n} players averaging 10 or more points a game, ${tied ? 'tied for the most' : 'the most'} in the league.`, teamWho(rowOf(depth.id)));
+    }
+    const ageOf = list => { const l = list.filter(p => p.age && p.min >= 10), m = l.reduce((n, p) => n + p.min, 0); return m ? l.reduce((n, p) => n + p.age * p.min, 0) / m : NaN; };
+    const ages = Object.keys(byTeam).map(id => ({ id, a: ageOf(byTeam[id]) })).filter(x => Number.isFinite(x.a)).sort((a, b) => a.a - b.a);
+    if (ages.length > 1) {
+      const y = ages[0], o = ages[ages.length - 1];
+      fact('Youngest rotation', NBA.fix(y.a) + '<small>years old</small>', `The ${esc(tname(y.id))} play the youngest lineup, with each player's age weighted by minutes. The ${esc(tname(o.id))} are the oldest at ${NBA.fix(o.a)}.`, teamWho(rowOf(y.id)));
+    }
   }
+  into = week;
   const finals = past.flatMap(d => d.games).filter(g => g.state === 'post' && g.away.score !== '' && g.home.score !== '');
   if (finals.length && !NBA.S.spoilers) {
     const total = g => (+g.away.score) + (+g.home.score), margin = g => Math.abs((+g.away.score) - (+g.home.score));
@@ -558,9 +653,99 @@ V.facts = () => {
     if (big) fact('Best scoring night', esc(big.l.value) + '<small>points</small>', `${esc(big.l.full)} for ${esc(big.t.abbr)} on ${esc(NBA.fmtDate(big.g.date, { weekday: 'short', month: 'short', day: 'numeric' }))}.`, `<div class="who3">${UI.hs(big.l.headshot)}${esc(big.l.full)}</div>`);
     const close5 = finals.filter(g => margin(g) <= 5).length;
     fact('Nail-biters', `${Math.round(close5 / finals.length * 100)}%`, `${close5} of the last ${finals.length} games were decided by 5 points or fewer.`);
+    const day = g => esc(NBA.fmtDate(g.date, { weekday: 'short', month: 'short', day: 'numeric' }));
+    const other = (g, t) => g.away === t ? g.home : g.away;
+    const qName = i => i < 4 ? NBA.ord(i + 1) + ' quarter' : i === 4 ? 'overtime' : NBA.ord(i - 3) + ' overtime';
+    const quarters = finals.flatMap(g => [g.away, g.home].flatMap(t => (t.lines || []).map((v, i) => ({ g, t, i, v: +v })))).filter(x => Number.isFinite(x.v));
+    const bigQ = quarters.sort((a, b) => b.v - a.v)[0];
+    if (bigQ) fact('Biggest quarter', bigQ.v + '<small>points</small>', `The ${esc(bigQ.t.name)} poured in ${bigQ.v} in the ${qName(bigQ.i)} against ${esc(other(bigQ.g, bigQ.t).abbr)} on ${day(bigQ.g)}.`, teamWho(rowOf(bigQ.t.id)));
+    const half = t => (+t.lines[0] || 0) + (+t.lines[1] || 0);
+    const comeback = finals.filter(g => g.away.lines.length >= 2 && g.home.lines.length >= 2).map(g => {
+      const w = +g.away.score > +g.home.score ? g.away : g.home, l = other(g, w);
+      return { g, w, l, d: half(l) - half(w) };
+    }).filter(x => x.d > 0).sort((a, b) => b.d - a.d)[0];
+    if (comeback) {
+      const { g, w, l, d } = comeback;
+      fact('Comeback of the week', d + '<small>down at the half</small>', `The ${esc(w.name)} trailed the ${esc(l.name)} ${half(l)}-${half(w)} at halftime and won ${esc(w.score)}-${esc(l.score)} on ${day(g)}.`, teamWho(rowOf(w.id)));
+    }
+    const roadW = finals.filter(g => +g.away.score > +g.home.score).length, ot = finals.filter(g => g.away.lines.length > 4).length;
+    fact('Road vs. home', `${roadW}-${finals.length - roadW}`, `Road teams' record over the last 7 days. ${ot ? `${ot} of the ${finals.length} games went to overtime.` : 'None of them went to overtime.'}`);
   }
-  return `<section class="sec">${head}${scatter(rows)}</section><section class="sec"><div class="facts">${cards.join('')}</div></section>`;
+  const quiz = players && players.length ? quizCard(players, rows) : '';
+  const group = (title, sub, list) => list.length ? `<section class="sec"><div class="sec-h"><h2>${title}</h2><span class="sub">${sub}</span></div><div class="facts">${list.join('')}</div></section>` : '';
+  return `<section class="sec">${head}${scatter(rows)}</section>
+    <section class="sec"><div class="fun-duo${quiz ? '' : ' solo'}">${quiz}${luckCard(rows)}</div></section>
+    ${group('Around the league', 'Team records, styles and extremes', league)}
+    ${group('Player oddities', 'Season numbers that stand out', people)}
+    ${group('This week', 'From every game in the last 7 days', week)}`;
 };
+const rec = s => { const m = /^(\d+)-(\d+)/.exec(s || ''); return m ? { w: +m[1], l: +m[2] } : null; };
+
+/* Guess the player: four names, one season stat line. The question stays put across refreshes until you answer. */
+const POS = { G: 'Guard', F: 'Forward', C: 'Center' };
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const quizPool = players => players.filter(p => p.gp >= 2 && p.min >= 22 && p.teamId).sort((a, b) => b.pts - a.pts).slice(0, 90);
+function newQuiz(pool) {
+  st.quizSeen = st.quizSeen || [];
+  let fresh = pool.filter(p => !st.quizSeen.includes(p.id));
+  if (!fresh.length) { st.quizSeen = []; fresh = pool; }
+  const ans = fresh[Math.floor(Math.random() * fresh.length)];
+  st.quizSeen.push(ans.id);
+  // Decoys play the same position when possible, so the numbers have to do the work
+  const decoys = shuffle(pool.filter(p => p.id !== ans.id && p.pos === ans.pos)).concat(shuffle(pool.filter(p => p.id !== ans.id && p.pos !== ans.pos))).slice(0, 3);
+  return { id: ans.id, opts: shuffle([ans, ...decoys].map(p => p.id)), pick: null };
+}
+function quizCard(players, rows) {
+  const pool = quizPool(players);
+  if (pool.length < 8) return '';
+  if (!st.quiz || !pool.some(p => p.id === st.quiz.id)) st.quiz = newQuiz(pool);
+  const q = st.quiz, s = st.quizScore = st.quizScore || { right: 0, n: 0, streak: 0 };
+  const byId = id => players.find(p => p.id === id);
+  const p = byId(q.id), done = q.pick != null;
+  const conf = (rows.find(r => r.id === p.teamId) || {}).conf;
+  const clues = [
+    `${NBA.fix(p.pts)} points · ${NBA.fix(p.reb)} rebounds · ${NBA.fix(p.ast)} assists`,
+    `${p.tpa >= .5 ? `${NBA.fix(p.tpp)}% from three on ${NBA.fix(p.tpa)} attempts` : 'Almost never shoots threes'} · ${NBA.fix(p.min)} minutes a game`,
+    [p.age ? `Age ${p.age}` : '', POS[p.pos] || p.pos, conf ? `${conf}ern Conference` : ''].filter(Boolean).join(' · '),
+  ];
+  return `<div class="card quiz"><div class="card-h"><h3>Guess the player</h3><div class="end">${s.n ? `${s.right} of ${s.n} right${s.streak > 1 ? ` · ${s.streak} in a row` : ''}` : 'This season\'s numbers'}</div></div>
+    <div class="card-b">
+      <div class="q-mystery">${done ? `<button class="q-face" data-act="player" data-id="${p.id}" aria-label="Open ${esc(p.name)}'s player card">${UI.hs(p.headshot, '')}</button>` : '<div class="q-face" aria-hidden="true">?</div>'}
+        <ul class="q-clues">${clues.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>
+      <div class="q-opts">${q.opts.map(id => {
+        const o = byId(id) || {};
+        const cls = !done ? '' : id === q.id ? ' right' : id === q.pick ? ' wrong' : '';
+        return `<button class="q-opt${cls}" data-act="quizpick" data-id="${id}"${done ? ' disabled' : ''}>${esc(o.name || '')}${done ? `<small>${esc(o.team || '')}</small>` : ''}</button>`;
+      }).join('')}</div>
+      ${done ? `<div class="q-foot"><span class="${q.pick === q.id ? 'w' : 'lo'}">${q.pick === q.id ? 'Correct!' : `It was ${esc(p.name)}.`}</span><button class="btn primary" data-act="quiznext">Next player</button></div>` : ''}
+    </div></div>`;
+}
+NBA.actions.quizpick = a => {
+  const q = st.quiz, s = st.quizScore;
+  if (!q || q.pick != null) return;
+  q.pick = a.dataset.id;
+  s.n++;
+  if (q.pick === q.id) { s.right++; s.streak++; } else s.streak = 0;
+  NBA.changed();
+};
+NBA.actions.quiznext = () => { st.quiz = null; NBA.changed(); };
+
+/* Lucky or good: actual wins against the wins a team's scoring margin predicts (Pythagorean expectation, exponent 14) */
+function luckCard(rows) {
+  const list = rows.filter(r => r.w + r.l > 0 && r.ppg && r.opp).map(r => {
+    const k = 14, exp = (r.w + r.l) * Math.pow(r.ppg, k) / (Math.pow(r.ppg, k) + Math.pow(r.opp, k));
+    return { r, exp, d: r.w - exp };
+  }).sort((a, b) => b.d - a.d);
+  if (list.length < 10) return '';
+  const max = Math.max(.5, ...list.map(x => Math.abs(x.d)));
+  return `<div class="card luck"><div class="card-h"><h3>Lucky or good?</h3><div class="end"><span class="eyebrow">Wins above or below what the point margin predicts</span></div></div>
+    <ol class="luck-list">${list.map(x => {
+      const w = (Math.abs(x.d) / max * 50).toFixed(1), up = x.d >= 0;
+      return `<li data-act="team" data-id="${x.r.id}" title="${esc(`${x.r.full}: ${x.r.w}-${x.r.l}, margin predicts ${NBA.fix(x.exp)} wins`)}">${UI.logo(NBA.T(x.r.id).logo ? NBA.T(x.r.id) : x.r, 20)}<span class="ab">${esc(x.r.abbr)}</span>
+        <span class="bar"><i class="${up ? 'up' : 'dn'}" style="${up ? 'left' : 'right'}:50%;width:${w}%"></i></span><span class="v">${x.d > .05 ? '+' : x.d < -.05 ? '−' : ''}${NBA.fix(Math.abs(x.d))}</span></li>`;
+    }).join('')}</ol>
+    <p class="note" style="padding:12px var(--pad) var(--pad)">Over a season, points scored and allowed predict a team's record closely. Teams with green bars have won more than their margin suggests, usually by taking close games. Red bars have lost more. It tends to even out. Tap a team for its page.</p></div>`;
+}
 /* The chart is drawn after layout at the card's real size, so it always fits one screen with no scrolling or zooming */
 function scatter(rows) {
   if (!rows.length || !rows.some(r => r.ppg)) return '';
