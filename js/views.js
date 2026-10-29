@@ -282,10 +282,42 @@ function paintSeason() {
   }
   el._seasonKey = key;
   UI.paint(el, seasonSkeleton(days, months));
-  months.forEach(ym => UI.paint(document.getElementById('sm-' + ym), monthHtml(ym, days)));
+  months.forEach(ym => { const sec = document.getElementById('sm-' + ym); if (UI.paint(sec, monthHtml(ym, days))) ruleRows(sec.querySelector('.days')); });
   loadNearMonths();
 }
-NBA.after.schedule = () => { paintBand(); paintSeason(); };
+/* A faint dotted line between each row of day cards, so a short day sitting next to a long one still reads as one row.
+   Rows come from where the cards actually land, so it works at any number of columns; one column needs no lines. */
+// Each grid is watched for width changes (window resize, a tablet turning, the scrollbar appearing),
+// and grids that a repaint replaced are let go so they don't pile up
+const ruled = new Set();
+const ruleObs = 'ResizeObserver' in window ? new ResizeObserver(es => es.forEach(e => {
+  const w = Math.round(e.contentRect.width);
+  if (e.target._ruleW !== w) { e.target._ruleW = w; ruleRows(e.target); }
+})) : null;
+function ruleRows(grid) {
+  if (!grid) return;
+  if (ruleObs) {
+    ruled.forEach(g => { if (!g.isConnected) { ruleObs.unobserve(g); ruled.delete(g); } });
+    if (!ruled.has(grid) && grid.isConnected) { grid._ruleW = Math.round(grid.clientWidth); ruled.add(grid); ruleObs.observe(grid); }
+  }
+  grid.querySelectorAll(':scope > .row-rule').forEach(r => r.remove());
+  const cards = [...grid.querySelectorAll(':scope > .day')];
+  if (cards.length < 3 || cards[1].offsetTop !== cards[0].offsetTop) return;
+  let top = cards[0].offsetTop;
+  cards.forEach(c => {
+    if (c.offsetTop <= top + 1) return;
+    const rule = document.createElement('div');
+    rule.className = 'row-rule';
+    rule.setAttribute('aria-hidden', 'true');
+    grid.insertBefore(rule, c);
+    // Read the row's top after the line went in, since adding it moves this row down
+    top = c.offsetTop;
+  });
+}
+// Window resizes are also caught directly, as a backstop for browsers that report grid widths late
+let ruleTimer = 0;
+window.addEventListener('resize', () => { clearTimeout(ruleTimer); ruleTimer = setTimeout(() => document.querySelectorAll('.days').forEach(ruleRows), 150); });
+NBA.after.schedule = (view, changed) => { if (changed) view.querySelectorAll('.days').forEach(ruleRows); paintBand(); paintSeason(); };
 NBA.actions.seasonmine = a => {
   st.seasonMine = !!a.dataset.v;
   paintSeason();
@@ -562,9 +594,40 @@ V.news = () => {
     const items = news.filter(a => a.links && a.links.web && a.links.web.href).slice(0, 25);
     newsHtml = `<div class="news-grid">${items.map((a, i) => storyCard(a, i === 0)).join('')}</div>`;
   }
-  return `<div class="news-layout"><section class="sec"><div class="sec-h"><h2>News</h2><span class="sub">ESPN · updates every few minutes</span></div>${newsHtml}</section>
-    <section class="sec">${injuryPanel(inj)}</section></div>`;
+  return `<div class="news-layout"><section class="sec inj-top">${injuryStars(inj)}</section>
+    <section class="sec news-sec"><div class="sec-h"><h2>News</h2><span class="sub">ESPN · updates every few minutes</span></div>${newsHtml}</section>
+    <section class="sec inj-sec">${injuryPanel(inj)}</section></div>`;
 };
+/* The 20 biggest names on the injury report and how long they're expected to be out. Star power is this season's
+   salary from ESPN rosters, or this season's Game Score for players outplaying their contract, whichever is higher. */
+function injuryStars(inj) {
+  const head = `<div class="sec-h"><h2>Biggest names out</h2><span class="sub">Top 20 by star power · refreshes every 10 minutes</span></div>`;
+  if (!inj) return head + stateOf('injuries', 'the injury report');
+  NBA.loadRosters(); NBA.use('players');
+  const bio = new Map();
+  (NBA.data('standings') || []).flatMap(c => c.rows).forEach(r => { const ro = NBA.data('roster:' + r.id); if (ro) ro.players.forEach(p => bio.set(p.id, p)); });
+  const star = i => {
+    const salary = ((bio.get(i.id) || {}).salary || 0) / 1e6, p = NBA.playerById(i.id);
+    return Math.max(salary / 2.2, p && p.gp >= 2 ? NBA.gameScore(p) : 0);
+  };
+  const list = inj.flatMap(g => g.list.map(i => ({ ...i, teamId: g.teamId, s: star(i) }))).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 20);
+  if (!list.length) return head + `<div class="card"><p class="empty" style="padding:var(--pad)">${bio.size ? 'No one notable is on the injury report.' : 'Ranking the injury report…'}</p></div>`;
+  const season = (NBA.calendar || []).slice(-1)[0];
+  const howLong = i => {
+    const ret = (i.ret || '').slice(0, 10);
+    if (!ret) return /out/i.test(i.status) ? 'No timetable yet' : 'Day to day';
+    if (season && ret > season) return 'Likely out for the season';
+    const days = Math.round((NBA.dateOfIso(ret) - NBA.dateOfIso(NBA.today)) / 86400000);
+    const when = NBA.fmtDay(ret, { month: 'short', day: 'numeric' });
+    return days <= 1 ? 'Could return any day' : days < 14 ? `About ${days} days · ${when}` : `About ${Math.round(days / 7)} weeks · ${when}`;
+  };
+  return head + `<div class="card"><ol class="inj-stars">${list.map((i, n) => {
+    const t = NBA.T(i.teamId);
+    return `<li data-act="player" data-id="${esc(i.id)}"><span class="rk">${n + 1}</span>${UI.hs(i.headshot)}
+      <span class="nm"><b>${esc(i.name)}</b><small>${t.logo ? UI.logo(t, 16) : ''}${esc(t.abbr || '')}${i.pos ? ' · ' + esc(i.pos) : ''}${i.type ? ' · ' + esc([i.side, i.type].filter(Boolean).join(' ')) : ''}</small><em>${esc(howLong(i))}</em></span>
+      ${statusPill(i.status)}</li>`;
+  }).join('')}</ol></div>`;
+}
 const NEWS_TYPE = { HeadlineNews: 'News', Media: 'Video', Recap: 'Recap', Story: 'Story', Preview: 'Preview' };
 function storyCard(a, lead) {
   const img = a.images && a.images[0] && a.images[0].url;
@@ -573,7 +636,7 @@ function storyCard(a, lead) {
     <span class="tx"><span class="eyebrow">${esc(NEWS_TYPE[a.type] || a.type || 'Story')} · ${esc(NBA.relTime(a.published))}</span><h3>${esc(a.headline)}</h3>${a.description ? `<p>${esc(a.description)}</p>` : ''}</span></a>`;
 }
 function injuryPanel(inj) {
-  const head = `<div class="sec-h"><h2>Injuries</h2><span class="sub">${inj ? 'Updated ' + esc(NBA.relTime(new Date(NBA.status('injuries').t).toISOString())) : ''}</span></div>`;
+  const head = `<div class="sec-h"><h2>Injuries</h2><span class="sub">Full report from ESPN · refreshes every 10 minutes</span></div>`;
   if (!inj) return head + stateOf('injuries', 'the injury report');
   const fav = new Set(NBA.S.favorites);
   const teams = [...NBA.teams.values()].filter(t => t.abbr).sort((a, b) => a.full.localeCompare(b.full));

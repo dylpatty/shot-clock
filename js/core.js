@@ -486,8 +486,10 @@ function parseInjuries(j) {
     teamId: String(t.id), teamName: t.displayName,
     list: (t.injuries || []).map(i => {
       const a = i.athlete || {}, d = i.details || {};
+      // The injury feed leaves out the athlete id, so read it from the player card link or the headshot URL
+      const aid = a.id || [...(a.links || []).map(l => l.href), (a.headshot || {}).href].map(h => (/\/id\/(\d+)|\/(\d+)\.png/.exec(h || '') || []).slice(1).find(Boolean)).find(Boolean);
       return {
-        id: String(a.id || i.id), name: a.displayName || '', pos: a.position && a.position.abbreviation, headshot: headshotOf(a.headshot),
+        id: String(aid || i.id), name: a.displayName || '', pos: a.position && a.position.abbreviation, headshot: headshotOf(a.headshot),
         status: i.status || (i.type && i.type.description) || '', date: i.date,
         type: d.type || '', detail: d.detail || '', side: d.side && d.side !== 'Not Specified' ? d.side : '', ret: d.returnDate || '',
         short: i.shortComment || '', long: i.longComment || '',

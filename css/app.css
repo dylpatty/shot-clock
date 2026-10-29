@@ -318,6 +318,19 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
   .ln-team b .full{display:none}
 }
 @media (min-width:641px){.ln-team b .abbr{display:none}}
+/* Day cards decide by their own width (they get narrow next to the desktop performers rail):
+   drop the odds column first, then switch to team abbreviations instead of cutting names off */
+.day{container-type:inline-size}
+@container (max-width:519px){
+  .day .line{grid-template-columns:6.4em minmax(0,1fr) 1.4em minmax(0,1fr)}
+  .day .ln-odds{display:none}
+}
+@container (max-width:479px){
+  .day .ln-team b .full{display:none}
+  .day .ln-team b .abbr{display:inline}
+}
+/* A faint dotted line between rows of day cards (inserted by ruleRows in views.js) */
+.row-rule{grid-column:1/-1;height:0;margin:0 6px;border-top:2px dotted color-mix(in srgb,var(--muted) 40%,transparent)}
 
 /* ---------- tables ---------- */
 .tblwrap{overflow-x:auto;min-width:0}
@@ -434,8 +447,25 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .lines-tbl td{white-space:nowrap}
 
 /* ---------- injuries & news ---------- */
-.news-layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);gap:calc(var(--gap) * 1.5);align-items:start}
-@media (max-width:1200px){.news-layout{grid-template-columns:minmax(0,1fr)}}
+.news-layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);grid-template-areas:"news top" "news inj";grid-template-rows:auto 1fr;gap:calc(var(--gap) * 1.5);align-items:start}
+.news-layout > .sec{margin-top:0}
+.news-layout > .inj-top{grid-area:top}
+.news-layout > .news-sec{grid-area:news}
+.news-layout > .inj-sec{grid-area:inj}
+/* One column: the biggest names out lead the tab, then the news, then the full injury report */
+@media (max-width:1200px){.news-layout{grid-template-columns:minmax(0,1fr);grid-template-areas:"top" "news" "inj";grid-template-rows:auto}}
+.inj-stars{list-style:none;margin:0;padding:4px 0}
+.inj-stars li{display:grid;grid-template-columns:1.6em 44px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px var(--pad);border-bottom:1px solid var(--line-2);cursor:pointer}
+.inj-stars li:last-child{border-bottom:0}
+.inj-stars li:hover{background:var(--card-2)}
+.inj-stars .rk{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
+.inj-stars img,.inj-stars .hs{width:44px;height:33px;object-fit:cover;object-position:top;border-radius:6px;background:var(--card-2)}
+.inj-stars .nm{min-width:0}
+.inj-stars .nm b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inj-stars .nm small{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inj-stars .nm small img{width:16px;height:16px;object-fit:contain;border-radius:0;background:none;flex:none}
+.inj-stars .nm em{display:block;margin-top:2px;font-style:normal;font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inj-stars li > :last-child{justify-self:end}
 .news-grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))}
 .story{display:flex;flex-direction:column;text-decoration:none;overflow:hidden}
 .story .th{aspect-ratio:16/9;width:100%;max-width:100%;object-fit:cover;background:var(--card-2);display:block}
