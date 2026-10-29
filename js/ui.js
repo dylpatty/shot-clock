@@ -165,10 +165,11 @@ function renderHeader() {
   const live = today ? today.games.filter(g => g.state === 'in').length : null;
   const pill = $('#livepill');
   pill.className = 'livepill' + (live ? ' on' : '');
-  // While games are live the header shows only a red live button with the count; it opens the schedule
-  pill.innerHTML = live == null ? '' : live ? `<a class="live-btn" href="#schedule" aria-label="${live} game${live > 1 ? 's' : ''} live now, open the schedule"><i class="dot blink"></i>${live} live</a>` : 'No games live';
+  // While games are live the header shows only a red live button with the count; it opens the schedule.
+  // Painted only when it changes, so the blinking dot isn't recreated (and restarted) on every refresh.
+  UI.paint(pill, live == null ? '' : live ? `<a class="live-btn" href="#schedule" data-act="golive" aria-label="${live} game${live > 1 ? 's' : ''} live now, open the schedule"><i class="dot blink"></i>${live} live</a>` : 'No games live');
   const mt = NBA.T(NBA.S.myTeam);
-  if (NBA.S.teamTheme && mt.abbr && UI.lookKey !== mt.id + mt.color + mt.alt + NBA.S.theme) applyLook();
+  if (NBA.S.teamTheme && hasColors(mt) && UI.lookKey !== mt.id + mt.color + mt.alt + NBA.S.theme) applyLook();
   const teams = [...NBA.teams.values()].filter(t => t.abbr && t.full).sort((a, b) => a.full.localeCompare(b.full));
   UI.paint($('#teampick'), `${mt.logo ? UI.logo(mt, 22) : ''}<span class="ht-col"><label class="ht-lbl" for="team-pick">Favorite team</label>
     <select id="team-pick" data-ch="myTeam" title="Favorite team">${teams.length
@@ -176,15 +177,11 @@ function renderHeader() {
       : `<option value="${esc(NBA.S.myTeam)}">${esc(mt.full || 'Golden State Warriors')}</option>`}</select></span>`);
   renderUpdated();
 }
+// The header only speaks up when ESPN can't be reached; data refreshes quietly in the background otherwise
 function renderUpdated() {
   const el = $('#upd');
-  if (NBA.failing) { el.className = 'upd err'; el.textContent = "Can't reach ESPN · retrying"; return; }
-  const today = NBA.data('day:');
-  if (today && today.games.some(g => g.state === 'in')) { el.className = 'upd'; el.textContent = ''; return; }
-  el.className = 'upd';
-  if (!NBA.lastUpdate) { el.textContent = 'Loading…'; return; }
-  const s = Math.round((Date.now() - NBA.lastUpdate) / 1000);
-  el.textContent = 'Updated ' + (s < 5 ? 'just now' : s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago');
+  el.className = NBA.failing ? 'upd err' : 'upd';
+  el.textContent = NBA.failing ? "Can't reach ESPN · retrying" : '';
 }
 let lastTab = null, lastRoute = null;
 function renderView() {
@@ -196,10 +193,15 @@ function renderView() {
   const routeKey = tab + '/' + arg;
   if (routeKey !== lastRoute) { if (lastRoute !== null) window.scrollTo(0, 0); lastRoute = routeKey; }
   if (tab !== lastTab) { view._html = null; lastTab = tab; }
-  const changed = UI.paint(view, fn(arg));
+  const html = fn(arg), season = $('#season');
+  // iPhone Safari doesn't hold the scroll still when today's games above change height, so when the
+  // rest-of-season list is scrolled into, keep it where it was (Chrome's own correction leaves nothing to do)
+  const t0 = tab === 'schedule' && view._html !== html ? season.getBoundingClientRect().top : 0;
+  const changed = UI.paint(view, html);
   // The rest-of-season list under the schedule only shows on that tab
-  if (tab !== 'schedule') UI.paint($('#season'), '');
+  if (tab !== 'schedule') UI.paint(season, '');
   if (NBA.after[tab]) NBA.after[tab](view, changed);
+  if (t0 < 0) { const dy = season.getBoundingClientRect().top - t0; if (dy) window.scrollBy(0, dy); }
 }
 NBA.render = () => {
   renderHeader();
@@ -208,6 +210,8 @@ NBA.render = () => {
   if (UI.drawer) renderDrawer();
   if (UI.settingsOpen) renderSettings();
   if (NBA.ask && NBA.ask.render) NBA.ask.render();
+  // Repaints recreate live dots and card glows; tying their pulse to the page clock lets a new one carry on mid-beat instead of restarting
+  if (document.getAnimations) document.getAnimations().forEach(a => { if (a.animationName === 'blink' || a.animationName === 'glow') a.startTime = 0; });
 };
 window.addEventListener('hashchange', () => {
   const { tab } = UI.route();
@@ -217,7 +221,13 @@ window.addEventListener('hashchange', () => {
 });
 
 /* ---------- overlays ---------- */
-function lock(on) { document.body.classList.toggle('locked', on); $('#scrim').hidden = !on; }
+function lock(on) {
+  const b = document.body;
+  // Windows scrollbars take up room: pad the page by the scrollbar it's about to lose, so nothing shifts sideways
+  if (on !== b.classList.contains('locked')) b.style.paddingRight = on ? Math.max(0, innerWidth - document.documentElement.clientWidth) + 'px' : '';
+  b.classList.toggle('locked', on);
+  $('#scrim').hidden = !on;
+}
 UI.closeAll = fromHistory => {
   const had = UI.drawer || UI.settingsOpen;
   UI.drawer = null; UI.settingsOpen = false; UI.resetArmed = false;
@@ -272,7 +282,13 @@ UI.openGame = (id, opener) => {
 };
 NBA.pollHooks.push({
   live: () => { const d = UI.drawer && NBA.data('summary:' + UI.drawer.id); return !!(d && d.state === 'in'); },
-  run: () => { if (!UI.drawer) return null; const d = NBA.data('summary:' + UI.drawer.id); return (!d || d.state === 'in') ? NBA.need('summary:' + UI.drawer.id, true) : null; },
+  run: () => {
+    if (!UI.drawer) return null;
+    const k = 'summary:' + UI.drawer.id, d = NBA.data(k), g = findGame(UI.drawer.id);
+    // A game opened before tip-off is refetched once tip is near (or the scoreboard says it started), so it turns live on its own
+    const tipping = d && d.state === 'pre' && ((g && g.state !== 'pre') || new Date(d.date) - Date.now() < 15 * 60000);
+    return (!d || d.state === 'in' || tipping) ? NBA.need(k, true) : null;
+  },
 });
 function renderDrawer() {
   const d = UI.drawer, el = $('#drawer');
@@ -312,7 +328,14 @@ function renderDrawer() {
   else pane = paneWp(data);
   html += `<div class="pane dpad" role="tabpanel">${pane}</div>`;
   const top = el.scrollTop;
-  if (UI.paint(el, html)) { el.scrollTop = top; if (data && d.tab === 'wp') bindWp(data); }
+  // Live refreshes rebuild the tables, so keep each one scrolled sideways where it was (not on a freshly opened game)
+  const xs = el._html ? [...el.querySelectorAll('.tblwrap')].map(w => w.scrollLeft) : [];
+  if (UI.paint(el, html)) {
+    el.querySelectorAll('.tblwrap').forEach((w, i) => { if (xs[i]) w.scrollLeft = xs[i]; });
+    // Setting scrollTop stops an iPhone flick mid-glide, so only put it back if the repaint moved it
+    if (el.scrollTop !== top) el.scrollTop = top;
+    if (data && d.tab === 'wp') bindWp(data);
+  }
 }
 function paneBox(d, data) {
   const S = NBA.S;
@@ -492,6 +515,8 @@ function renderSettings() {
   if (UI.paint(el, html)) el.scrollTop = top;
 }
 const TEAM_VARS = ['--accent', '--accent-soft', '--accent-ink', '--chrome'];
+// A team known only from standings has no colors yet, and ESPN's stand-in is gray
+function hasColors(t) { return !!t.abbr && /^#[0-9a-f]{6}$/i.test(t.color || '') && t.color !== '#888888'; }
 function applyLook() {
   const r = document.documentElement;
   if (NBA.S.theme === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', NBA.S.theme);
@@ -499,7 +524,7 @@ function applyLook() {
   // Team colors: accents from the favorite team, and a header tinted with its deeper color.
   // Until ESPN has sent the team's colors, keep the look remembered from the last visit.
   const team = NBA.T(NBA.S.myTeam);
-  if (NBA.S.teamTheme && !(team.abbr && team.color !== '#888888')) return;
+  if (NBA.S.teamTheme && !hasColors(team)) return;
   UI.lookKey = NBA.S.teamTheme ? team.id + team.color + team.alt + NBA.S.theme : '';
   const a = NBA.S.teamTheme ? NBA.accentFor(team) : null;
   let look = null;
@@ -525,6 +550,12 @@ Object.assign(NBA.actions, {
   reveal: a => { UI.st.revealed.add(a.dataset.id); NBA.changed(); },
   close: () => UI.closeAll(),
   settings: a => UI.openSettings(a),
+  // The header's live button always lands on today's live games, even from another day or deep in the season list
+  golive: () => {
+    NBA.dayParam = '';
+    if (UI.route().tab !== 'schedule') location.hash = '#schedule'; // the hashchange handler scrolls to the top and re-renders
+    else { window.scrollTo(0, 0); NBA.changed(); }
+  },
   dtab: a => { if (UI.drawer) { UI.drawer.tab = a.dataset.v; renderDrawer(); } },
   sort: a => {
     if (!UI.drawer) return;
@@ -577,6 +608,8 @@ NBA.boot = () => {
   const { tab } = UI.route();
   if (tab !== 'home') document.title = `${(TABS.find(t => t.id === tab) || {}).label || 'NBA'} · NBA`;
   NBA.need('standings').catch(() => {});
+  // The favorite team's schedule also supplies its colors on days it isn't on today's scoreboard
+  NBA.need('tsched:' + NBA.S.myTeam).catch(() => {});
   NBA.render();
   setInterval(renderUpdated, 1000);
   NBA.poll();

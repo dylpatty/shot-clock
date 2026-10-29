@@ -74,12 +74,15 @@ NBA.isoFromParam = p => p ? `${p.slice(0, 4)}-${p.slice(4, 6)}-${p.slice(6, 8)}`
 NBA.dateOfIso = iso => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
 NBA.shiftIso = (iso, n) => { const dt = NBA.dateOfIso(iso); dt.setDate(dt.getDate() + n); return NBA.isoOf(dt); };
 NBA.today = NBA.isoOf(started);
-NBA.fmtDay = (iso, opts) => NBA.dateOfIso(iso).toLocaleDateString([], opts || { weekday: 'short', month: 'short', day: 'numeric' });
+// Date formatters are cached: building one is slow, and schedule lists format hundreds of dates per render
+const DTF = new Map();
+const dtf = o => { const k = JSON.stringify(o); let f = DTF.get(k); if (!f) DTF.set(k, f = new Intl.DateTimeFormat([], o)); return f; };
+NBA.fmtDay = (iso, opts) => dtf(opts || { weekday: 'short', month: 'short', day: 'numeric' }).format(NBA.dateOfIso(iso));
 /* Game times show in Eastern Time (labelled ET) unless the viewer picks their device's time zone */
 const tz = () => NBA.S.tz === 'local' ? undefined : 'America/New_York';
 NBA.tzLabel = () => NBA.S.tz === 'local' ? 'your time zone' : 'Eastern Time (ET)';
-NBA.fmtTime = iso => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz() }) + (NBA.S.tz === 'local' ? '' : ' ET');
-NBA.fmtDate = (iso, opts) => new Date(iso).toLocaleDateString([], Object.assign({}, opts || { weekday: 'short', month: 'short', day: 'numeric' }, { timeZone: tz() }));
+NBA.fmtTime = iso => dtf({ hour: 'numeric', minute: '2-digit', timeZone: tz() }).format(new Date(iso)) + (NBA.S.tz === 'local' ? '' : ' ET');
+NBA.fmtDate = (iso, opts) => dtf(Object.assign({}, opts || { weekday: 'short', month: 'short', day: 'numeric' }, { timeZone: tz() })).format(new Date(iso));
 NBA.relTime = iso => {
   const m = Math.round((Date.now() - new Date(iso)) / 60000);
   if (m < 1) return 'just now';
@@ -113,12 +116,19 @@ NBA.tone = t => {
 NBA.accentFor = t => {
   const dark = NBA.isDark();
   const cands = [t.color, t.alt].filter(c => /^#[0-9a-f]{6}$/i.test(c || '')).map(c => [c, lum(hexRgb(c))]);
-  const usable = cands.filter(([, L]) => dark ? L > .1 : L < .4);
+  // On dark, the accent is also text on the dark card, which needs L >= .22 for 4.5:1
+  const usable = cands.filter(([, L]) => dark ? L >= .22 : L < .4);
   const pick = (usable.length ? usable : cands).sort((a, b) => dark ? b[1] - a[1] : a[1] - b[1])[0];
   if (!pick) return null;
   // The header tint uses the team's deeper color, which reads as the team's own on either theme
   const deep = cands.slice().sort((a, b) => a[1] - b[1])[0][0];
-  return { accent: pick[0], ink: pick[1] > .4 ? '#111418' : '#FFFFFF', base: deep };
+  let [acc, L] = pick;
+  while (dark && L < .22) { // lift too-dark team colors toward white so they read on the dark card
+    acc = '#' + hexRgb(acc).map(v => Math.round(v + (255 - v) * .25).toString(16).padStart(2, '0')).join('');
+    L = lum(hexRgb(acc));
+  }
+  // Ink is whichever of dark or white text has more contrast on the accent
+  return { accent: acc, ink: (L + .05) / .0566 >= 1.05 / (L + .05) ? '#111418' : '#FFFFFF', base: deep };
 };
 NBA.tones = (a, h) => {
   const dark = NBA.isDark(), fallback = dark ? '#9AA3AE' : '#59626E';
@@ -134,13 +144,19 @@ NBA.teams = new Map();
 const EXTRA_ALIASES = {
   GS: ['dubs', 'golden state', 'gsw', 'warriors'], PHI: ['sixers', '76ers', 'philly'], CLE: ['cavs'], MIN: ['wolves', 'twolves', 't-wolves'],
   POR: ['blazers', 'trail blazers'], DAL: ['mavs'], NY: ['knicks', 'nyk'], BKN: ['nets', 'brooklyn'], LAL: ['lakers'], LAC: ['clippers', 'clips'],
-  OKC: ['thunder'], SA: ['spurs', 'sas'], NO: ['pelicans', 'pels', 'nola', 'nop'], WSH: ['wizards', 'wiz', 'was'], UTAH: ['jazz', 'uta'],
+  OKC: ['thunder'], SA: ['spurs', 'sas'], NO: ['pelicans', 'pels', 'nola', 'nop'], WSH: ['wizards', 'wiz'], UTAH: ['jazz', 'uta'],
   PHX: ['suns'], CHA: ['hornets'], SAC: ['kings'], MEM: ['grizzlies', 'grizz'], ORL: ['magic'], DET: ['pistons'], TOR: ['raptors', 'raps'],
   MIA: ['heat'], MIL: ['bucks'], IND: ['pacers'], HOU: ['rockets'], DEN: ['nuggets', 'nugs'], CHI: ['bulls'], BOS: ['celtics'], ATL: ['hawks'],
 };
 NBA.T = id => NBA.teams.get(String(id)) || { id: String(id), abbr: '', name: '', full: '', logo: '', color: '#888888', alt: '#BBBBBB' };
 NBA.lg = t => (NBA.isDark() && t.logoDark) ? t.logoDark : (t.logo || '');
-NBA.teamByAbbr = abbr => [...NBA.teams.values()].find(t => t.abbr && t.abbr.toLowerCase() === String(abbr).toLowerCase());
+// "WAS" is the NBA's own code for the Wizards (ESPN uses WSH). It counts only as an exact code, since in free text it is the word "was"
+NBA.teamByAbbr = abbr => { const a = String(abbr).toLowerCase() === 'was' ? 'wsh' : String(abbr).toLowerCase(); return [...NBA.teams.values()].find(t => t.abbr && t.abbr.toLowerCase() === a); };
+/* Team colors are remembered between visits, so the team-colors theme has them even on days a team
+   isn't on any loaded scoreboard (ESPN's all-teams feed can't be read from a browser) */
+const COLORS_KEY = 'nba.colors.v1';
+const savedColors = readJSON(COLORS_KEY) || {};
+Object.entries(savedColors).forEach(([id, c]) => { if (Array.isArray(c)) NBA.teams.set(id, Object.assign(NBA.teams.get(id) || { id }, { color: c[0], alt: c[1] })); });
 function mergeTeam(t) {
   if (!t || !t.id || t.id === 'undefined') return;
   const cur = NBA.teams.get(t.id) || {};
@@ -149,6 +165,12 @@ function mergeTeam(t) {
     logo: cur.logo || t.logo, logoDark: t.logoDark || cur.logoDark,
     color: t.color || cur.color, alt: t.alt || cur.alt, conf: t.conf || cur.conf,
   }));
+  // Scoreboards fill in gray and silver when a color is missing, so only real pairs are saved
+  const s = savedColors[t.id];
+  if (t.color && t.alt && t.color !== '#888888' && t.alt !== '#BBBBBB' && (!s || s[0] !== t.color || s[1] !== t.alt)) {
+    savedColors[t.id] = [t.color, t.alt];
+    try { localStorage.setItem(COLORS_KEY, JSON.stringify(savedColors)); } catch (e) { /* storage blocked: colors last for this visit */ }
+  }
 }
 /* All teams mentioned in free text, longest alias first so "Golden State" beats "State" */
 NBA.findTeams = text => {
@@ -158,7 +180,8 @@ NBA.findTeams = text => {
   const pairs = [];
   NBA.teams.forEach(t => {
     if (!t.abbr) return;
-    const al = new Set([t.full, t.name, t.abbr, ...(EXTRA_ALIASES[t.abbr] || [])].filter(Boolean).map(x => x.toLowerCase()));
+    // The Pelicans' code "NO" is the word "no" in free text, so they match by "nop", "pels" or name instead
+    const al = new Set([t.full, t.name, t.abbr !== 'NO' && t.abbr, ...(EXTRA_ALIASES[t.abbr] || [])].filter(Boolean).map(x => x.toLowerCase()));
     if (t.location && counts[t.location.toLowerCase()] === 1) al.add(t.location.toLowerCase());
     al.forEach(a => pairs.push([a, t]));
   });
@@ -191,13 +214,16 @@ function need(key, force) {
   const L = LOADERS[prefix];
   if (!L) return Promise.reject(new Error('Unknown data ' + key));
   let r = RES.get(key);
-  if (!r) { r = { t: 0, data: undefined, err: null, p: null }; RES.set(key, r); }
+  if (!r) { r = { t: 0, data: undefined, err: null, p: null, retry: 0 }; RES.set(key, r); }
   if (r.p) return r.p;
   const ttl = typeof L.ttl === 'function' ? L.ttl(arg, r.data) : L.ttl;
   if (!force && r.t && Date.now() - r.t < ttl) return Promise.resolve(r.data);
+  // After a failure, wait 30 s before trying again. Keep serving older data, or pass on the error if nothing has loaded yet
+  if (!force && Date.now() < r.retry) return r.data === undefined ? Promise.reject(r.err) : Promise.resolve(r.data);
   r.p = L.load(arg, r.data)
-    .then(data => { r.data = data; r.t = Date.now(); r.err = null; return data; })
-    .catch(e => { r.err = e; r.t = Date.now() - ttl + 30000; throw e; })
+    // r.t is only set by a successful load, so a failed refresh never makes old data look fresh
+    .then(data => { r.data = data; r.t = Date.now(); r.err = null; r.retry = 0; return data; })
+    .catch(e => { r.err = e; r.retry = Date.now() + 30000; throw e; })
     .finally(() => { r.p = null; NBA.changed(); });
   r.p.catch(() => {});
   return r.p;
@@ -363,8 +389,11 @@ function parseSummary(j, id) {
 }
 function parseGameLog(j) {
   const names = j.names || [];
-  const reg = (j.seasonTypes || []).find(s => /Regular/i.test(s.displayName || '')) || (j.seasonTypes || [])[0] || { categories: [] };
-  const rows = (reg.categories || []).flatMap(c => c.events || []);
+  // Regular season, play-in and playoff games all count (ESPN lists each as its own season type); preseason does not
+  const seen = new Set();
+  const rows = (j.seasonTypes || []).filter(s => !/Preseason/i.test(s.displayName || ''))
+    .flatMap(s => s.categories || []).flatMap(c => c.events || [])
+    .filter(r => r && !seen.has(r.eventId) && seen.add(r.eventId));
   return rows.map(r => {
     const e = (j.events || {})[r.eventId] || {};
     const s = {}; names.forEach((n, i) => { s[n] = (r.stats || [])[i]; });
@@ -547,8 +576,12 @@ def('athlete', 24 * 3600000, async id => {
   const name = a.displayName || a.fullName || [a.firstName, a.lastName].filter(Boolean).join(' ');
   return { id, name, short: a.shortName || name, headshot: headshotOf(a.headshot), teamId: tm ? tm[1] : '', coach: !!a.coach };
 });
-def('tsched', 15 * 60000, async id => {
+// Refreshed every minute while one of the team's games is under way, so the result shows soon after the final
+def('tsched', (id, d) => d && d.events.some(e => e.state !== 'post' && Date.now() - new Date(e.date) > 0 && Date.now() - new Date(e.date) < 6 * 3600000) ? 60000 : 15 * 60000, async id => {
   const j = await getJSON(`${API}/teams/${id}/schedule?season=${NBA.SEASON}`);
+  // The schedule feed carries the team's main color, a fallback for the team-colors theme
+  const reg = NBA.teams.get(String(id));
+  if (j.team && j.team.color && !(reg && reg.color && reg.color !== '#888888')) mergeTeam({ id: String(id), color: '#' + j.team.color });
   return { standing: j.team && j.team.standingSummary, record: j.team && j.team.recordSummary, events: parseSchedule(j, id) };
 });
 def('roster', 60 * 60000, async id => parseRoster(await getJSON(`${API}/teams/${id}/roster`)));
@@ -561,20 +594,25 @@ def('pm', 6 * 3600000, async id => {
   const s = (gen.stats || []).find(x => x.name === 'plusMinus');
   return s ? s.value : null;
 });
-/* Plus-minus leaders: rotation players only (20+ minutes, enough games), cached in this browser for 6 hours */
-def('pmlead', 6 * 3600000, async () => {
+/* Plus-minus leaders: rotation players only (20+ minutes, enough games), cached in this browser for 6 hours.
+   An empty list (before opening night) is checked again in 5 minutes and never saved. */
+def('pmlead', (a, d) => (d && d.length ? 6 * 3600000 : 5 * 60000), async () => {
   const CACHE = 'nba.pm.v1';
   const cached = readJSON(CACHE);
-  if (cached && cached.season === NBA.SEASON && Date.now() - cached.t < 6 * 3600000) return cached.rows;
+  if (cached && cached.season === NBA.SEASON && cached.rows && cached.rows.length && Date.now() - cached.t < 6 * 3600000) return cached.rows;
   await Promise.all([need('players'), need('standings')]);
   const sm = NBA.standingsMap();
   const cands = (NBA.players() || []).filter(p => p.min >= 20 && NBA.qualifies(p, null, sm));
   const rows = [];
+  let failed = 0;
   for (let i = 0; i < cands.length; i += 8) {
     const chunk = await Promise.allSettled(cands.slice(i, i + 8).map(p => need('pm:' + p.id).then(v => ({ p, v }))));
-    chunk.forEach(c => { if (c.status === 'fulfilled' && c.value.v != null) rows.push({ id: c.value.p.id, total: c.value.v, gp: c.value.p.gp }); });
+    chunk.forEach(c => { if (c.status !== 'fulfilled') failed++; else if (c.value.v != null) rows.push({ id: c.value.p.id, total: c.value.v, gp: c.value.p.gp }); });
   }
-  try { localStorage.setItem(CACHE, JSON.stringify({ t: Date.now(), season: NBA.SEASON, rows })); } catch (e) { /* storage full or blocked */ }
+  // Too many lookups failed (network drop, rate limit): show the error and retry in 30 s rather than keep a list missing leaders.
+  // The lookups that worked stay cached, so the retry only fetches the rest.
+  if (failed > cands.length * .1) throw new Error("Couldn't get plus-minus for every player from ESPN. Try again shortly.");
+  if (rows.length) { try { localStorage.setItem(CACHE, JSON.stringify({ t: Date.now(), season: NBA.SEASON, rows })); } catch (e) { /* storage full or blocked */ } }
   return rows;
 });
 

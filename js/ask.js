@@ -139,7 +139,7 @@ const TOOLS = [
     input_schema: { type: 'object', properties: { team: { type: 'string' } } } },
   { name: 'get_power_rankings', description: 'All 30 teams with net, offensive and defensive rating (points per 100 possessions, with league ranks), pace, last-7-days record and margin, and trend versus season margin. Use for best-team, who is hot or slipping, and team efficiency questions.',
     input_schema: { type: 'object', properties: { sort: { type: 'string', enum: ['net', 'ortg', 'drtg', 'pace', 'last7', 'trend'] } } } },
-  { name: 'get_player_game_log', description: "A player's regular season game log, newest first: date, opponent, result, minutes, points, rebounds, assists, steals, blocks, turnovers and shooting.",
+  { name: 'get_player_game_log', description: "A player's game log this season (regular season, play-in and playoffs), newest first: date, opponent, result, minutes, points, rebounds, assists, steals, blocks, turnovers and shooting.",
     input_schema: { type: 'object', properties: { name: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 82 } }, required: ['name'] } },
   { name: 'get_plus_minus', description: "Season plus-minus. With a player name, that player's total and per game. Without one, league leaders among rotation players (20+ minutes a game).",
     input_schema: { type: 'object', properties: { name: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 30 } } } },
@@ -414,7 +414,7 @@ function compareAnswer(a, b) {
 }
 async function gamelogAnswer(p, n) {
   const log = await NBA.need('gamelog:' + p.id);
-  if (!log.length) return `<p>${esc(p.name)} hasn't played a regular season game yet.</p>`;
+  if (!log.length) return `<p>${esc(p.name)} hasn't played a game yet.</p>`;
   const games = log.slice(0, n);
   const avg = k => NBA.fix(games.reduce((s, g) => s + (parseFloat(g[k]) || 0), 0) / games.length);
   return `<p><b>${esc(p.name)}, last ${games.length} game${games.length > 1 ? 's' : ''}:</b> ${avg('pts')} points, ${avg('reb')} rebounds and ${avg('ast')} assists a game.</p>${logTable(games)}`;
@@ -429,6 +429,7 @@ async function pmAnswer(p) {
   }
   const rows = await NBA.need('pmlead');
   const list = rows.slice().sort((a, b) => b.total - a.total).slice(0, 10);
+  if (!list.length) return '<p>No plus-minus leaders yet. ESPN has no season plus-minus for rotation players right now, so try again shortly.</p>';
   return `<p><b>${esc((NBA.playerById(list[0].id) || {}).name || '')} leads the league in plus-minus</b> at ${signed(list[0].total).replace('.0', '')}.</p>
     ${table(['#', 'Player', 'Team', 'GP', '+/-', 'Per game'], list.map((r, i) => { const pl = NBA.playerById(r.id) || {}; return [i + 1, esc(pl.name || ''), esc(pl.team || ''), r.gp, `<b>${signed(r.total).replace('.0', '')}</b>`, signed(r.total / Math.max(1, r.gp))]; }))}
     <p class="note">Rotation players only (20+ minutes a game).</p>`;
@@ -497,9 +498,14 @@ async function playerAnswer(p) {
 }
 
 /* ---------- Claude ---------- */
-let sdk = null;
+let sdk = null, sdkTries = 0;
 async function loadSdk() {
-  if (!sdk) sdk = import(SDK_URL).then(m => m.default || m.Anthropic);
+  // Forget a failed import so the next question tries again (offline on a train, say). The retry
+  // URL is new because browsers can remember a failed module fetch for the life of the page.
+  if (!sdk) sdk = import(SDK_URL + (sdkTries ? '?retry=' + sdkTries : '')).then(m => m.default || m.Anthropic, () => {
+    sdk = null; sdkTries++;
+    throw new Error("Couldn't load Claude. Check your connection and try again.");
+  });
   return sdk;
 }
 const SYSTEM = `You are the answer engine inside a personal NBA dashboard website. The site shows live data from ESPN's public feeds and DraftKings odds via ESPN, and your tools read that same data.
@@ -597,10 +603,11 @@ function renderPanel() {
   const sugg = `<div class="sugg">${SUGGESTIONS.map(s => `<button class="chip" data-act="ask-q" data-q="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
   // The API key lives here rather than in Settings, right where ask-anything needs it
   const keyNote = hasKey
-    ? `<p class="note ask-keynote">Ask-anything is on with your Anthropic API key, saved only in this browser. <button class="link" data-act="ask-key-clear">Remove key</button></p>`
+    ? `<p class="note ask-keynote">Ask-anything is on with your Anthropic API key, saved only in this browser.${A.busy ? '' : ' <button class="link" data-act="ask-key-clear">Remove key</button>'}</p>`
     : `<div class="ask-key"><p class="note">The search bar answers common questions by itself. To ask anything, paste an Anthropic API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. You pay Anthropic per question (about 5–15¢), separately from any Claude subscription. The key stays in this browser and is only sent to Anthropic.</p>
         <div class="keyrow"><label class="sr" for="ask-key">Anthropic API key</label><input class="field" id="ask-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"><button class="btn primary" data-act="ask-key-save">Save key</button></div></div>`;
-  const html = `<div class="ask-head"><span class="eyebrow">Ask · ${esc(engine)}</span>${A.turns.length ? '<button class="chip" data-act="ask-new">New question</button>' : ''}<button class="ib" data-act="ask-close" aria-label="Close answers">${UI.I.close}</button></div>
+  // New question and Remove key wait until the answer finishes; ask() re-renders then and they come back
+  const html = `<div class="ask-head"><span class="eyebrow">Ask · ${esc(engine)}</span>${A.turns.length && !A.busy ? '<button class="chip" data-act="ask-new">New question</button>' : ''}<button class="ib" data-act="ask-close" aria-label="Close answers">${UI.I.close}</button></div>
     <div class="ask-body" id="ask-body">${body}${A.turns.length ? '' : sugg}${keyNote}</div>`;
   UI.paint(el, html);
 }
@@ -651,7 +658,8 @@ async function ask(q) {
 }
 Object.assign(NBA.actions, {
   'ask-q': a => { $('#ask-input').value = a.dataset.q; ask(a.dataset.q); },
-  'ask-new': () => { A.turns = []; A.convo = []; renderPanel(); $('#ask-input').focus(); },
+  // No reset while a question is running: it is still writing to A.convo and holds A.busy
+  'ask-new': () => { if (A.busy) return; A.turns = []; A.convo = []; renderPanel(); $('#ask-input').focus(); },
   'ask-close': () => A.close(),
   'ask-key-save': () => {
     const inp = $('#ask-key'), v = inp ? inp.value.trim() : '';
@@ -659,7 +667,7 @@ Object.assign(NBA.actions, {
     NBA.aiKey.set(v);
     A.keyChanged();
   },
-  'ask-key-clear': () => { NBA.aiKey.set(''); A.keyChanged(); },
+  'ask-key-clear': () => { if (A.busy) return; NBA.aiKey.set(''); A.keyChanged(); },
 });
 document.getElementById('ask-form').addEventListener('submit', e => {
   e.preventDefault();

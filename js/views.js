@@ -71,18 +71,33 @@ function performers(games) {
     : `<p class="empty">${games.length ? 'Leaders show up once games tip off.' : 'No games on this day.'}</p>`;
   return `<div class="card">${head}<div class="card-b" style="padding-block:4px">${body}</div></div>`;
 }
+/* A team's schedule is cached for 15 minutes, so lay today's scoreboard (refreshed every 10 s while live) over it.
+   A game that just ended then shows as a result right away instead of as live or upcoming. */
+NBA.teamEvents = id => {
+  const sch = NBA.use('tsched:' + id);
+  if (!sch) return null;
+  id = String(id);
+  const by = new Map(((NBA.data('day:') || {}).games || []).map(g => [g.id, g]));
+  return sch.events.map(e => {
+    const g = by.get(e.id);
+    if (!g) return e;
+    const me = g.home.id === id ? g.home : g.away, op = me === g.home ? g.away : g.home;
+    return { ...e, state: g.state, detail: g.detail, my: me.score, their: op.score, won: me.winner };
+  });
+};
 function myTeamCard() {
   const id = NBA.S.myTeam, t = NBA.T(id), sch = NBA.use('tsched:' + id);
   if (!sch) return '';
   const today = NBA.data('day:');
   const live = today && today.games.find(g => g.state === 'in' && (g.away.id === id || g.home.id === id));
   if (live) return `<div class="card"><div class="card-h"><h3>${esc(t.name)} live</h3></div><div class="card-b">${UI.gameCard(live, false)}</div></div>`;
-  const next = sch.events.find(e => e.state === 'pre');
-  const last = sch.events.filter(e => e.state === 'post').slice(-1)[0];
+  const evs = NBA.teamEvents(id) || [];
+  const next = evs.find(e => e.state === 'pre');
+  const last = evs.filter(e => e.state === 'post').slice(-1)[0];
   return `<div class="card"><div class="card-h"><h3>${esc(t.name || 'Your team')}</h3><div class="end"><a class="chip" href="#myteam">Team page</a></div></div>
     <ul class="glist">${last ? glistItem(last) : ''}${next ? glistItem(next) : ''}</ul>${!next && !last ? '<p class="empty">No games scheduled.</p>' : ''}</div>`;
 }
-const dayCard = (iso, games) => `<div class="card day"><div class="card-h"><h3>${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'short', day: 'numeric' }))}<small>${games.length} game${games.length > 1 ? 's' : ''}</small></h3></div>
+const dayCard = (iso, games) => `<div class="card day" data-n="${games.length}"><div class="card-h"><h3>${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'short', day: 'numeric' }))}<small>${games.length} game${games.length > 1 ? 's' : ''}</small></h3></div>
   <ol class="lines">${games.map(UI.line).join('')}</ol></div>`;
 function upcoming() {
   const days = Array.from({ length: 7 }, (_, i) => NBA.shiftIso(NBA.today, i + 1));
@@ -136,6 +151,10 @@ function loadNearMonths() {
   });
 }
 window.addEventListener('scroll', loadNearMonths, { passive: true });
+/* Month jumps and the sticky month headers (here and on team pages) sit just under the sticky header, via --top-h.
+   The observer fires once right away, then whenever the header changes height (resize, rotation, the 900px breakpoint). */
+const topBar = document.getElementById('top');
+if (topBar) new ResizeObserver(() => document.documentElement.style.setProperty('--top-h', topBar.offsetHeight + 'px')).observe(topBar);
 function requestMonth(ym) {
   if (st.seasonReq.has(ym)) return NBA.need('month:' + ym);
   st.seasonReq.add(ym);
@@ -149,13 +168,43 @@ function paintSeason() {
   const days = seasonDays();
   if (!days.length) { UI.paint(el, ''); return; }
   const months = [...new Set(days.map(d => d.slice(0, 4) + d.slice(5, 7)))];
-  const top = document.getElementById('top');
-  if (top) document.documentElement.style.setProperty('--top-h', top.offsetHeight + 'px');
+  // Live polls re-render every 10 s; only rebuild the season HTML (about a thousand tip times) when something in it changed.
+  // A month refetch after its cache runs out changes the key too.
+  const key = [days[0], days.length, st.seasonMine, NBA.S.myTeam, NBA.T(NBA.S.myTeam).name, NBA.S.favorites.join(), NBA.S.tz, NBA.isDark(), NBA.S.spoilers, [...st.seasonReq].join(),
+    ...months.map(ym => { const s = NBA.status('month:' + ym); return s.t + (s.err ? 'e' : ''); })].join('|');
+  // _html is cleared when you leave the tab, so coming back always rebuilds
+  if (el._seasonKey === key && el._html) {
+    months.forEach(ym => { if (st.seasonReq.has(ym)) NBA.use('month:' + ym); });
+    loadNearMonths();
+    return;
+  }
+  el._seasonKey = key;
   UI.paint(el, seasonSkeleton(days, months));
-  months.forEach(ym => UI.paint(document.getElementById('sm-' + ym), monthHtml(ym, days)));
+  months.forEach(ym => { const sec = document.getElementById('sm-' + ym); UI.paint(sec, monthHtml(ym, days)); if (sec) masonry(sec.querySelector('.days')); });
   loadNearMonths();
 }
-NBA.after.schedule = () => paintSeason();
+/* Day cards stack like bricks: each one goes under the shortest column, so a 3-game day next to a
+   14-game day doesn't leave a hole. Cards keep their date order, filling left to right. */
+function masonry(grid) {
+  if (!grid) return;
+  // Keep the date order from the first layout: once dealt into columns, the DOM order is column by column.
+  // A repaint makes a new grid, so this never goes stale.
+  const cards = grid._cards || (grid._cards = [...grid.querySelectorAll(':scope > .day')]);
+  if (!cards.length) return;
+  const gap = parseFloat(getComputedStyle(grid).columnGap) || 18, W = grid.clientWidth;
+  const n = Math.max(1, Math.floor((W + gap) / (Math.min(520, W) + gap)));
+  if (grid._cols === n && grid._count === cards.length) return;
+  grid._cols = n; grid._count = cards.length;
+  const cols = Array.from({ length: n }, () => { const c = document.createElement('div'); c.className = 'mcol'; return c; });
+  const h = new Array(n).fill(0);
+  // Heights are estimated from the game count, so laying out never waits on a measurement
+  cards.forEach(c => { const i = h.indexOf(Math.min(...h)); cols[i].appendChild(c); h[i] += 70 + 56 * (+c.dataset.n || 1); });
+  grid.replaceChildren(...cols);
+  grid.classList.add('masoned');
+}
+NBA.masonry = masonry;
+window.addEventListener('resize', () => document.querySelectorAll('.days.masoned').forEach(masonry));
+NBA.after.schedule = view => { view.querySelectorAll('.days').forEach(masonry); paintSeason(); };
 NBA.actions.seasonmine = a => {
   st.seasonMine = !!a.dataset.v;
   paintSeason();
@@ -174,20 +223,6 @@ NBA.actions.seasonjump = a => {
 };
 NBA.actions.jumpto = a => { const el = document.getElementById(a.dataset.to); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 
-/* The speed bump: as a rest-of-season divider comes up, mouse-wheel scrolling slows to a third and settles on it.
-   On phones and trackpads, CSS scroll snapping does the same job (html:has(.sbump) in the stylesheet). */
-window.addEventListener('wheel', e => {
-  if (e.deltaY <= 0 || e.ctrlKey || e.defaultPrevented) return;
-  const b = document.querySelector('#view .sbump, #season .sbump');
-  if (!b || (e.target.closest && e.target.closest('.drawer, .tblwrap, .ask-panel, #ask-panel'))) return;
-  const top = document.getElementById('top');
-  const y = b.getBoundingClientRect().top - (top ? top.offsetHeight : 0);
-  if (y > 16 && y < innerHeight * .6) {
-    e.preventDefault();
-    const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * innerHeight : e.deltaY;
-    window.scrollBy(0, Math.max(1, Math.min(px * .3, y - 10)));
-  }
-}, { passive: false });
 NBA.actions.date = a => {
   const v = +a.dataset.v;
   if (v === 0) NBA.dayParam = '';
@@ -223,9 +258,10 @@ V.standings = () => {
     const all = confs.flatMap(c => c.rows).sort((a, b) => b.pctV - a.pctV || b.diff - a.diff);
     body = table('League', all, { conf: true });
   } else {
-    // On phones the two conferences sit side by side in a swipe track; it opens on your team's conference
+    // On phones the two conferences sit side by side in a swipe track; it opens on your team's conference.
+    // The selected tab is set after each paint (after.standings), so swiping doesn't change this HTML and force a rebuild.
     if (st.confIdx == null) st.confIdx = Math.max(0, confs.findIndex(c => c.rows.some(r => r.id === NBA.S.myTeam)));
-    body = `<div class="conf-tabs" role="tablist" aria-label="Conference">${confs.map((c, i) => `<button role="tab" data-act="confgo" data-i="${i}" aria-selected="${i === st.confIdx}">${esc(conferenceName(c.abbr))}</button>`).join('')}</div>
+    body = `<div class="conf-tabs" role="tablist" aria-label="Conference">${confs.map((c, i) => `<button role="tab" data-act="confgo" data-i="${i}" aria-selected="false">${esc(conferenceName(c.abbr))}</button>`).join('')}</div>
       <div class="st-pair" id="st-pair">${confs.map(c => table(c.name, c.rows)).join('')}</div>
       <div class="legend"><span><i class="l1"></i>Top 6 make the playoffs</span><span><i class="l2"></i>7–10 go to the play-in</span>${fav.size ? '<span>Your highlighted teams are shaded</span>' : ''}<span class="ph-only">Swipe sideways to switch conferences</span><span>Click a team for its page</span></div>`;
   }
@@ -248,6 +284,7 @@ NBA.after.standings = (view, changed) => {
   const s = confSlides(track);
   // Re-renders replace the track, so put it back on the conference being viewed
   if (changed && s[st.confIdx] && track.scrollWidth > track.clientWidth + 4) track.scrollLeft = s[st.confIdx].offsetLeft - s[0].offsetLeft;
+  if (changed) markConf(view, st.confIdx);
   if (track._bound) return;
   track._bound = true;
   track.addEventListener('scroll', () => {
@@ -287,6 +324,7 @@ V.stats = () => {
 function pmCard(rows, mode) {
   const head = `<div class="card-h"><h3>Plus-minus</h3><div class="end">${mode === 'total' ? 'Season total' : 'Per game'}</div></div>`;
   if (!rows) return `<div class="card mini">${head}<p class="note" style="padding:var(--pad)">${NBA.status('pmlead').err ? "Couldn't load plus-minus from ESPN." : 'Adding up plus-minus for rotation players…'}</p></div>`;
+  if (!rows.length) return `<div class="card mini">${head}<p class="note" style="padding:var(--pad)">No plus-minus leaders yet.</p></div>`;
   const val = r => mode === 'total' ? r.total : r.total / Math.max(1, r.gp);
   const list = rows.slice().sort((a, b) => val(b) - val(a)).slice(0, 5);
   return `<div class="card mini">${head}<ol class="rank">${list.map((r, i) => {
@@ -536,7 +574,7 @@ function teamView(id) {
 
   const today = NBA.data('day:');
   const live = today && today.games.find(g => g.state === 'in' && (g.away.id === id || g.home.id === id));
-  const evs = sch ? sch.events : [];
+  const evs = sch ? NBA.teamEvents(id) : [];
   const next = evs.find(e => e.state === 'pre');
   let nextCard;
   if (live) nextCard = `<div class="card"><div class="card-h"><h3>Live now</h3></div><div class="card-b">${UI.gameCard(live, true)}</div></div>`;

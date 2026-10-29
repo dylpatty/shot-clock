@@ -11,9 +11,25 @@ const V = NBA.views;
 const STORE = 'nba.games.v1';
 const G = (() => { try { return JSON.parse(localStorage.getItem(STORE) || 'null') || {}; } catch (e) { return {}; } })();
 const DEFAULTS = { daily: {}, hl: { best: 0 }, quiz: { right: 0, n: 0, best: 0 }, rank: { played: 0, points: 0, perfect: 0 }, team: { right: 0, n: 0 }, picks: {} };
-Object.keys(DEFAULTS).forEach(k => { if (!G[k] || typeof G[k] !== 'object') G[k] = DEFAULTS[k]; });
-if (!Array.isArray(G.props)) G.props = [];
+// Missing sections start from a copy, so playing never changes DEFAULTS itself
+const fill = () => {
+  Object.keys(DEFAULTS).forEach(k => { if (!G[k] || typeof G[k] !== 'object') G[k] = JSON.parse(JSON.stringify(DEFAULTS[k])); });
+  if (!Array.isArray(G.props)) G.props = [];
+};
+fill();
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(G)); } catch (e) { /* storage blocked: progress lasts for this visit */ } };
+// Another tab saved: take its copy, so this tab's next save can't write stale progress over it.
+// G is refilled in place because every game reads it through this one reference.
+window.addEventListener('storage', e => {
+  if (e.key !== STORE || !e.newValue) return;
+  let n;
+  try { n = JSON.parse(e.newValue); } catch (err) { return; }
+  if (!n || typeof n !== 'object') return;
+  Object.keys(G).forEach(k => delete G[k]);
+  Object.assign(G, n);
+  fill();
+  NBA.changed();
+});
 
 /* ---------- helpers ---------- */
 const rnd = n => Math.floor(Math.random() * n);
@@ -365,7 +381,10 @@ function resolvePicks() {
     if (p.result) return;
     const day = NBA.use(dayKey(p.param));
     const g = day && day.games.find(x => x.id === gid);
-    if (!g || g.state !== 'post' || g.away.score === '' || g.home.score === '') return;
+    if (!g || g.state !== 'post') return;
+    // Postponed or canceled games end without being completed (and read 0-0): void the pick instead of grading it
+    if (g.completed === false) { delete G.picks[gid]; dirty = true; return; }
+    if (g.away.score === '' || g.home.score === '') return;
     const winner = +g.away.score > +g.home.score ? g.away : g.home;
     p.result = winner.id === p.team ? 'W' : 'L';
     p.final = `${g.away.abbr} ${g.away.score}, ${g.home.abbr} ${g.home.score}`;
@@ -387,12 +406,15 @@ function pickView() {
   const end = `<span class="gm-score">Record <b>${rec.w}-${rec.l}</b>${rec.w + rec.l ? ` · ${pct(rec.w, rec.w + rec.l)}` : ''}</span>`;
   const gameRow = (g, param) => {
     const p = G.picks[g.id], locked = started(g);
+    // No-spoiler mode: the ✓/✗ on your pick gives the winner away as surely as the score does
+    const hide = NBA.S.spoilers && g.state !== 'pre' && !UI.st.revealed.has(g.id);
     const btn = t => {
       const on = p && p.team === t.id;
-      const mark = on && p.result ? `<span class="pk-res ${p.result === 'W' ? 'w' : 'lo'}">${p.result === 'W' ? '✓' : '✗'}</span>` : '';
+      const mark = on && p.result && !hide ? `<span class="pk-res ${p.result === 'W' ? 'w' : 'lo'}">${p.result === 'W' ? '✓' : '✗'}</span>` : '';
       return `<button class="pk-team${on ? ' on' : ''}" data-act="pick" data-g="${g.id}" data-t="${t.id}" data-p="${param}"${locked ? ' disabled' : ''} aria-pressed="${!!on}">${UI.logo(t, 32)}<span><b>${esc(t.name)}</b><small>${esc(t.record || '')}</small></span>${mark}</button>`;
     };
-    const mid = g.state === 'post' ? `<b>Final</b><small>${NBA.S.spoilers ? '' : `${esc(g.away.score)}-${esc(g.home.score)}`}</small>`
+    const mid = g.state === 'post' && g.completed === false ? `<b>${esc(g.detail || 'Postponed')}</b>`
+      : g.state === 'post' ? `<b>Final</b><small>${hide ? '' : `${esc(g.away.score)}-${esc(g.home.score)}`}</small>`
       : g.state === 'in' ? `<b class="live">Live</b><small>${esc(g.detail)}</small>`
       : locked ? '<b>Locked</b>' : `<b>${esc(UI.tipTime(g))}</b>${g.odds && g.odds.details ? `<small>${esc(g.odds.details)}</small>` : ''}`;
     return `<div class="pk-game${UI.isMine(g) ? ' mine' : ''}">${btn(g.away)}<div class="pk-mid">${mid}</div>${btn(g.home)}</div>`;
@@ -406,8 +428,13 @@ function pickView() {
     const open = s.day.games.filter(g => !started(g)).length;
     return `<div class="pk-slate"><h4>${s.label} <span class="mut">${open ? `${open} open to pick` : 'all locked'}</span></h4><div class="pk-grid">${NBA.sortGames(s.day.games).map(g => gameRow(g, s.param)).join('')}</div></div>`;
   }).join('');
-  const past = Object.values(G.picks).filter(p => p.result).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 12);
-  const history = past.length ? `<div class="pk-hist"><h4>Recent results</h4><ul>${past.map(p => `<li><span class="pk-res ${p.result === 'W' ? 'w' : 'lo'}">${p.result === 'W' ? '✓' : '✗'}</span><span>Picked <b>${esc(p.pickAbbr)}</b> · ${esc(p.final)}</span><small>${esc(NBA.fmtDate(p.date, { month: 'short', day: 'numeric' }))}</small></li>`).join('')}</ul></div>` : '';
+  // Keyed by game id so no-spoiler mode can check which results you have already seen
+  const past = Object.entries(G.picks).filter(([, p]) => p.result).sort(([, a], [, b]) => new Date(b.date) - new Date(a.date)).slice(0, 12);
+  const history = past.length ? `<div class="pk-hist"><h4>Recent results</h4><ul>${past.map(([gid, p]) => {
+    const hide = NBA.S.spoilers && !UI.st.revealed.has(gid);
+    const res = hide ? '<span class="pp-st wait">•</span>' : `<span class="pk-res ${p.result === 'W' ? 'w' : 'lo'}">${p.result === 'W' ? '✓' : '✗'}</span>`;
+    return `<li>${res}<span>Picked <b>${esc(p.pickAbbr)}</b> · ${hide ? 'Final' : esc(p.final)}</span><small>${esc(NBA.fmtDate(p.date, { month: 'short', day: 'numeric' }))}</small></li>`;
+  }).join('')}</ul></div>` : '';
   return card("Pick'em", end, `<p class="gm-how">Tap the team you think wins. Home teams are on the right. Picks lock at tip-off, and your record updates when games go final. The line shown is DraftKings' spread.</p>${sections}${history}`);
 }
 NBA.actions.pick = a => {
@@ -468,10 +495,15 @@ function propView() {
   const cands = known(220).filter(p => next.has(p.teamId) && (!young || (p.age && p.age <= 23))).sort((a, b) => young ? b.pts - a.pts : b.min - a.min).slice(0, 10);
   const sel = st.ppSel && byId(st.ppSel);
   const nextLine = p => { const n = next.get(p.teamId); return n ? `${n.at} ${esc(n.opp.abbr)} · ${esc(NBA.fmtDate(n.g.date, { weekday: 'short' }))} ${esc(NBA.fmtTime(n.g.date))}` : 'Next game not on the schedule yet'; };
+  const full = open.length >= 15;
   const builder = sel ? `<div class="pp-sel">${UI.hs(sel.headshot)}<div><div class="nm">${esc(sel.name)}</div><div class="mut">${who(sel)} · Next: ${nextLine(sel)}</div></div><button class="btn" data-act="ppsel" data-id="">Change</button></div>
+      ${full ? '<p class="note">You have 15 open calls. Cancel one under Your calls, or wait for them to be graded.</p>' : ''}
       <div class="pp-lines">${PROP_STATS.filter(k => sel[k] >= .5).map(k => {
         const avg = sel[k], line = lineOf(avg), bo = breakoutOf(avg), s = STAT[k];
-        const b = (side, tier, ln, label) => `<button class="btn pp-btn${tier === 'breakout' ? ' bo' : ''}" data-act="ppcall" data-k="${k}" data-side="${side}" data-tier="${tier}" data-line="${ln}">${label}</button>`;
+        const mine = open.filter(x => x.pid === sel.id && x.stat === k);
+        // Off when that exact call is already open, or at the 15-call limit (switching an open call's side still works)
+        const off = (side, tier) => mine.some(x => x.side === side && x.tier === tier) || (full && !mine.some(x => x.tier === tier));
+        const b = (side, tier, ln, label) => `<button class="btn pp-btn${tier === 'breakout' ? ' bo' : ''}" data-act="ppcall" data-k="${k}" data-side="${side}" data-tier="${tier}" data-line="${ln}"${off(side, tier) ? ' disabled' : ''}>${label}</button>`;
         return `<div class="pp-line"><div class="pp-k"><b>${s.label}</b><small>Season ${NBA.fix(avg)}</small></div>${b('over', 'line', line, `Over ${line}`)}${b('under', 'line', line, `Under ${line}`)}${b('over', 'breakout', bo, `Breakout ${bo}+ <small>3 pts</small>`)}</div>`;
       }).join('')}</div>`
     : `<div class="gm-find"><label class="sr" for="pp-q">Find a player</label><input class="field big" id="pp-q" data-in="ppq" type="search" autocomplete="off" spellcheck="false" placeholder="Search any player" value="${esc(st.ppQ || '')}">${suggestions(st.ppQ, 'ppsel')}</div>
@@ -491,6 +523,8 @@ NBA.actions.ppcall = a => {
   if (!p) return;
   const { k, side, tier } = a.dataset, line = +a.dataset.line;
   if (G.props.some(x => !x.result && x.pid === p.id && x.stat === k && x.side === side && x.tier === tier)) return;
+  // A new call on the same player, stat and tier switches the open one, so you can't hold Over and Under at once
+  G.props = G.props.filter(x => x.result || x.pid !== p.id || x.stat !== k || x.tier !== tier);
   if (G.props.filter(x => !x.result).length >= 15) return;
   G.props.push({ id: Date.now().toString(36) + rnd(1e4), pid: p.id, name: p.name, stat: k, side, tier, line, made: Date.now() });
   save();

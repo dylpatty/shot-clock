@@ -7,6 +7,7 @@ const NBA = window.NBA, UI = NBA.ui, st = UI.st;
 const { esc } = NBA;
 const V = NBA.views;
 st.deckIdx = st.deckIdx || {};
+st.deckKey = st.deckKey || {};
 
 const mean = a => a.reduce((n, v) => n + v, 0) / (a.length || 1);
 const rec = s => { const m = /^(\d+)-(\d+)/.exec(s || ''); return m ? { w: +m[1], l: +m[2] } : null; };
@@ -33,7 +34,8 @@ NBA.topPlayers = (n = 25) => {
 };
 
 /* ---------- logo scatter charts ---------- */
-const niceStep = (span, n) => { const raw = span / Math.max(1, n), p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; };
+// Steps are 1, 2 or 5 times a power of ten only: a 2.5 step would put ticks at x.5, which the whole-number labels can't show
+const niceStep = (span, n) => { const raw = span / Math.max(1, n), p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; };
 const tickFmt = step => v => step < 1 ? v.toFixed(step < .1 ? 2 : 1) : String(Math.round(v));
 const LOG_TICKS = [.1, .2, .5, 1, 2, 5, 10, 20, 50, 100];
 function drawChart(wrap, spec) {
@@ -69,8 +71,10 @@ function drawChart(wrap, spec) {
   }
   if (spec.diag) { const lo = Math.max(x0, y0), hi = Math.min(x1, y1); if (hi > lo) guides += `<line class="avg" x1="${X(lo)}" y1="${Yt(lo)}" x2="${X(hi)}" y2="${Yt(hi)}"/>`; }
   const q = narrow && spec.quadsShort ? spec.quadsShort : spec.quads;
-  if (q) guides += `<text class="quad" x="${W - m.r - 6}" y="${m.t + 16}" text-anchor="end">${esc(q[0])}</text><text class="quad" x="${m.l + 6}" y="${m.t + 16}">${esc(q[1])}</text>
-    <text class="quad" x="${W - m.r - 6}" y="${H - m.b - 8}" text-anchor="end">${esc(q[2])}</text><text class="quad" x="${m.l + 6}" y="${H - m.b - 8}">${esc(q[3])}</text>`;
+  // On narrow charts the left and right corner labels sit on separate lines so they can't run into each other
+  const dy = narrow ? 15 : 0;
+  if (q) guides += `<text class="quad" x="${W - m.r - 6}" y="${m.t + 16 + dy}" text-anchor="end">${esc(q[0])}</text><text class="quad" x="${m.l + 6}" y="${m.t + 16}">${esc(q[1])}</text>
+    <text class="quad" x="${W - m.r - 6}" y="${H - m.b - 8 - dy}" text-anchor="end">${esc(q[2])}</text><text class="quad" x="${m.l + 6}" y="${H - m.b - 8}">${esc(q[3])}</text>`;
   // Highlighted teams draw last so they sit on top
   const order = pts.slice().sort((a, b) => (a.on ? 1 : 0) - (b.on ? 1 : 0));
   const img = p => spec.face
@@ -86,10 +90,11 @@ function drawChart(wrap, spec) {
   const show = g => {
     const [name, line] = g.dataset.tip.split('|');
     tip.innerHTML = `<b>${esc(name)}</b>${esc(line || '')}`;
-    const r = wrap.getBoundingClientRect(), b = g.getBoundingClientRect();
-    tip.style.left = Math.max(90, Math.min(r.width - 90, b.left + b.width / 2 - r.left)) + 'px';
-    tip.style.top = (b.top - r.top) + 'px';
     tip.hidden = false;
+    // Clamp by the tip's real width so long lines aren't cut off at the card edges
+    const r = wrap.getBoundingClientRect(), b = g.getBoundingClientRect(), half = tip.offsetWidth / 2 + 4;
+    tip.style.left = Math.max(half, Math.min(r.width - half, b.left + b.width / 2 - r.left)) + 'px';
+    tip.style.top = (b.top - r.top) + 'px';
   };
   wrap.querySelectorAll('.pt').forEach(g => {
     g.addEventListener('pointerenter', () => show(g));
@@ -214,7 +219,11 @@ function chartSpecs() {
   }
   return out;
 }
-const chartCard = (s, chrome = 230) => `<article class="card chart-card"><div class="card-h"><h3>${esc(s.title)}</h3><div class="end"><span class="eyebrow">${esc(s.sub)}</span></div></div>
+// Each chart leads with a big title and a plain "this vs. that" line naming both axes
+const axisName = l => String(l).replace(/\s*\([^)]*\)/g, '');
+const chartCard = (s, { chrome = 300, tag = '' } = {}) => `<article class="card chart-card"><header class="chart-head">
+    ${tag ? `<span class="tag-day">${esc(tag)}</span>` : ''}<h3 class="chart-title">${esc(s.title)}</h3>
+    <p class="chart-what">${esc(axisName(s.xLabel))} <span class="vs">vs.</span> ${esc(axisName(s.yLabel))}<small>${esc(s.sub)}</small></p></header>
   <div class="scatter-wrap" data-chart="${s.id}" data-chrome="${chrome}"></div>
   <p class="note chart-note">${esc(s.note ? s.note + ' ' : '')}Hover or tap a logo for details; click it to open ${s.face ? 'the player' : 'the team'}.</p></article>`;
 function loadChartData() {
@@ -228,7 +237,7 @@ NBA.chartDeck = () => {
   specs.forEach(s => SPECS.set(s.id, s));
   if (!specs.length) return '<p class="loading">Loading charts…</p>';
   return `<div class="sec-h"><h3>Swipe the charts</h3><span class="sub">${specs.length} charts · swipe, use the arrows, or press ← →</span></div>
-    ${deckHtml('deck-charts', specs.map(s => chartCard(s)), { label: 'Charts', cls: 'deck-charts' })}`;
+    ${deckHtml('deck-charts', specs.map(s => chartCard(s)), { label: 'Charts', cls: 'deck-charts', keys: specs.map(s => s.id) })}`;
 };
 // Draw each chart once its card has a real size, and again only when its data or the screen size changes
 function drawCharts(root) {
@@ -243,10 +252,11 @@ function drawCharts(root) {
 /* ---------- the card deck ----------
    A native scroll-snap carousel: the browser's own scrolling moves the cards on the graphics compositor,
    so a swipe tracks your finger at the screen's full refresh rate. With a mouse you can drag it too. */
-function deckHtml(id, cards, { label = 'Cards', cls = '' } = {}) {
+// `keys` name each card so a re-render can return to the same card even when new ones land before it
+function deckHtml(id, cards, { label = 'Cards', cls = '', keys = [] } = {}) {
   const n = cards.length;
   return `<div class="deck ${cls}" role="region" aria-roledescription="carousel" aria-label="${esc(label)}">
-    <div class="deck-track" id="${id}" tabindex="0" aria-label="${esc(label)}: swipe, drag or use the arrow keys">${cards.map((c, i) => `<div class="deck-slide" role="group" aria-roledescription="card" aria-label="${i + 1} of ${n}">${c}</div>`).join('')}<div class="deck-end" aria-hidden="true"></div></div>
+    <div class="deck-track" id="${id}" tabindex="0" aria-label="${esc(label)}: swipe, drag or use the arrow keys">${cards.map((c, i) => `<div class="deck-slide"${keys[i] != null ? ` data-key="${esc(keys[i])}"` : ''} role="group" aria-roledescription="card" aria-label="${i + 1} of ${n}">${c}</div>`).join('')}<div class="deck-end" aria-hidden="true"></div></div>
     <div class="deck-bar"><button class="ib" data-act="deckgo" data-deck="${id}" data-dir="-1" aria-label="Previous card">${UI.I.left}</button>
       <div class="deck-prog" aria-hidden="true"><i></i></div><span class="deck-count"><b>1</b> / ${n}</span>
       <button class="ib" data-act="deckgo" data-deck="${id}" data-dir="1" aria-label="Next card">${UI.I.right}</button></div></div>`;
@@ -261,6 +271,7 @@ function deckState(track) {
   if (track._i === i) return;
   track._i = i;
   st.deckIdx[track.id] = i;
+  st.deckKey[track.id] = slides(track)[i].dataset.key;
   const deck = track.parentElement;
   deck.querySelector('.deck-count b').textContent = i + 1;
   deck.querySelector('.deck-prog i').style.transform = `scaleX(${((i + 1) / n).toFixed(4)})`;
@@ -268,33 +279,51 @@ function deckState(track) {
 function goTo(t, i) {
   const n = slides(t).length;
   i = Math.max(0, Math.min(n - 1, i));
+  // Remember where we're heading, so a quick second click or a held arrow key steps on from there
+  t._target = i;
+  clearTimeout(t._tgtT);
+  t._tgtT = setTimeout(() => { t._target = null; }, 700); // in case scrollend never fires (older Safari)
   t.scrollTo({ left: i * slideStep(t), behavior: reduceMotion.matches ? 'auto' : 'smooth' });
 }
+const curIdx = t => t._target != null ? t._target : Math.round(t.scrollLeft / slideStep(t));
 // Mouse dragging; touch already scrolls natively
 function bindDrag(t) {
   let pid = null, x0 = 0, s0 = 0, moved = 0;
   const settle = () => { clearTimeout(t._settle); t._settle = setTimeout(() => t.classList.remove('dragging'), 450); };
   t.addEventListener('pointerdown', e => {
+    t._swallow = false;
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
-    pid = e.pointerId; x0 = e.clientX; s0 = t.scrollLeft; moved = 0;
+    pid = e.pointerId; x0 = e.clientX; s0 = t.scrollLeft; moved = 0; t._target = null;
+    // Drag mode waits for the mouse to move, so a plain click still reaches the logo or card under it
     clearTimeout(t._settle);
-    t.classList.add('dragging');
+    t.classList.remove('dragging');
+    // The button can come up outside the deck before the pointer is captured
+    window.addEventListener('pointerup', end, { once: true });
   });
   t.addEventListener('pointermove', e => {
     if (e.pointerId !== pid) return;
+    if (!(e.buttons & 1)) { end(e); return; }
     const dx = e.clientX - x0;
     moved = Math.max(moved, Math.abs(dx));
-    if (moved > 4 && !t.hasPointerCapture(pid)) { try { t.setPointerCapture(pid); } catch (err) { /* pointer already gone */ } }
+    if (moved <= 4) return;
+    if (!t.classList.contains('dragging')) {
+      t.classList.add('dragging');
+      try { t.setPointerCapture(pid); } catch (err) { /* pointer already gone */ }
+      // Drop any text the first few pixels of the drag selected
+      const sel = window.getSelection && getSelection();
+      if (sel) sel.removeAllRanges();
+    }
     t.scrollLeft = s0 - dx;
   });
   const end = e => {
     if (e.pointerId !== pid) return;
     pid = null;
+    if (moved <= 4) return; // a plain click: nothing moved, so let it through
     const step = slideStep(t), from = Math.round(s0 / step), d = t.scrollLeft - s0;
     // A short, deliberate drag still moves one card
     goTo(t, Math.abs(d) > 40 ? from + Math.sign(d) : from);
     settle();
-    if (moved > 4) t._swallow = true;
+    t._swallow = true;
   };
   t.addEventListener('pointerup', end);
   t.addEventListener('pointercancel', end);
@@ -306,16 +335,19 @@ function bindDecks(root) {
   root.querySelectorAll('.deck-track').forEach(t => {
     if (!t._bound) {
       t._bound = true;
-      // Re-renders replace the deck, so put it back on the card you were looking at
-      const i = st.deckIdx[t.id] || 0;
+      // Re-renders replace the deck, so put it back on the card you were looking at. Find it by key first:
+      // cards that load later can land before it and shift its position.
+      let i = st.deckIdx[t.id] || 0;
+      const k = st.deckKey[t.id];
+      if (k != null) { const j = [...slides(t)].findIndex(s => s.dataset.key === k); if (j >= 0) i = j; }
       if (i) t.scrollLeft = i * slideStep(t);
       const tick = () => { if (!t._raf) t._raf = requestAnimationFrame(() => { t._raf = 0; deckState(t); }); };
       t.addEventListener('scroll', tick, { passive: true });
-      t.addEventListener('scrollend', () => deckState(t));
+      t.addEventListener('scrollend', () => { t._target = null; deckState(t); });
       t.addEventListener('keydown', e => {
         if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
         e.preventDefault();
-        goTo(t, Math.round(t.scrollLeft / slideStep(t)) + (e.key === 'ArrowRight' ? 1 : -1));
+        goTo(t, curIdx(t) + (e.key === 'ArrowRight' ? 1 : -1));
       });
       bindDrag(t);
     }
@@ -325,9 +357,15 @@ function bindDecks(root) {
 }
 NBA.actions.deckgo = a => {
   const t = document.getElementById(a.dataset.deck);
-  if (t) goTo(t, Math.round(t.scrollLeft / slideStep(t)) + (+a.dataset.dir));
+  if (t) goTo(t, curIdx(t) + (+a.dataset.dir));
 };
-window.addEventListener('resize', () => { document.querySelectorAll('.deck-track').forEach(t => { t._i = null; deckState(t); }); drawCharts(document); });
+let chartRz = 0;
+window.addEventListener('resize', () => {
+  document.querySelectorAll('.deck-track').forEach(t => { t._i = null; deckState(t); });
+  // Redrawing every chart is heavy, so wait until the resize settles; the SVGs scale down to fit meanwhile
+  clearTimeout(chartRz);
+  chartRz = setTimeout(() => drawCharts(document), 150);
+});
 NBA.after.facts = view => { bindDecks(view); drawCharts(view); };
 
 /* ================= Home ================= */
@@ -370,7 +408,7 @@ function topMovement(ids) {
 const clockSecs = c => { const s = String(c || ''); if (s.includes(':')) { const [m, x] = s.split(':'); return +m * 60 + parseFloat(x); } return parseFloat(s); };
 const surname = n => String(n || '').trim().split(' ').slice(-1)[0];
 const dayKeyOf = iso => iso === NBA.today ? 'day:' : 'day:' + NBA.paramOf(iso);
-function heroMessage({ now, games, live, myId, t, sch, mine }) {
+function heroMessage({ now, games, live, myId, t, sch, mine, loaded }) {
   const name = t.name || 'your team', hide = NBA.S.spoilers;
   const score = (a, b) => `${a.abbr} ${a.score}, ${b.abbr} ${b.score}`;
   // 1. Your team is on right now
@@ -390,9 +428,17 @@ function heroMessage({ now, games, live, myId, t, sch, mine }) {
   if (last && !hide && now - new Date(last.date) < 22 * 3600000) {
     const m = (+last.my) - (+last.their), opp = NBA.T(last.oppId).name || last.oppAbbr || 'opponent', fin = `${last.my}-${last.their}`;
     if (last.won && m <= 3) {
-      // A game-winner: our last basket of the night came in the final five seconds
+      // A game-winner: the score that last put us ahead came in the final five seconds.
+      // Late free throws that only stretch a lead don't count.
       const sum = NBA.use('summary:' + last.id), plays = (sum && sum.plays) || [];
-      const shot = plays.slice().reverse().find(p => p.scoring);
+      const my = sum && sum.home && sum.home.id === myId ? 'home' : 'away', op = my === 'home' ? 'away' : 'home';
+      let shot = null, prev = 0;
+      plays.forEach(p => {
+        if (!p.scoring || p[my] == null) return;
+        const lead = (+p[my] || 0) - (+p[op] || 0);
+        if (lead > 0 && prev <= 0) shot = p;
+        prev = lead;
+      });
       if (shot && shot.teamId === myId && shot.period >= 4 && clockSecs(shot.clock) <= 5) return { title: 'Bang!', sub: `${shot.text} with ${shot.clock} left to beat the ${opp} ${fin}.` };
     }
     const day = NBA.use(dayKeyOf(NBA.etDay(last.date))), game = day && day.games.find(x => x.id === last.id);
@@ -408,14 +454,14 @@ function heroMessage({ now, games, live, myId, t, sch, mine }) {
   // 3. Your team plays today
   const next = sch && sch.events.find(e => e.state === 'pre');
   if (next && NBA.etDay(next.date) === NBA.today) return { title: 'Game day', sub: `${t.name || ''} ${next.home ? 'vs.' : 'at'} the ${NBA.T(next.oppId).name || next.oppAbbr} · tip-off ${NBA.fmtTime(next.date)}${next.tv ? ' on ' + next.tv : ''}.` };
-  // 4. The calendar
+  // 4. The calendar, only once there are games to count (not while they load, or on a playoff off-day)
   const md = NBA.today.slice(5);
   const cup = games.filter(x => /Cup|In-Season/i.test(x.note || '')).length;
-  if (NBA.seasonType === 3) return { title: 'Playoff hoops', sub: `${games.length} playoff game${games.length === 1 ? '' : 's'} today.` };
+  if (games.length && NBA.seasonType === 3) return { title: 'Playoff hoops', sub: `${games.length} playoff game${games.length === 1 ? '' : 's'} today.` };
   if (cup) return { title: 'NBA Cup night', sub: `${cup} Cup game${cup === 1 ? '' : 's'} on the schedule today.` };
-  if (md === '12-25') return { title: 'Christmas hoops', sub: `${games.length} games on the NBA's biggest regular-season day.` };
-  if (md === '12-31' || md === '01-01') return { title: 'New year hoops', sub: `${games.length} games to ring it in.` };
-  if (md === '10-31') return { title: 'Halloween hoops', sub: `${games.length} games tonight. Nothing scarier than a 30-point quarter.` };
+  if (games.length && md === '12-25') return { title: 'Christmas hoops', sub: `${games.length} games on the NBA's biggest regular-season day.` };
+  if (games.length && (md === '12-31' || md === '01-01')) return { title: 'New year hoops', sub: `${games.length} games to ring it in.` };
+  if (games.length && md === '10-31') return { title: 'Halloween hoops', sub: `${games.length} games tonight. Nothing scarier than a 30-point quarter.` };
   // 5. Streaks
   const sv = mine ? mine.strkV : 0;
   if (mine && /^W/.test(mine.strk) && sv >= 4) return { title: `${sv} straight`, sub: `The ${name} have won ${sv} in a row.` };
@@ -424,7 +470,7 @@ function heroMessage({ now, games, live, myId, t, sch, mine }) {
   const hr = now.getHours();
   if (live.length >= 6) return { title: 'Full slate', sub: `${live.length} games on right now.` };
   if (hr < 5) return { title: 'Late-night hoops', sub: live.length ? `${live.length} game${live.length > 1 ? 's' : ''} still going.` : '' };
-  if (!games.length) return { title: 'Off night', sub: 'No games today. Catch up on the standings and fun facts below.' };
+  if (loaded && !games.length) return { title: 'Off night', sub: 'No games today. Catch up on the standings and fun facts below.' };
   return { title: hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening', sub: '' };
 }
 /* Niche, ESPN-style facts that change as games are played: season "clubs" only a few players belong to,
@@ -521,12 +567,29 @@ function gameTile(g) {
   const row = t => `<span class="hg-row${won(t)}">${UI.logo(t, 28)}<span class="hg-ab">${esc(t.abbr)}</span><small>${esc(t.record || '')}</small>${sc(t)}</span>`;
   return `<button class="hg${g.state === 'in' ? ' live' : ''}${UI.isMine(g) ? ' mine' : ''}" data-act="game" data-id="${g.id}"><span class="hg-st">${status}</span>${row(g.away)}${row(g.home)}</button>`;
 }
+// Charts that can be the chart of the day, in a fixed order, with the feeds each needs besides standings
+// ('week' is the last 7 days of scoreboards)
+const DAY_CHARTS = {
+  offdef: [], ratings: ['teamstats'], pace: ['teamstats'], threes: ['teamstats'], possessions: ['teamstats'], luck: ['teamstats'], homeroad: [],
+  age: ['players'], trend: ['teamstats', 'week'], vegas: ['futures'], astto: ['players'], shots: ['players'], deep: ['players'], line: ['players'], mvp: ['futures', 'players'],
+};
+// The parts of Home that NBA.after.home paints, each only when its own HTML changes
+let homeParts = { hero: '', games: '', rest: '' };
 V.home = () => {
   const day = NBA.use('day:'), confs = NBA.use('standings'), news = NBA.use('news:');
   ['players', 'teamstats', 'futures'].forEach(k => NBA.use(k));
-  const myId = NBA.S.myTeam, t = NBA.T(myId), sch = NBA.use('tsched:' + myId), sm = NBA.standingsMap(), mine = sm.get(myId);
+  const myId = NBA.S.myTeam, t = NBA.T(myId), sch0 = NBA.use('tsched:' + myId), sm = NBA.standingsMap(), mine = sm.get(myId);
   const now = new Date();
   const games = day ? NBA.sortGames(day.games) : [];
+  // The team schedule is cached for 15 minutes, so take today's game state and score from the scoreboard,
+  // which refreshes every poll. Otherwise a game that just ended still looks live (or not started) here.
+  const dayById = new Map(games.map(g => [g.id, g]));
+  const sch = sch0 && Object.assign({}, sch0, { events: sch0.events.map(e => {
+    const g = dayById.get(e.id);
+    if (!g || g.state === e.state) return e;
+    const me = g.away.id === myId ? g.away : g.home, op = me === g.away ? g.home : g.away;
+    return Object.assign({}, e, { state: g.state, detail: g.detail, my: me.score, their: op.score, won: g.state === 'post' ? me.winner : e.won });
+  }) });
   const live = games.filter(g => g.state === 'in');
   const nextTip = games.filter(g => g.state === 'pre' && new Date(g.date) > now).sort((a, b) => new Date(a.date) - new Date(b.date))[0];
   const until = d => { const m = Math.max(1, Math.round((new Date(d) - now) / 60000)); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
@@ -558,7 +621,7 @@ V.home = () => {
       <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(/TBD/i.test(myNext.detail || '') ? 'Time TBD' : NBA.fmtTime(myNext.date))}${myNext.tv ? ' · ' + esc(myNext.tv) : ''}</span>
       <span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span></button>`;
   }
-  const msg = heroMessage({ now, games, live, myId, t, sch, mine });
+  const msg = heroMessage({ now, games, live, myId, t, sch, mine, loaded: !!day });
   const star = t.abbr ? marqueeOf(myId) : null;
   const hero = `<section class="home-hero${nextPanel ? ' has-next' : ''}${star ? ' has-star' : ''}" style="--tc:${esc(t.color || '#444')}">
     ${star && star.headshot ? `<img class="hh-star" src="${esc(star.headshot)}" alt="" aria-hidden="true">` : ''}
@@ -568,13 +631,13 @@ V.home = () => {
 
   const strip = !day ? '<p class="loading">Loading games…</p>' : games.length
     ? `<div class="hg-strip">${games.map(gameTile).join('')}</div>` : '<p class="empty">No games today.</p>';
-  const gamesSec = `<section class="sec"><div class="sec-h"><h2>${live.length ? 'Live and today' : 'Today'}</h2><span class="sub">Tap a game for the box score</span><div class="end"><a class="chip" href="#schedule">Full schedule</a></div></div>${strip}</section>`;
+  const gamesSec = `<div class="sec-h"><h2>${live.length ? 'Live and today' : 'Today'}</h2><span class="sub">Tap a game for the box score</span><div class="end"><a class="chip" href="#schedule">Full schedule</a></div></div>${strip}`;
 
   // Fun fact deck: the Fun Facts cards plus niche season clubs and last night's oddities, shuffled each visit
   const fg = NBA.factGroups();
   const facts = fg ? shuffleFacts(fg.league.concat(fg.people, fg.week, nicheFacts())) : [];
   const factCard = `<div class="card hm hm-facts"><div class="card-h"><h3>Did you know?</h3><div class="end"><a class="chip" href="#facts">All fun facts</a></div></div>
-    <div class="card-b">${facts.length ? deckHtml('deck-home-facts', facts, { label: 'Fun facts', cls: 'deck-facts' }) : '<p class="loading">Dealing the cards…</p>'}</div></div>`;
+    <div class="card-b">${facts.length ? deckHtml('deck-home-facts', facts, { label: 'Fun facts', cls: 'deck-facts', keys: facts.map(factKey) }) : '<p class="loading">Dealing the cards…</p>'}</div></div>`;
 
   // Your team
   let teamCard = '';
@@ -609,11 +672,19 @@ V.home = () => {
     ${confs ? `<div class="hs-cols">${confs.map(c => `<div><div class="eyebrow">${esc(c.name || c.abbr)}</div><ol class="hs-list">${c.rows.slice().sort((a, b) => (a.seed || 99) - (b.seed || 99)).map(standRow).join('')}</ol></div>`).join('')}</div>
       <p class="note" style="padding:0 var(--pad) var(--pad)">Top 6 make the playoffs; 7–10 play in.</p>` : '<p class="loading" style="padding:var(--pad)">Loading standings…</p>'}</div>`;
 
-  // Chart of the day, from the charts that don't need all 30 rosters
-  const specs = chartSpecs().filter(s => !['payroll', 'value', 'rookies', 'height-reb', 'height-blk'].includes(s.id));
+  // Chart of the day, from the charts that don't need all 30 rosters. It's picked from a fixed list so it doesn't
+  // swap as each feed arrives; only once today's pick has its data (or its feed failed) and still can't be drawn
+  // does the next chart in the list stand in.
+  const specs = chartSpecs().filter(s => DAY_CHARTS[s.id]);
   specs.forEach(s => SPECS.set(s.id, s));
-  const cod = specs.length ? specs[hashStr('chart' + NBA.today) % specs.length] : null;
-  const chartDay = cod ? `<div class="hm hm-chart">${chartCard(cod, 260).replace('<div class="end">', '<div class="end"><span class="tag-day">Chart of the day</span>')}<a class="chip hm-more" href="#facts">Swipe all the charts</a></div>` : '';
+  const week = Array.from({ length: 7 }, (_, i) => i ? 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -i)) : 'day:');
+  const settled = k => NBA.data(k) !== undefined || !!NBA.status(k).err;
+  const pool = Object.keys(DAY_CHARTS), at = hashStr('chart' + NBA.today) % pool.length, want = pool[at];
+  const ready = ['standings', ...DAY_CHARTS[want]].flatMap(k => k === 'week' ? week : [k]).every(settled);
+  let cod = specs.find(s => s.id === want) || null;
+  for (let i = 1; !cod && ready && i < pool.length; i++) cod = specs.find(s => s.id === pool[(at + i) % pool.length]) || null;
+  const chartDay = cod ? `<div class="hm hm-chart">${chartCard(cod, { chrome: 320, tag: 'Chart of the day' })}<a class="chip hm-more" href="#facts">Swipe all the charts</a></div>`
+    : ready ? '' : '<div class="hm hm-chart"><p class="loading">Loading chart…</p></div>';
 
   // League leaders
   const LEAD = [['pts', 'Points'], ['reb', 'Rebounds'], ['ast', 'Assists'], ['tpm', 'Threes'], ['stl', 'Steals'], ['blk', 'Blocks']];
@@ -622,15 +693,33 @@ V.home = () => {
 
   // News
   const stories = (news || []).filter(a => a.links && a.links.web).slice(0, 5);
+  // Fresh stories say "In the last hour" rather than "5m ago", so the cards don't repaint every minute
+  const ago = iso => Date.now() - new Date(iso) < 3600000 ? 'In the last hour' : NBA.relTime(iso);
   const newsCard = `<div class="card hm hm-news"><div class="card-h"><h3>Latest news</h3><div class="end"><a class="chip" href="#news">More</a></div></div>
-    ${stories.length ? `<ul class="hn-list">${stories.map(a => { const img = a.images && a.images[0] && a.images[0].url; return `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : ''}<span><b>${esc(a.headline)}</b><small>${esc(NBA.relTime(a.published))}</small></span></a></li>`; }).join('')}</ul>` : '<p class="loading" style="padding:var(--pad)">Loading news…</p>'}</div>`;
+    ${stories.length ? `<ul class="hn-list">${stories.map(a => { const img = a.images && a.images[0] && a.images[0].url; return `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : ''}<span><b>${esc(a.headline)}</b><small>${esc(ago(a.published))}</small></span></a></li>`; }).join('')}</ul>` : '<p class="loading" style="padding:var(--pad)">Loading news…</p>'}</div>`;
 
   // Today's games to play
   const menu = NBA.gamesMenu ? NBA.gamesMenu() : [];
   const playCard = menu.length ? `<div class="card hm hm-play"><div class="card-h"><h3>Play today</h3><div class="end"><a class="chip" href="#games">All games</a></div></div>
     <div class="hp-list">${menu.slice(0, 4).map(g => `<a class="hp" href="#games/${g.id}"><span class="gm-ico sm">${g.ico}</span><span><b>${esc(g.name)}${g.daily ? ' <em>Daily</em>' : ''}</b><small>${esc(g.status)}</small></span></a>`).join('')}</div></div>` : '';
 
-  return `${hero}${gamesSec}<section class="sec"><div class="home-grid">${standCard}${factCard}${teamCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div></section>`;
+  // The view itself is a fixed frame, so a poll only rebuilds the parts whose text changed: a score or clock tick
+  // repaints the hero and games strip, and leaves the fact deck and chart of the day alone
+  homeParts = { hero, games: gamesSec, rest: `<div class="home-grid">${standCard}${factCard}${teamCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div>` };
+  return '<div id="hm-hero"></div><section class="sec" id="hm-games"></section><section class="sec" id="hm-rest"></section>';
 };
-NBA.after.home = view => { bindDecks(view); drawCharts(view); };
+NBA.after.home = view => {
+  UI.paint(view.querySelector('#hm-hero'), homeParts.hero);
+  UI.paint(view.querySelector('#hm-games'), homeParts.games);
+  UI.paint(view.querySelector('#hm-rest'), homeParts.rest);
+  // On phones the games strip scrolls sideways; keep it on the same games when the scores refresh
+  const strip = view.querySelector('.hg-strip');
+  if (strip && !strip._bound) {
+    strip._bound = true;
+    strip.scrollLeft = st.hgX || 0;
+    strip.addEventListener('scroll', () => { st.hgX = strip.scrollLeft; }, { passive: true });
+  }
+  bindDecks(view);
+  drawCharts(view);
+};
 })();
