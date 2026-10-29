@@ -549,6 +549,31 @@ button.q-face{cursor:pointer}
 .home-hero h2{margin:8px 0 14px;font-family:var(--f-display);font-weight:900;font-size:clamp(42px,6vw,92px);line-height:.9;letter-spacing:.02em;text-transform:uppercase}
 .hh-logo{width:clamp(90px,12vw,190px);height:auto;flex:none;filter:drop-shadow(0 12px 30px rgba(0,0,0,.28))}
 @media (max-width:640px){.hh-logo{position:absolute;right:-18px;top:-12px;width:130px;opacity:.16}}
+/* With a next-game panel, the team logo becomes a faint watermark behind the greeting */
+.home-hero.has-next .hh-logo{position:absolute;left:min(48%,560px);top:50%;transform:translateY(-50%);width:clamp(140px,16vw,260px);opacity:.12;filter:none}
+.hh-next{position:relative;z-index:1;flex:none;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:300px;padding:16px 22px;border-radius:16px;
+  border:1px solid color-mix(in srgb,var(--tc) 45%,var(--line));background:color-mix(in srgb,var(--card) 85%,transparent);color:inherit;font:inherit;text-align:center;cursor:pointer;box-shadow:var(--shadow)}
+.hh-next:hover{border-color:var(--accent)}
+.hh-next .eyebrow{display:inline-flex;align-items:center;gap:6px}
+.hh-next.live{border-color:color-mix(in srgb,var(--live) 70%,var(--line))}
+.hh-next.live .eyebrow{color:var(--live)}
+.nx-vs{display:flex;align-items:center;justify-content:center;gap:18px}
+.nx-tm{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:72px}
+.nx-tm img{width:60px;height:60px;object-fit:contain}
+.nx-tm b{font-family:var(--f-display);font-weight:900;font-size:26px;line-height:1;letter-spacing:.03em}
+.nx-tm small{font-size:12px;color:var(--muted)}
+.nx-sc{font-family:var(--f-display);font-weight:900;font-size:40px;line-height:1;margin-top:4px}
+.nx-at{font-family:var(--f-display);font-weight:800;font-size:22px;color:var(--muted);max-width:7em}
+.hh-next.live .nx-at{font-family:var(--f-ui);font-size:12px;font-weight:800;color:var(--live)}
+.nx-when{font-size:13px;color:var(--muted)}
+.nx-when b{color:var(--ink)}
+.nx-count{font-size:13px;padding:5px 12px;border-radius:999px;background:var(--accent-soft);color:var(--ink)}
+.nx-count b{color:var(--accent)}
+@media (max-width:760px){
+  .home-hero.has-next{flex-direction:column;align-items:stretch}
+  .home-hero.has-next .hh-logo{left:auto;right:-18px;top:-12px;transform:none;width:130px;opacity:.14}
+  .hh-next{min-width:0;width:100%}
+}
 .hchips{display:flex;flex-wrap:wrap;gap:8px}
 .hchip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-size:13px;text-decoration:none}
 a.hchip,button.hchip{cursor:pointer}

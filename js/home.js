@@ -316,13 +316,32 @@ V.home = () => {
     day ? `<span class="hchip"><b>${games.length}</b> game${games.length === 1 ? '' : 's'} on ${esc(NBA.fmtDay(day.day, { weekday: 'long' }))}</span>` : '',
     live.length ? `<span class="hchip live"><i class="dot blink"></i><b>${live.length}</b> live now</span>` : '',
     nextTip ? `<span class="hchip">Next tip in <b>${until(nextTip.date)}</b></span>` : '',
-    myLive ? `<button class="hchip mine" data-act="game" data-id="${myLive.id}">${UI.logo(t, 18)}${esc(t.name)} are live</button>`
-      : myNext ? `<a class="hchip mine" href="#myteam">${UI.logo(t, 18)}${esc(t.name)} ${myNext.home ? 'vs' : '@'} ${esc(myNext.oppAbbr || '')} · ${esc(NBA.fmtDate(myNext.date, { weekday: 'short' }))} ${esc(NBA.fmtTime(myNext.date))}</a>` : '',
   ].filter(Boolean).join('');
-  const hero = `<section class="home-hero" style="--tc:${esc(t.color || '#444')}">
+  // Your team's next game (or live score), front and centre: away team on the left, home on the right
+  const side = (team, rec, score) => `<span class="nx-tm">${UI.logo(team, 60)}<b>${esc(team.abbr || '')}</b><small>${esc(rec || '')}</small>${score != null ? `<span class="nx-sc">${esc(score)}</span>` : ''}</span>`;
+  const recOf = id => { const r = sm.get(id); return r ? `${r.w}-${r.l}` : ''; };
+  const countdown = d => {
+    const m = Math.max(1, Math.round((new Date(d) - now) / 60000)), days = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60);
+    return days ? `${days} day${days > 1 ? 's' : ''}${h ? `, ${h} hr` : ''}` : h ? `${h} hr ${m % 60} min` : `${m} min`;
+  };
+  let nextPanel = '';
+  if (myLive) {
+    const hide = NBA.S.spoilers;
+    nextPanel = `<button class="hh-next live" data-act="game" data-id="${myLive.id}"><span class="eyebrow"><i class="dot blink"></i>${esc(t.name)} are live</span>
+      <span class="nx-vs">${side(myLive.away, myLive.away.record, hide ? null : myLive.away.score)}<span class="nx-at">${esc(hide ? 'Live' : myLive.detail)}</span>${side(myLive.home, myLive.home.record, hide ? null : myLive.home.score)}</span>
+      <span class="nx-when">Tap for the box score</span></button>`;
+  } else if (myNext) {
+    const opp = NBA.T(myNext.oppId);
+    const [L, R] = myNext.home ? [[opp, recOf(myNext.oppId)], [t, recOf(myId)]] : [[t, recOf(myId)], [opp, recOf(myNext.oppId)]];
+    nextPanel = `<button class="hh-next" data-act="game" data-id="${myNext.id}"><span class="eyebrow">${esc(t.name)} next game</span>
+      <span class="nx-vs">${side(L[0], L[1])}<span class="nx-at">@</span>${side(R[0], R[1])}</span>
+      <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(/TBD/i.test(myNext.detail || '') ? 'Time TBD' : NBA.fmtTime(myNext.date))}${myNext.tv ? ' · ' + esc(myNext.tv) : ''}</span>
+      <span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span></button>`;
+  }
+  const hero = `<section class="home-hero${nextPanel ? ' has-next' : ''}" style="--tc:${esc(t.color || '#444')}">
     <div class="hh-txt"><div class="eyebrow">${esc(NBA.fmtDay(NBA.today, { weekday: 'long', month: 'long', day: 'numeric' }))} · ${esc(NBA.SEASON_LABEL)} season</div>
       <h2>${greet}</h2><div class="hchips">${chips}</div></div>
-    ${t.logo ? `<img class="hh-logo" src="${esc(NBA.lg(t))}" alt="">` : ''}</section>`;
+    ${t.logo ? `<img class="hh-logo" src="${esc(NBA.lg(t))}" alt="">` : ''}${nextPanel}</section>`;
 
   const strip = !day ? '<p class="loading">Loading games…</p>' : games.length
     ? `<div class="hg-strip">${games.map(gameTile).join('')}</div>` : '<p class="empty">No games today.</p>';
