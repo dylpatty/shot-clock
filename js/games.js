@@ -43,7 +43,7 @@ const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '–';
 // Pressing Enter in a name box picks the first suggestion under it
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter' || !e.target.matches('.gm-find input')) return;
-  const first = e.target.parentElement.querySelector('.sugg [data-act]');
+  const first = e.target.parentElement.querySelector('.psugg [data-act]');
   if (first) { e.preventDefault(); first.click(); }
 });
 const suggestions = (q, act, skip = []) => {
@@ -51,7 +51,7 @@ const suggestions = (q, act, skip = []) => {
   if (f.length < 2) return '';
   const list = players().filter(p => !skip.includes(p.id) && fold(p.name).includes(f)).sort((a, b) => b.min - a.min).slice(0, 6);
   if (!list.length) return '<p class="note sugg-none">No player by that name in this season\'s stats.</p>';
-  return `<div class="sugg">${list.map(p => `<button data-act="${act}" data-id="${p.id}">${UI.hs(p.headshot)}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></button>`).join('')}</div>`;
+  return `<div class="psugg">${list.map(p => `<button data-act="${act}" data-id="${p.id}">${UI.hs(p.headshot)}<span><b>${esc(p.name)}</b><small>${who(p)}</small></span></button>`).join('')}</div>`;
 };
 
 /* ---------- the tab ---------- */
@@ -79,11 +79,6 @@ V.games = arg => {
   return `<section class="sec"><a class="backlink" href="#games">← All games</a>
     <div class="gm-page"><div class="gm-main">${game.view()}</div>
       <aside class="gm-side" aria-label="More games"><div class="eyebrow">More games</div><div class="gm-side-list">${GAMES.filter(g => g !== game).map(mini).join('')}</div></aside></div></section>`;
-};
-NBA.after.games = () => {
-  const { arg } = UI.route();
-  if (st.gmLast !== undefined && st.gmLast !== arg) window.scrollTo(0, 0);
-  st.gmLast = arg;
 };
 
 /* ================= Stat Sleuth (daily) ================= */

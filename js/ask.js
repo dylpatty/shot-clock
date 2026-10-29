@@ -564,9 +564,9 @@ async function askClaude(turn, q) {
 }
 function explain(e, Anthropic) {
   const is = name => Anthropic && Anthropic[name] && e instanceof Anthropic[name];
-  if (is('AuthenticationError')) return new Error('Anthropic rejected the API key. Check it in Settings.');
-  if (is('PermissionDeniedError')) return new Error("This API key doesn't have access to that model. Pick another model in Settings.");
-  if (is('NotFoundError')) return new Error("That model isn't available to your API key. Pick another model in Settings.");
+  if (is('AuthenticationError')) return new Error('Anthropic rejected the API key. Paste a new one at the bottom of this panel.');
+  if (is('PermissionDeniedError')) return new Error("This API key doesn't have access to Claude Opus 5.5. Check the key's permissions in the Anthropic console.");
+  if (is('NotFoundError')) return new Error("Claude Opus 5.5 isn't available to this API key. Check the key in the Anthropic console.");
   if (is('RateLimitError')) return new Error('Too many questions in a short time. Wait a moment and ask again.');
   if (is('InternalServerError')) return new Error('Anthropic is having trouble right now. Try again in a minute.');
   if (is('APIConnectionError')) return new Error("Couldn't reach Anthropic. Check your connection and try again.");
@@ -595,7 +595,11 @@ function renderPanel() {
       ${t.meta ? `<div class="qa-meta"><span>${esc(t.meta)}</span></div>` : ''}</div>`).join('')
     : `<p class="hint">Ask about records, schedules, stats, leaders, injuries, odds or recent form. Try one:</p>`;
   const sugg = `<div class="sugg">${SUGGESTIONS.map(s => `<button class="chip" data-act="ask-q" data-q="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
-  const keyNote = hasKey ? '' : `<p class="note">Without an API key, the search bar handles common questions by itself. <button class="link" data-act="settings">Add an Anthropic API key</button> to ask anything with Claude.</p>`;
+  // The API key lives here rather than in Settings, right where ask-anything needs it
+  const keyNote = hasKey
+    ? `<p class="note ask-keynote">Ask-anything is on with your Anthropic API key, saved only in this browser. <button class="link" data-act="ask-key-clear">Remove key</button></p>`
+    : `<div class="ask-key"><p class="note">The search bar answers common questions by itself. To ask anything, paste an Anthropic API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. You pay Anthropic per question (about 5–15¢), separately from any Claude subscription. The key stays in this browser and is only sent to Anthropic.</p>
+        <div class="keyrow"><label class="sr" for="ask-key">Anthropic API key</label><input class="field" id="ask-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"><button class="btn primary" data-act="ask-key-save">Save key</button></div></div>`;
   const html = `<div class="ask-head"><span class="eyebrow">Ask · ${esc(engine)}</span>${A.turns.length ? '<button class="chip" data-act="ask-new">New question</button>' : ''}<button class="ib" data-act="ask-close" aria-label="Close answers">${UI.I.close}</button></div>
     <div class="ask-body" id="ask-body">${body}${A.turns.length ? '' : sugg}${keyNote}</div>`;
   UI.paint(el, html);
@@ -649,6 +653,13 @@ Object.assign(NBA.actions, {
   'ask-q': a => { $('#ask-input').value = a.dataset.q; ask(a.dataset.q); },
   'ask-new': () => { A.turns = []; A.convo = []; renderPanel(); $('#ask-input').focus(); },
   'ask-close': () => A.close(),
+  'ask-key-save': () => {
+    const inp = $('#ask-key'), v = inp ? inp.value.trim() : '';
+    if (!v) { if (inp) inp.focus(); return; }
+    NBA.aiKey.set(v);
+    A.keyChanged();
+  },
+  'ask-key-clear': () => { NBA.aiKey.set(''); A.keyChanged(); },
 });
 document.getElementById('ask-form').addEventListener('submit', e => {
   e.preventDefault();

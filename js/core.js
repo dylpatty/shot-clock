@@ -19,9 +19,10 @@ const DEFAULTS = {
   myTeam: '9',
   card: { quarters: true, leaders: true, winprob: true, lastplay: true },
   spoilers: false,
-  refresh: 15,
+  refresh: 10,
   density: 'comfortable',
   theme: 'system',
+  teamTheme: '',
   boxCols: 'compact',
   statsMode: 'game',
   aiModel: 'claude-opus-5-5',
@@ -38,13 +39,19 @@ function loadSettings() {
   }
   if (!s || typeof s !== 'object') return d;
   const out = Object.assign(d, s, { card: Object.assign(d.card, s.card || {}) });
-  out.favorites = Array.isArray(s.favorites) && s.favorites.length ? s.favorites.map(String) : d.favorites;
   out.myTeam = String(out.myTeam || '9');
-  return out;
+  return lockSettings(out);
+}
+// Only light/dark, team colors and spoiler mode are choices; everything else is fixed, and the
+// highlighted team is always the favorite team picked in the header
+function lockSettings(s) {
+  Object.assign(s, { refresh: 10, density: 'comfortable', boxCols: 'compact', tz: 'et', card: clone(DEFAULTS.card), favorites: [String(s.myTeam || '9')] });
+  if (s.theme !== 'light' && s.theme !== 'dark') s.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return s;
 }
 NBA.S = loadSettings();
 NBA.save = () => { try { localStorage.setItem(KEY, JSON.stringify(NBA.S)); } catch (e) { /* storage blocked: settings last for this visit */ } };
-NBA.resetSettings = () => { NBA.S = clone(DEFAULTS); NBA.save(); };
+NBA.resetSettings = () => { NBA.S = lockSettings(clone(DEFAULTS)); NBA.save(); };
 NBA.aiKey = {
   get() { try { return localStorage.getItem(AI_KEY) || ''; } catch (e) { return ''; } },
   set(v) { try { if (v) localStorage.setItem(AI_KEY, v); else localStorage.removeItem(AI_KEY); } catch (e) { /* ignore */ } },
@@ -101,6 +108,17 @@ NBA.tone = t => {
   const dark = NBA.isDark();
   const ok = c => { if (!c) return false; const L = lum(hexRgb(c)); return dark ? L > .05 : L < .72; };
   return ok(t.color) ? t.color : ok(t.alt) ? t.alt : (dark ? '#9AA3AE' : '#59626E');
+};
+/* Accent colors for the team-colors theme: of the team's two colors, the one that reads best on this theme */
+NBA.accentFor = t => {
+  const dark = NBA.isDark();
+  const cands = [t.color, t.alt].filter(c => /^#[0-9a-f]{6}$/i.test(c || '')).map(c => [c, lum(hexRgb(c))]);
+  const usable = cands.filter(([, L]) => dark ? L > .1 : L < .4);
+  const pick = (usable.length ? usable : cands).sort((a, b) => dark ? b[1] - a[1] : a[1] - b[1])[0];
+  if (!pick) return null;
+  // The header tint uses the team's deeper color, which reads as the team's own on either theme
+  const deep = cands.slice().sort((a, b) => a[1] - b[1])[0][0];
+  return { accent: pick[0], ink: pick[1] > .4 ? '#111418' : '#FFFFFF', base: deep };
 };
 NBA.tones = (a, h) => {
   const dark = NBA.isDark(), fallback = dark ? '#9AA3AE' : '#59626E';
@@ -458,6 +476,7 @@ function parseRoster(j) {
       injury: a.injuries && a.injuries[0] ? a.injuries[0].status : '', headshot: headshotOf(a.headshot),
       // This season's salary from ESPN's contract list (0 when unknown)
       salary: ((a.contracts || []).find(c => c.season && c.season.year === NBA.SEASON) || {}).salary || 0,
+      htIn: a.height || 0,
     })),
   };
 }
@@ -466,7 +485,18 @@ function parseRoster(j) {
 NBA.bumps = new Set();
 const prevScores = new Map();
 def('day', p => (p ? 30 * 60000 : 60000), async p => {
-  const j = await getJSON(API + '/scoreboard' + (p ? '?dates=' + p : ''));
+  let j = await getJSON(API + '/scoreboard' + (p ? '?dates=' + p : ''));
+  if (!p) {
+    // ESPN keeps showing last night's games until mid-morning. From 3 AM Eastern, "today" is the new day's slate.
+    const now = new Date(), etDate = NBA.etDay(now);
+    const etHour = +now.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
+    if (j.day && j.day.date && j.day.date < etDate && etHour >= 3) {
+      const next = await getJSON(API + '/scoreboard?dates=' + etDate.replace(/-/g, ''));
+      next.day = { date: etDate };
+      if (!next.leagues && j.leagues) next.leagues = j.leagues;
+      j = next;
+    }
+  }
   const games = (j.events || []).map(parseGame);
   games.forEach(g => [g.away, g.home].forEach(mergeTeam));
   const season = j.leagues && j.leagues[0] && j.leagues[0].season;

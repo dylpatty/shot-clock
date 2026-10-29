@@ -13,8 +13,6 @@ const rec = s => { const m = /^(\d+)-(\d+)/.exec(s || ''); return m ? { w: +m[1]
 const winPct = r => r && r.w + r.l ? r.w / (r.w + r.l) * 100 : NaN;
 const hashStr = s => { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 const teamRows = () => (NBA.data('standings') || []).flatMap(c => c.rows);
-// The day's order for anything that rotates: same all day, different tomorrow
-const dailyOrder = (list, salt) => list.map((x, i) => [hashStr(salt + NBA.today + i), x]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
 
 /* ---------- shared player helpers ---------- */
 // First-year players come from ESPN rosters (0 years of experience); null until enough rosters have loaded
@@ -129,23 +127,21 @@ function chartSpecs() {
       quads: ['Run and win', 'Slow and winning', 'Fast and losing', 'Slow and losing'],
       note: 'Net rating is points scored minus allowed per 100 possessions.',
       pts: ts.map(t => teamPt(byId.get(t.id), t.pace, t.net, `Pace ${f1(t.pace)} · Net ${t.net > 0 ? '+' : ''}${f1(t.net)}`)) });
-    add({ id: 'threes', title: 'Three-point identity', sub: 'Volume against accuracy', xLabel: 'Threes attempted per game', yLabel: '3-point %', yFmt: v => v.toFixed(0) + '%',
+    add({ id: 'threes', title: 'Three-point identity', sub: 'Team volume against accuracy', xLabel: 'Threes attempted per game', yLabel: '3-point %', yFmt: v => v.toFixed(0) + '%',
       quads: ['Bombs away, on target', 'Picky but accurate', 'Shooting a lot, missing a lot', 'Rarely and poorly'], quadsShort: ['Volume + accuracy', 'Picky', 'Chuckers', 'Rarely'],
       pts: ts.map(t => teamPt(byId.get(t.id), t.tpa, t.tpp, `${f1(t.tpm)} of ${f1(t.tpa)} a game · ${f1(t.tpp)}%`)) });
-    add({ id: 'ball', title: 'Share it, keep it', sub: 'Assists against turnovers', xLabel: 'Assists per game', yLabel: 'Turnovers per game (fewer is higher)', yUp: false,
-      quads: ['Share it and protect it', 'Careful, not creative', 'Pass-happy but sloppy', 'Stagnant and sloppy'], quadsShort: ['Share + protect', 'Careful', 'Sloppy passers', 'Stagnant'],
-      pts: ts.map(t => teamPt(byId.get(t.id), t.apg, t.tov, `${f1(t.apg)} assists · ${f1(t.tov)} turnovers`)) });
-    add({ id: 'defense', title: 'Defensive pressure', sub: 'Steals and blocks against opponent shooting', xLabel: 'Steals + blocks per game', yLabel: 'Opponent FG% (lower is higher)', yUp: false, yFmt: v => v.toFixed(0) + '%',
-      quads: ['Disruptive and stingy', 'Stingy without gambling', 'Gambling and getting burned', 'Leaky'], quadsShort: ['Disruptive', 'Stingy', 'Gambling', 'Leaky'],
-      pts: ts.map(t => teamPt(byId.get(t.id), t.spg + t.bpg, t.oppFgp, `${f1(t.spg)} steals · ${f1(t.bpg)} blocks · opponents shoot ${f1(t.oppFgp)}%`)) });
+    add({ id: 'possessions', title: 'The possession battle', sub: 'Offensive rebounds against turnovers', xLabel: 'Offensive rebounds per game', yLabel: 'Turnovers per game (fewer is higher)', yUp: false,
+      quads: ['Extra shots, few giveaways', 'Careful, but one shot only', 'Crash hard, cough it up', 'Losing the possession game'], quadsShort: ['Winning it', 'Careful', 'Crash + cough', 'Losing it'],
+      note: 'Offensive boards add possessions and turnovers throw them away. Up and to the right gets the most shots.',
+      pts: ts.map(t => teamPt(byId.get(t.id), t.orpg, t.tov, `${f1(t.orpg)} offensive boards · ${f1(t.tov)} turnovers`)) });
+    add({ id: 'luck', title: 'Three-point luck', sub: 'Own 3-point % against opponents\' 3-point %', xLabel: '3-point % made', yLabel: 'Opponents\' 3-point % (lower is higher)', yUp: false, xFmt: v => v.toFixed(0) + '%', yFmt: v => v.toFixed(0) + '%',
+      quads: ['Hot and lucky', 'Cold, but opponents colder', 'Hot, but opponents hotter', 'Cold and unlucky'], quadsShort: ['Hot + lucky', 'Opponents cold', 'Opponents hot', 'Cold + unlucky'],
+      note: 'Opponent three-point shooting swings a lot from game to game, so teams far up or down here often drift back.',
+      pts: ts.map(t => teamPt(byId.get(t.id), t.tpp, t.opp3p, `${f1(t.tpp)}% from three · opponents ${f1(t.opp3p)}%`)) });
   }
   add({ id: 'homeroad', title: 'Home and away', sub: 'Win % at home against win % on the road', xLabel: 'Home win %', yLabel: 'Road win %', xFmt: v => v.toFixed(0) + '%', yFmt: v => v.toFixed(0) + '%',
     quads: ['Win anywhere', 'Road warriors', 'Home cooking', 'Struggling everywhere'],
     pts: rows.map(r => { const h = rec(r.home), a = rec(r.road); return teamPt(r, winPct(h), winPct(a), `${r.home} home · ${r.road} road`); }).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y)) });
-  const power = NBA.powerRows();
-  if (power) add({ id: 'trend', title: "Who's trending", sub: 'Last 7 days against the season', xLabel: 'Season scoring margin', yLabel: 'Margin over the last 7 days', diag: true, avg: false,
-    note: 'Above the diagonal line, a team is playing better this week than its season average. Below it, cooling off.',
-    pts: power.filter(t => t.f && t.f.gp && byId.has(t.id)).map(t => teamPt(byId.get(t.id), t.season, t.fm, `Season ${t.season > 0 ? '+' : ''}${f1(t.season)} · last 7 days ${t.fm > 0 ? '+' : ''}${f1(t.fm)} (${t.f.w}-${t.f.l})`)) });
   if (players.length) {
     const byTeam = new Map();
     players.filter(p => p.age && p.min >= 10 && p.gp >= 1).forEach(p => { const a = byTeam.get(p.teamId) || { m: 0, am: 0 }; a.m += p.min; a.am += p.age * p.min; byTeam.set(p.teamId, a); });
@@ -153,46 +149,68 @@ function chartSpecs() {
       quads: ['Veterans winning now', 'Young and winning', 'Old and struggling', 'Young and growing'],
       pts: rows.filter(r => byTeam.get(r.id)).map(r => { const a = byTeam.get(r.id), age = a.am / a.m; return teamPt(r, age, winPct(r), `${rec2(r)} · average age ${f1(age)}`); }) });
   }
+  const power = NBA.powerRows();
+  if (power) add({ id: 'trend', title: "Who's trending", sub: 'Last 7 days against the season', xLabel: 'Season scoring margin', yLabel: 'Margin over the last 7 days', diag: true, avg: false,
+    note: 'Above the diagonal line, a team is playing better this week than its season average. Below it, cooling off.',
+    pts: power.filter(t => t.f && t.f.gp && byId.has(t.id)).map(t => teamPt(byId.get(t.id), t.season, t.fm, `Season ${t.season > 0 ? '+' : ''}${f1(t.season)} · last 7 days ${t.fm > 0 ? '+' : ''}${f1(t.fm)} (${t.f.w}-${t.f.l})`)) });
   const futures = NBA.data('futures') || [];
   const champ = futures.find(m => /^Winner$|Champion/i.test(m.name));
   if (champ) add({ id: 'vegas', title: 'Vegas vs. the standings', sub: `${champ.provider} title odds against record`, xLabel: 'Win %', yLabel: 'Chance to win the title (implied)', yLog: true, xFmt: v => v.toFixed(0) + '%', yFmt: v => v + '%', avg: false,
     note: 'The vertical scale is logarithmic so long shots stay readable. Implied chance comes from the American odds and includes the sportsbook margin.',
     pts: champ.entries.filter(e => e.kind === 'team' && byId.has(e.id)).map(e => { const r = byId.get(e.id); return teamPt(r, winPct(r), e.implied * 100, `${rec2(r)} · ${e.odds} to win it all (${f1(e.implied * 100)}%)`); }) });
-  // Payroll from ESPN rosters: this season's salaries for players currently on each roster
+  // ESPN rosters add salary, height and experience
   const rosters = rows.map(r => [r, NBA.data('roster:' + r.id)]).filter(x => x[1]);
   if (rosters.length >= 25) {
+    const bio = new Map(rosters.flatMap(([, ro]) => ro.players).map(p => [p.id, p]));
     const pay = rosters.map(([r, ro]) => [r, ro.players.reduce((n, p) => n + (p.salary || 0), 0) / 1e6]).filter(x => x[1] > 0);
     add({ id: 'payroll', title: 'Money vs. wins', sub: 'Team payroll against win %', xLabel: 'Payroll ($ millions)', yLabel: 'Win %', xFmt: v => '$' + Math.round(v) + 'M', yFmt: v => v.toFixed(0) + '%',
       quads: ['Paying and winning', 'Winning on a budget', 'Expensive and losing', 'Cheap and losing'], quadsShort: ['Paid + winning', 'Budget winners', 'Pricey + losing', 'Cheap + losing'],
       note: "Payroll adds up this season's salaries for players on each current roster, from ESPN. Official cap figures also count dead money and cap holds, so they run a little higher.",
       pts: pay.map(([r, v]) => teamPt(r, v, winPct(r), `${rec2(r)} · $${f1(v)}M payroll`)) });
-    const salary = new Map(rosters.flatMap(([, ro]) => ro.players).filter(p => p.salary > 0).map(p => [p.id, p.salary / 1e6]));
-    const paid = players.filter(p => salary.has(p.id) && p.min >= 22 && p.gp >= 2).sort((a, b) => b.min - a.min).slice(0, 60);
+    const sal = p => ((bio.get(p.id) || {}).salary || 0) / 1e6;
+    const paid = players.filter(p => sal(p) > 0 && p.min >= 22 && p.gp >= 2).sort((a, b) => b.min - a.min).slice(0, 60);
     add({ id: 'value', face: true, title: 'Best value contracts', sub: 'Salary against scoring · 60 heaviest-minute players', xLabel: 'Salary this season ($ millions)', yLabel: 'Points per game', xFmt: v => '$' + Math.round(v) + 'M',
       quads: ['Paid and producing', 'Bargains', 'Not earning it yet', 'Role players'],
-      pts: paid.map(p => playerPt(p, salary.get(p.id), p.pts, `$${f1(salary.get(p.id))}M · ${f1(p.pts)} pts, ${f1(p.reb)} reb, ${f1(p.ast)} ast`)) });
+      pts: paid.map(p => playerPt(p, sal(p), p.pts, `$${f1(sal(p))}M · ${f1(p.pts)} pts, ${f1(p.reb)} reb, ${f1(p.ast)} ast`)) });
     const rookies = NBA.rookies();
     if (rookies) add({ id: 'rookies', face: true, title: 'Rookie watch', sub: 'Every first-year player who has played', xLabel: 'Minutes per game', yLabel: 'Points per game',
       note: 'Rookies come from ESPN rosters (zero years of NBA experience). The ones up and to the right are earning real roles.',
       pts: rookies.map(p => playerPt(p, p.min, p.pts, `${f1(p.min)} min · ${f1(p.pts)} pts, ${f1(p.reb)} reb, ${f1(p.ast)} ast`)) });
+    // Height against what size should buy you: rebounds and blocks
+    const ht = p => (bio.get(p.id) || {}).htIn;
+    const ftIn = v => { const n = Math.round(v); return `${Math.floor(n / 12)}'${n % 12}"`; };
+    const sized = players.filter(p => p.gp >= 2 && p.min >= 20 && ht(p)).sort((a, b) => b.min - a.min).slice(0, 70);
+    add({ id: 'height-reb', face: true, title: 'Size vs. rebounding', sub: 'Height against rebounds · 70 heaviest-minute players', xLabel: 'Height', yLabel: 'Rebounds per game', xFmt: ftIn,
+      quads: ['Big and owning the glass', 'Undersized rebounders', 'Tall, few boards', 'Guards being guards'], quadsShort: ['Big + boards', 'Undersized', 'Tall, few boards', 'Guards'],
+      note: 'Up and to the left are the hustle players: rebounding well above their size.',
+      pts: sized.map(p => playerPt(p, ht(p), p.reb, `${ftIn(ht(p))} · ${f1(p.reb)} rebounds a game`)) });
+    add({ id: 'height-blk', face: true, title: 'Size vs. rim protection', sub: 'Height against blocks · 70 heaviest-minute players', xLabel: 'Height', yLabel: 'Blocks per game', xFmt: ftIn,
+      quads: ['Towers', 'Undersized shot blockers', 'Tall but grounded', 'Perimeter players'], quadsShort: ['Towers', 'Undersized', 'Grounded', 'Perimeter'],
+      pts: sized.map(p => playerPt(p, ht(p), p.blk, `${ftIn(ht(p))} · ${f1(p.blk)} blocks a game`)) });
   }
   if (players.length) {
-    const scorers = players.filter(p => p.gp >= 2 && p.min >= 20).sort((a, b) => b.pts - a.pts).slice(0, 40);
-    add({ id: 'scoring', face: true, title: 'Volume vs. efficiency', sub: 'Top 40 scorers', xLabel: 'Points per game', yLabel: 'True shooting %', yFmt: v => v.toFixed(0) + '%',
-      quads: ['Volume and efficiency', 'Efficient finishers', 'High volume, lower efficiency', 'Struggling scorers'], quadsShort: ['Elite scorers', 'Efficient', 'Volume', 'Struggling'],
+    const passers = players.filter(p => p.gp >= 2 && p.min >= 20 && p.ast >= 3).sort((a, b) => b.ast - a.ast).slice(0, 40);
+    add({ id: 'astto', face: true, title: 'Playmaking vs. ball security', sub: 'Assists against turnovers · top 40 passers', xLabel: 'Assists per game', yLabel: 'Turnovers per game (fewer is higher)', yUp: false,
+      quads: ['Elite and careful', 'Safe hands', 'High risk, high reward', 'Loose with the ball'], quadsShort: ['Elite', 'Safe hands', 'High risk', 'Loose'],
+      note: 'Up and to the right: lots of assists without giving it away. Hover a player for their assist-to-turnover ratio.',
+      pts: passers.map(p => playerPt(p, p.ast, p.tov, `${f1(p.ast)} ast · ${f1(p.tov)} tov · ${p.tov ? f1(p.ast / p.tov) : '–'} to 1`)) });
+    const volume = players.filter(p => p.gp >= 2 && p.min >= 20).map(p => ({ p, tsa: p.fga + .44 * p.fta })).sort((a, b) => b.tsa - a.tsa).slice(0, 40);
+    add({ id: 'shots', face: true, title: 'Shot volume vs. efficiency', sub: 'Shot attempts against true shooting · 40 highest-volume shooters', xLabel: 'Shot attempts per game (free-throw trips count)', yLabel: 'True shooting %', yFmt: v => v.toFixed(0) + '%',
+      quads: ['Efficient volume scorers', 'Efficient finishers', 'Volume, lower efficiency', 'Struggling'], quadsShort: ['Elite', 'Efficient', 'Volume', 'Struggling'],
       note: 'True shooting counts threes and free throws, so it is the fairest single measure of scoring efficiency.',
-      pts: scorers.map(p => playerPt(p, p.pts, p.ts, `${f1(p.pts)} pts on ${f1(p.ts)}% true shooting`)) });
+      pts: volume.map(({ p, tsa }) => playerPt(p, tsa, p.ts, `${f1(tsa)} attempts · ${f1(p.ts)}% true shooting · ${f1(p.pts)} pts`)) });
+    const snipers = players.filter(p => p.gp >= 2 && p.tpa >= 4).sort((a, b) => b.tpa - a.tpa).slice(0, 40);
+    add({ id: 'deep', face: true, title: 'Three-point marksmen', sub: 'Threes attempted against 3-point % · 40 highest-volume shooters', xLabel: 'Threes attempted per game', yLabel: '3-point %', yFmt: v => v.toFixed(0) + '%',
+      quads: ['Volume and accuracy', 'Picky snipers', 'Bombing away', 'Cold from deep'], quadsShort: ['Volume + accuracy', 'Snipers', 'Bombing', 'Cold'],
+      pts: snipers.map(p => playerPt(p, p.tpa, p.tpp, `${f1(p.tpm)} of ${f1(p.tpa)} a game · ${f1(p.tpp)}%`)) });
+    const fouled = players.filter(p => p.gp >= 2 && p.fta >= 3).sort((a, b) => b.fta - a.fta).slice(0, 40);
+    add({ id: 'line', face: true, title: 'Living at the line', sub: 'Free throws attempted against free-throw %', xLabel: 'Free throws attempted per game', yLabel: 'Free-throw %', yFmt: v => v.toFixed(0) + '%',
+      quads: ['Foul magnets who convert', 'Automatic', 'Foul magnets who miss', 'Leaving points out there'], quadsShort: ['Magnets', 'Automatic', 'Missing', 'Leaving points'],
+      pts: fouled.map(p => playerPt(p, p.fta, p.ftp, `${f1(p.ftm)} of ${f1(p.fta)} a game · ${f1(p.ftp)}%`)) });
     const mvp = futures.find(m => /MVP/i.test(m.name));
     if (mvp) add({ id: 'mvp', face: true, title: 'The MVP race', sub: `${mvp.provider} MVP odds against scoring`, xLabel: 'Points per game', yLabel: 'Chance to win MVP (implied)', yLog: true, yFmt: v => v + '%', avg: false,
       note: 'Logarithmic vertical scale. Only candidates with stats this season are shown.',
       pts: mvp.entries.map(e => [e, NBA.playerById(e.id)]).filter(x => x[1]).map(([e, p]) => playerPt(p, p.pts, e.implied * 100, `${e.odds} (${f1(e.implied * 100)}%) · ${f1(p.pts)} pts, ${f1(p.reb)} reb, ${f1(p.ast)} ast`)) });
-    const heavy = players.filter(p => p.gp >= 2 && p.min >= 24).sort((a, b) => b.min - a.min).slice(0, 45);
-    add({ id: 'glass', face: true, title: 'Boards and dimes', sub: 'Rebounds against assists · 45 heaviest-minute players', xLabel: 'Rebounds per game', yLabel: 'Assists per game',
-      quads: ['Do-it-alls', 'Playmakers', 'Glass cleaners', 'Scorers and specialists'], quadsShort: ['Do-it-alls', 'Playmakers', 'Glass', 'Specialists'],
-      pts: heavy.map(p => playerPt(p, p.reb, p.ast, `${f1(p.reb)} reb · ${f1(p.ast)} ast · ${f1(p.pts)} pts`)) });
-    add({ id: 'agepts', face: true, title: 'Young stars and old guards', sub: 'Age against scoring · top 50 scorers', xLabel: 'Age', yLabel: 'Points per game',
-      quads: ['Ageless', 'Young stars', 'Veteran role players', 'Still developing'],
-      pts: players.filter(p => p.age && p.gp >= 2 && p.min >= 20).sort((a, b) => b.pts - a.pts).slice(0, 50).map(p => playerPt(p, p.age, p.pts, `Age ${p.age} · ${f1(p.pts)} pts`)) });
   }
   return out;
 }
@@ -222,66 +240,121 @@ function drawCharts(root) {
   });
 }
 
-/* ---------- the card deck ---------- */
+/* ---------- the card deck ----------
+   A native scroll-snap carousel: the browser's own scrolling moves the cards on the graphics compositor,
+   so a swipe tracks your finger at the screen's full refresh rate. With a mouse you can drag it too. */
 function deckHtml(id, cards, { label = 'Cards', cls = '' } = {}) {
   const n = cards.length;
   return `<div class="deck ${cls}" role="region" aria-roledescription="carousel" aria-label="${esc(label)}">
-    <div class="deck-track" id="${id}" tabindex="0" aria-label="${esc(label)}: swipe or use the arrow keys">${cards.map((c, i) => `<div class="deck-slide" role="group" aria-roledescription="card" aria-label="${i + 1} of ${n}">${c}</div>`).join('')}<div class="deck-end" aria-hidden="true"></div></div>
+    <div class="deck-track" id="${id}" tabindex="0" aria-label="${esc(label)}: swipe, drag or use the arrow keys">${cards.map((c, i) => `<div class="deck-slide" role="group" aria-roledescription="card" aria-label="${i + 1} of ${n}">${c}</div>`).join('')}<div class="deck-end" aria-hidden="true"></div></div>
     <div class="deck-bar"><button class="ib" data-act="deckgo" data-deck="${id}" data-dir="-1" aria-label="Previous card">${UI.I.left}</button>
       <div class="deck-prog" aria-hidden="true"><i></i></div><span class="deck-count"><b>1</b> / ${n}</span>
       <button class="ib" data-act="deckgo" data-deck="${id}" data-dir="1" aria-label="Next card">${UI.I.right}</button></div></div>`;
 }
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const slides = t => t.querySelectorAll('.deck-slide');
+const slideStep = t => { const s = slides(t); return s.length > 1 ? s[1].offsetLeft - s[0].offsetLeft : (s[0] ? s[0].offsetWidth : 1) || 1; };
 function deckState(track) {
-  const slides = [...track.querySelectorAll('.deck-slide')];
-  if (!slides.length) return;
-  const w = slides[0].offsetWidth || 1, pos = track.scrollLeft / w;
-  const i = Math.max(0, Math.min(slides.length - 1, Math.round(pos)));
+  const n = slides(track).length;
+  if (!n) return;
+  const i = Math.max(0, Math.min(n - 1, Math.round(track.scrollLeft / slideStep(track))));
+  if (track._i === i) return;
+  track._i = i;
   st.deckIdx[track.id] = i;
   const deck = track.parentElement;
   deck.querySelector('.deck-count b').textContent = i + 1;
-  deck.querySelector('.deck-prog i').style.width = ((i + 1) / slides.length * 100).toFixed(1) + '%';
-  if (reduceMotion.matches) return;
-  // Deck of cards: the next few cards wait stacked behind the current one, and the card you swipe away tilts off
-  slides.forEach((s, k) => {
-    const p = k - pos;
-    if (p < -1.3 || p > 3.5) { s.style.transform = ''; s.style.opacity = p > 0 ? '0' : ''; s.style.zIndex = ''; return; }
-    if (p <= 0) { s.style.transform = `rotate(${(p * 6).toFixed(2)}deg) scale(${(1 + p * .06).toFixed(3)})`; s.style.opacity = (1 + p * .55).toFixed(2); s.style.zIndex = '300'; }
-    else {
-      const d = Math.min(p, 3);
-      s.style.transform = `translateX(${(-p * w + d * 14).toFixed(1)}px) scale(${(1 - d * .04).toFixed(3)})`;
-      s.style.opacity = String(Math.max(0, Math.min(1, 3.4 - p)));
-      s.style.zIndex = String(200 - Math.round(p * 10));
-    }
+  deck.querySelector('.deck-prog i').style.transform = `scaleX(${((i + 1) / n).toFixed(4)})`;
+}
+function goTo(t, i) {
+  const n = slides(t).length;
+  i = Math.max(0, Math.min(n - 1, i));
+  t.scrollTo({ left: i * slideStep(t), behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+}
+// Mouse dragging; touch already scrolls natively
+function bindDrag(t) {
+  let pid = null, x0 = 0, s0 = 0, moved = 0;
+  const settle = () => { clearTimeout(t._settle); t._settle = setTimeout(() => t.classList.remove('dragging'), 450); };
+  t.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    pid = e.pointerId; x0 = e.clientX; s0 = t.scrollLeft; moved = 0;
+    clearTimeout(t._settle);
+    t.classList.add('dragging');
   });
+  t.addEventListener('pointermove', e => {
+    if (e.pointerId !== pid) return;
+    const dx = e.clientX - x0;
+    moved = Math.max(moved, Math.abs(dx));
+    if (moved > 4 && !t.hasPointerCapture(pid)) { try { t.setPointerCapture(pid); } catch (err) { /* pointer already gone */ } }
+    t.scrollLeft = s0 - dx;
+  });
+  const end = e => {
+    if (e.pointerId !== pid) return;
+    pid = null;
+    const step = slideStep(t), from = Math.round(s0 / step), d = t.scrollLeft - s0;
+    // A short, deliberate drag still moves one card
+    goTo(t, Math.abs(d) > 40 ? from + Math.sign(d) : from);
+    settle();
+    if (moved > 4) t._swallow = true;
+  };
+  t.addEventListener('pointerup', end);
+  t.addEventListener('pointercancel', end);
+  // The click that ends a drag shouldn't open a player or team
+  t.addEventListener('click', e => { if (t._swallow) { t._swallow = false; e.preventDefault(); e.stopPropagation(); } }, true);
+  t.addEventListener('dragstart', e => e.preventDefault());
 }
 function bindDecks(root) {
   root.querySelectorAll('.deck-track').forEach(t => {
     if (!t._bound) {
       t._bound = true;
       // Re-renders replace the deck, so put it back on the card you were looking at
-      const i = st.deckIdx[t.id] || 0, first = t.querySelector('.deck-slide');
-      if (i && first) t.scrollLeft = i * first.offsetWidth;
-      t.addEventListener('scroll', () => deckState(t), { passive: true });
+      const i = st.deckIdx[t.id] || 0;
+      if (i) t.scrollLeft = i * slideStep(t);
+      const tick = () => { if (!t._raf) t._raf = requestAnimationFrame(() => { t._raf = 0; deckState(t); }); };
+      t.addEventListener('scroll', tick, { passive: true });
+      t.addEventListener('scrollend', () => deckState(t));
       t.addEventListener('keydown', e => {
         if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
         e.preventDefault();
-        NBA.actions.deckgo({ dataset: { deck: t.id, dir: e.key === 'ArrowRight' ? '1' : '-1' } });
+        goTo(t, Math.round(t.scrollLeft / slideStep(t)) + (e.key === 'ArrowRight' ? 1 : -1));
       });
+      bindDrag(t);
     }
+    t._i = null;
     deckState(t);
   });
 }
 NBA.actions.deckgo = a => {
-  const t = document.getElementById(a.dataset.deck), slides = t ? t.querySelectorAll('.deck-slide') : [];
-  if (!slides.length) return;
-  const w = slides[0].offsetWidth, i = Math.max(0, Math.min(slides.length - 1, Math.round(t.scrollLeft / w) + (+a.dataset.dir)));
-  t.scrollTo({ left: i * w, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+  const t = document.getElementById(a.dataset.deck);
+  if (t) goTo(t, Math.round(t.scrollLeft / slideStep(t)) + (+a.dataset.dir));
 };
-window.addEventListener('resize', () => { document.querySelectorAll('.deck-track').forEach(deckState); drawCharts(document); });
+window.addEventListener('resize', () => { document.querySelectorAll('.deck-track').forEach(t => { t._i = null; deckState(t); }); drawCharts(document); });
 NBA.after.facts = view => { bindDecks(view); drawCharts(view); };
 
 /* ================= Home ================= */
+// The face of each team for the Home banner, as ESPN athlete ids. Teams not listed, or whose pick has
+// since left, use whoever on the roster has the best Game Score this season.
+const MARQUEE = {
+  GS: '3975', BKN: '4278104', ATL: '2490149', CLE: '3992',            // Curry, Porter Jr., McCollum, Harden
+  BOS: '4065648', CHA: '4433287', DAL: '5041939', DEN: '3112335',      // Tatum, Miller, Flagg, Jokic
+  DET: '4432166', HOU: '3202', IND: '4396993', LAC: '4396907',         // Cunningham, Durant, Haliburton, Garland
+  LAL: '3945274', MIA: '3032977', MIL: '4395725', MIN: '4594268',      // Doncic, Antetokounmpo, Herro, Edwards
+  NO: '4395628', NY: '3934672', OKC: '4278073', ORL: '4432573',        // Williamson, Brunson, Gilgeous-Alexander, Banchero
+  PHI: '3059318', PHX: '3136193', POR: '6606', SA: '5104157',          // Embiid, Booker, Lillard, Wembanyama
+  TOR: '6450', WSH: '6583',                                            // Leonard, Davis
+};
+const headshotUrl = id => `https://a.espncdn.com/i/headshots/nba/players/full/${id}.png`;
+NBA.marqueeOf = teamId => marqueeOf(teamId);
+function marqueeOf(teamId) {
+  const t = NBA.T(teamId), players = NBA.data('players');
+  const pick = MARQUEE[t.abbr];
+  if (!players) return pick ? { id: pick, headshot: headshotUrl(pick) } : null;
+  const mine = players.filter(p => p.teamId === String(teamId));
+  const chosen = pick && mine.find(p => p.id === pick);
+  if (chosen) return chosen;
+  const best = mine.filter(p => p.min >= 20 && p.gp >= 1).sort((a, b) => NBA.gameScore(b) - NBA.gameScore(a))[0]
+    || mine.slice().sort((a, b) => b.pts - a.pts)[0];
+  return best || null;
+}
 const TOP_SNAP = 'nba.top25.v1';
 // Rank changes since the last day you opened the site
 function topMovement(ids) {
@@ -292,6 +365,154 @@ function topMovement(ids) {
   try { localStorage.setItem(TOP_SNAP, JSON.stringify(s)); } catch (e) { /* storage blocked: no movement arrows */ }
   return s.prev;
 }
+/* The Home headline reacts to your team first, then the calendar, then the clock.
+   Results stay out of it while spoiler mode is on. */
+const clockSecs = c => { const s = String(c || ''); if (s.includes(':')) { const [m, x] = s.split(':'); return +m * 60 + parseFloat(x); } return parseFloat(s); };
+const surname = n => String(n || '').trim().split(' ').slice(-1)[0];
+const dayKeyOf = iso => iso === NBA.today ? 'day:' : 'day:' + NBA.paramOf(iso);
+function heroMessage({ now, games, live, myId, t, sch, mine }) {
+  const name = t.name || 'your team', hide = NBA.S.spoilers;
+  const score = (a, b) => `${a.abbr} ${a.score}, ${b.abbr} ${b.score}`;
+  // 1. Your team is on right now
+  const g = live.find(x => x.away.id === myId || x.home.id === myId);
+  if (g && !hide) {
+    const me = g.away.id === myId ? g.away : g.home, them = me === g.away ? g.home : g.away;
+    const d = (+me.score) - (+them.score), period = Math.max(g.away.lines.length, g.home.lines.length);
+    const clock = clockSecs((/(\d+:\d+(?:\.\d)?|\d+\.\d)/.exec(g.detail) || [])[1]);
+    const sub = `${score(g.away, g.home)} · ${g.detail}`;
+    if (period >= 4 && clock <= 300 && Math.abs(d) <= 5) return { title: 'Crunch time', sub };
+    if (d >= 15) return { title: 'Blowout alert', sub: `The ${name} are up ${d} on the ${them.name}. ${sub}` };
+    if (d <= -12) return { title: 'Comeback time', sub: `The ${name} are down ${-d} to the ${them.name}. ${sub}` };
+    return { title: 'Game on', sub };
+  }
+  // 2. Your team's last game, if it finished in the last day
+  const last = sch && sch.events.filter(e => e.state === 'post').slice(-1)[0];
+  if (last && !hide && now - new Date(last.date) < 22 * 3600000) {
+    const m = (+last.my) - (+last.their), opp = NBA.T(last.oppId).name || last.oppAbbr || 'opponent', fin = `${last.my}-${last.their}`;
+    if (last.won && m <= 3) {
+      // A game-winner: our last basket of the night came in the final five seconds
+      const sum = NBA.use('summary:' + last.id), plays = (sum && sum.plays) || [];
+      const shot = plays.slice().reverse().find(p => p.scoring);
+      if (shot && shot.teamId === myId && shot.period >= 4 && clockSecs(shot.clock) <= 5) return { title: 'Bang!', sub: `${shot.text} with ${shot.clock} left to beat the ${opp} ${fin}.` };
+    }
+    const day = NBA.use(dayKeyOf(NBA.etDay(last.date))), game = day && day.games.find(x => x.id === last.id);
+    const side = game && (game.away.id === myId ? game.away : game.home);
+    const top = side && side.leaders.find(l => l.cat === 'points');
+    if (top && NBA.num(top.value) >= 40) return { title: `${surname(top.full)} went off`, sub: `${top.full} scored ${top.value} as the ${name} ${last.won ? 'beat' : 'fell to'} the ${opp} ${fin}.` };
+    if (last.won && m >= 20) return { title: 'Statement win', sub: `The ${name} beat the ${opp} by ${m}, ${fin}.` };
+    if (last.won && m <= 3) return { title: 'Clutch W', sub: `The ${name} held on to beat the ${opp} ${fin}.` };
+    if (last.won) return { title: 'W in the books', sub: `The ${name} beat the ${opp} ${fin}.` };
+    if (m <= -20) return { title: 'Forget that one', sub: `The ${name} lost to the ${opp} ${fin}. On to the next.` };
+    return { title: 'On to the next', sub: `The ${name} fell to the ${opp} ${fin}.` };
+  }
+  // 3. Your team plays today
+  const next = sch && sch.events.find(e => e.state === 'pre');
+  if (next && NBA.etDay(next.date) === NBA.today) return { title: 'Game day', sub: `${t.name || ''} ${next.home ? 'vs.' : 'at'} the ${NBA.T(next.oppId).name || next.oppAbbr} · tip-off ${NBA.fmtTime(next.date)}${next.tv ? ' on ' + next.tv : ''}.` };
+  // 4. The calendar
+  const md = NBA.today.slice(5);
+  const cup = games.filter(x => /Cup|In-Season/i.test(x.note || '')).length;
+  if (NBA.seasonType === 3) return { title: 'Playoff hoops', sub: `${games.length} playoff game${games.length === 1 ? '' : 's'} today.` };
+  if (cup) return { title: 'NBA Cup night', sub: `${cup} Cup game${cup === 1 ? '' : 's'} on the schedule today.` };
+  if (md === '12-25') return { title: 'Christmas hoops', sub: `${games.length} games on the NBA's biggest regular-season day.` };
+  if (md === '12-31' || md === '01-01') return { title: 'New year hoops', sub: `${games.length} games to ring it in.` };
+  if (md === '10-31') return { title: 'Halloween hoops', sub: `${games.length} games tonight. Nothing scarier than a 30-point quarter.` };
+  // 5. Streaks
+  const sv = mine ? mine.strkV : 0;
+  if (mine && /^W/.test(mine.strk) && sv >= 4) return { title: `${sv} straight`, sub: `The ${name} have won ${sv} in a row.` };
+  if (mine && /^L/.test(mine.strk) && Math.abs(sv) >= 4) return { title: 'Bounce-back time', sub: `The ${name} have lost ${Math.abs(sv)} straight.` };
+  // 6. The clock
+  const hr = now.getHours();
+  if (live.length >= 6) return { title: 'Full slate', sub: `${live.length} games on right now.` };
+  if (hr < 5) return { title: 'Late-night hoops', sub: live.length ? `${live.length} game${live.length > 1 ? 's' : ''} still going.` : '' };
+  if (!games.length) return { title: 'Off night', sub: 'No games today. Catch up on the standings and fun facts below.' };
+  return { title: hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening', sub: '' };
+}
+/* Niche, ESPN-style facts that change as games are played: season "clubs" only a few players belong to,
+   and oddities from the most recent night of full box scores */
+const rowStats = (keys, stats) => {
+  const o = {};
+  keys.forEach((k, i) => {
+    const v = stats[i];
+    if (k.includes('-')) { const [a, b] = String(v || '').split('-'), [ka, kb] = k.split('-'); o[ka] = +a || 0; o[kb] = +b || 0; }
+    else o[k] = parseFloat(v) || 0;
+  });
+  return o;
+};
+const CLUBS = [
+  ['25-10-5 club', p => p.pts >= 25 && p.reb >= 10 && p.ast >= 5, 'averaging at least 25 points, 10 rebounds and 5 assists', p => `${f1(p.pts)}/${f1(p.reb)}/${f1(p.ast)}`],
+  ['30 a night', p => p.pts >= 30, 'averaging 30 or more points', p => `${f1(p.pts)} ppg`],
+  ['Point forwards', p => p.reb >= 7 && p.ast >= 7, 'averaging 7+ rebounds and 7+ assists', p => `${f1(p.reb)} reb, ${f1(p.ast)} ast`],
+  ['Efficient volume', p => p.pts >= 20 && p.ts >= 63, 'scoring 20+ a game on 63%+ true shooting', p => `${f1(p.pts)} on ${f1(p.ts)}%`],
+  ['Stocks monsters', p => p.stl >= 1.5 && p.blk >= 1.5, 'averaging 1.5+ steals and 1.5+ blocks', p => `${f1(p.stl)} stl, ${f1(p.blk)} blk`],
+  ['Volume snipers', p => p.tpm >= 3.5 && p.tpp >= 40, 'making 3.5+ threes a game at 40% or better', p => `${f1(p.tpm)} a game at ${f1(p.tpp)}%`],
+  ['Stretch bigs', p => p.reb >= 9 && p.tpm >= 1.5, 'averaging 9+ rebounds and 1.5+ threes', p => `${f1(p.reb)} reb, ${f1(p.tpm)} 3PM`],
+  ['Floor generals', p => p.ast >= 8 && p.tov <= 2.5, 'dishing 8+ assists with 2.5 or fewer turnovers', p => `${f1(p.ast)} ast, ${f1(p.tov)} tov`],
+  ['Glass and points', p => p.pts >= 15 && p.reb >= 12, 'averaging 15+ points and 12+ rebounds', p => `${f1(p.pts)}/${f1(p.reb)}`],
+  ['Young guns', p => p.age && p.age <= 21 && p.pts >= 15, 'aged 21 or younger and scoring 15+ a game', p => `age ${p.age}, ${f1(p.pts)} ppg`],
+  ['Old school', p => p.age >= 35 && p.min >= 25, 'aged 35 or older and playing 25+ minutes', p => `age ${p.age}, ${f1(p.min)} min`],
+  ['Automatic', p => p.fta >= 5 && p.ftp >= 90, 'shooting 90%+ on 5+ free throws a game', p => `${f1(p.ftp)}% on ${f1(p.fta)}`],
+];
+function nicheFacts() {
+  const cards = [];
+  const card = (eyebrow, big, text, who) => cards.push(`<div class="card fact"><div class="eyebrow">${esc(eyebrow)}</div>${who || ''}<div class="big">${big}</div><p>${text}</p></div>`);
+  const face = (id, name, team) => `<div class="who3">${UI.hs((NBA.playerById(id) || {}).headshot || headshotUrl(id))}${esc(name)} <span class="mut" style="font-weight:600">${esc(team || '')}</span></div>`;
+  const regs = (NBA.data('players') || []).filter(p => p.gp >= 2 && p.min >= 15);
+  CLUBS.forEach(([title, test, desc, line]) => {
+    const club = regs.filter(test).sort((a, b) => NBA.gameScore(b) - NBA.gameScore(a));
+    if (!club.length || club.length > 6) return;
+    card(title, `${club.length}<small>${club.length === 1 ? 'player' : 'players'}</small>`,
+      `${club.length === 1 ? 'The only player' : `Only ${club.length} players are`} ${desc}: ${club.slice(0, 4).map(p => `${esc(p.name)} (${esc(line(p))})`).join(', ')}.`, face(club[0].id, club[0].name, club[0].team));
+  });
+  if (NBA.S.spoilers) return cards;
+  // The latest night with finished games
+  let slate = NBA.use('day:');
+  if (!slate || slate.games.filter(g => g.state === 'post').length < 3) slate = NBA.use('day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -1)));
+  const finals = slate ? slate.games.filter(g => g.state === 'post') : [];
+  const lines = [];
+  finals.forEach(g => {
+    const s = NBA.use('summary:' + g.id);
+    if (!s) return;
+    s.box.forEach(b => b.players.forEach(p => {
+      if (p.dnp) return;
+      const o = rowStats(b.keys, p.stats), opp = b.teamId === g.away.id ? g.home : g.away;
+      lines.push(Object.assign(o, { p, team: NBA.T(b.teamId).abbr, opp: opp.abbr }));
+    }));
+  });
+  if (lines.length < 40) return cards;
+  const when = slate.day === NBA.today ? 'today' : NBA.fmtDay(slate.day, { weekday: 'long' });
+  const top = (list, k) => list.slice().sort((a, b) => b[k] - a[k])[0];
+  const who = o => face(o.p.id, o.p.full, o.team);
+  const vs = o => `against ${esc(o.opp)} ${esc(when)}`;
+  const eff = lines.filter(o => o.points >= 20 && o.fieldGoalsAttempted).sort((a, b) => b.points / b.fieldGoalsAttempted - a.points / a.fieldGoalsAttempted)[0];
+  if (eff) card('Efficiency of the night', `${eff.points}<small>points on ${eff.fieldGoalsAttempted} shots</small>`, `${esc(eff.p.full)} went ${eff.fieldGoalsMade}-for-${eff.fieldGoalsAttempted} from the field ${vs(eff)}.`, who(eff));
+  const perfect = lines.filter(o => o.fieldGoalsMade >= 6 && o.fieldGoalsMade === o.fieldGoalsAttempted).sort((a, b) => b.fieldGoalsMade - a.fieldGoalsMade)[0];
+  if (perfect) card('Perfect from the field', `${perfect.fieldGoalsMade}-for-${perfect.fieldGoalsMade}`, `${esc(perfect.p.full)} didn't miss a shot ${vs(perfect)}, finishing with ${perfect.points} points.`, who(perfect));
+  const pm = top(lines, 'plusMinus');
+  if (pm && pm.plusMinus >= 15) card('Plus-minus king', `+${pm.plusMinus}`, `The team outscored its opponent by ${pm.plusMinus} with ${esc(pm.p.full)} on the floor ${vs(pm)}.`, who(pm));
+  const threes = top(lines, 'threePointFieldGoalsMade');
+  if (threes && threes.threePointFieldGoalsMade >= 5) card('Splash of the night', `${threes.threePointFieldGoalsMade}<small>threes</small>`, `${esc(threes.p.full)} hit ${threes.threePointFieldGoalsMade} of ${threes.threePointFieldGoalsAttempted} from deep ${vs(threes)}.`, who(threes));
+  const stocks = lines.map(o => Object.assign(o, { stk: o.steals + o.blocks })).sort((a, b) => b.stk - a.stk)[0];
+  if (stocks && stocks.stk >= 5) card('Defensive havoc', `${stocks.stk}<small>steals + blocks</small>`, `${esc(stocks.p.full)} had ${stocks.steals} steals and ${stocks.blocks} blocks ${vs(stocks)}.`, who(stocks));
+  const td = lines.filter(o => ['points', 'rebounds', 'assists', 'steals', 'blocks'].filter(k => o[k] >= 10).length >= 3);
+  if (td.length) card('Triple-double watch', `${td.length}`, `Triple-double${td.length > 1 ? 's' : ''} ${esc(when)}: ${td.map(o => `${esc(o.p.full)} (${o.points}/${o.rebounds}/${o.assists})`).join(', ')}.`, who(td[0]));
+  const clean = lines.filter(o => o.assists >= 8 && o.turnovers === 0).sort((a, b) => b.assists - a.assists)[0];
+  if (clean) card('Clean sheet', `${clean.assists}<small>assists, 0 turnovers</small>`, `${esc(clean.p.full)} ran the offense without a single giveaway ${vs(clean)}.`, who(clean));
+  const thirty = lines.filter(o => o.points >= 30).sort((a, b) => b.points - a.points);
+  if (thirty.length) card('30-point club', `${thirty.length}`, `Players with 30+ ${esc(when)}: ${thirty.slice(0, 5).map(o => `${esc(o.p.full)} (${o.points})`).join(', ')}.`, who(thirty[0]));
+  const glass = top(lines, 'rebounds');
+  if (glass && glass.rebounds >= 14) card('Glass eater', `${glass.rebounds}<small>rebounds</small>`, `${esc(glass.p.full)} owned the boards ${vs(glass)}${glass.offensiveRebounds >= 5 ? `, ${glass.offensiveRebounds} of them offensive` : ''}.`, who(glass));
+  const bench = lines.filter(o => !o.p.starter).sort((a, b) => b.points - a.points)[0];
+  if (bench && bench.points >= 18) card('Sixth man of the night', `${bench.points}<small>off the bench</small>`, `${esc(bench.p.full)} came off the bench to score ${bench.points} ${vs(bench)}.`, who(bench));
+  const line = lines.filter(o => o.freeThrowsMade >= 8 && o.freeThrowsMade === o.freeThrowsAttempted).sort((a, b) => b.freeThrowsMade - a.freeThrowsMade)[0];
+  if (line) card('Money at the line', `${line.freeThrowsMade}-for-${line.freeThrowsMade}`, `${esc(line.p.full)} didn't miss a free throw ${vs(line)}.`, who(line));
+  const fouled = lines.filter(o => o.fouls >= 6);
+  if (fouled.length) card('Fouled out', `${fouled.length}`, `Fouled out ${esc(when)}: ${fouled.map(o => `${esc(o.p.full)} (${esc(o.team)})`).join(', ')}.`);
+  return cards;
+}
+// Dealt in a fresh order on every visit, and kept in that order while you're here
+st.factSeed = st.factSeed || String(Math.random());
+const factKey = html => (/class="eyebrow">([^<]*)</.exec(html) || [])[1] || html.slice(0, 60);
+const shuffleFacts = list => list.map(h => [hashStr(st.factSeed + factKey(h)), h]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
 function gameTile(g) {
   const hide = NBA.S.spoilers && g.state !== 'pre';
   const sc = t => g.state === 'pre' || hide ? '' : `<b class="hg-sc">${esc(t.score)}</b>`;
@@ -304,8 +525,7 @@ V.home = () => {
   const day = NBA.use('day:'), confs = NBA.use('standings'), news = NBA.use('news:');
   ['players', 'teamstats', 'futures'].forEach(k => NBA.use(k));
   const myId = NBA.S.myTeam, t = NBA.T(myId), sch = NBA.use('tsched:' + myId), sm = NBA.standingsMap(), mine = sm.get(myId);
-  const now = new Date(), hr = now.getHours();
-  const greet = hr < 5 ? 'Late-night hoops' : hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+  const now = new Date();
   const games = day ? NBA.sortGames(day.games) : [];
   const live = games.filter(g => g.state === 'in');
   const nextTip = games.filter(g => g.state === 'pre' && new Date(g.date) > now).sort((a, b) => new Date(a.date) - new Date(b.date))[0];
@@ -338,18 +558,21 @@ V.home = () => {
       <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(/TBD/i.test(myNext.detail || '') ? 'Time TBD' : NBA.fmtTime(myNext.date))}${myNext.tv ? ' · ' + esc(myNext.tv) : ''}</span>
       <span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span></button>`;
   }
-  const hero = `<section class="home-hero${nextPanel ? ' has-next' : ''}" style="--tc:${esc(t.color || '#444')}">
+  const msg = heroMessage({ now, games, live, myId, t, sch, mine });
+  const star = t.abbr ? marqueeOf(myId) : null;
+  const hero = `<section class="home-hero${nextPanel ? ' has-next' : ''}${star ? ' has-star' : ''}" style="--tc:${esc(t.color || '#444')}">
+    ${star && star.headshot ? `<img class="hh-star" src="${esc(star.headshot)}" alt="" aria-hidden="true">` : ''}
     <div class="hh-txt"><div class="eyebrow">${esc(NBA.fmtDay(NBA.today, { weekday: 'long', month: 'long', day: 'numeric' }))} · ${esc(NBA.SEASON_LABEL)} season</div>
-      <h2>${greet}</h2><div class="hchips">${chips}</div></div>
+      <h2>${esc(msg.title)}</h2>${msg.sub ? `<p class="hh-sub">${esc(msg.sub)}</p>` : ''}<div class="hchips">${chips}</div></div>
     ${t.logo ? `<img class="hh-logo" src="${esc(NBA.lg(t))}" alt="">` : ''}${nextPanel}</section>`;
 
   const strip = !day ? '<p class="loading">Loading games…</p>' : games.length
     ? `<div class="hg-strip">${games.map(gameTile).join('')}</div>` : '<p class="empty">No games today.</p>';
   const gamesSec = `<section class="sec"><div class="sec-h"><h2>${live.length ? 'Live and today' : 'Today'}</h2><span class="sub">Tap a game for the box score</span><div class="end"><a class="chip" href="#schedule">Full schedule</a></div></div>${strip}</section>`;
 
-  // Fun fact deck, dealt in a new order each day
+  // Fun fact deck: the Fun Facts cards plus niche season clubs and last night's oddities, shuffled each visit
   const fg = NBA.factGroups();
-  const facts = fg ? dailyOrder(fg.league.concat(fg.people, fg.week), 'facts') : [];
+  const facts = fg ? shuffleFacts(fg.league.concat(fg.people, fg.week, nicheFacts())) : [];
   const factCard = `<div class="card hm hm-facts"><div class="card-h"><h3>Did you know?</h3><div class="end"><a class="chip" href="#facts">All fun facts</a></div></div>
     <div class="card-b">${facts.length ? deckHtml('deck-home-facts', facts, { label: 'Fun facts', cls: 'deck-facts' }) : '<p class="loading">Dealing the cards…</p>'}</div></div>`;
 
@@ -387,7 +610,7 @@ V.home = () => {
       <p class="note" style="padding:0 var(--pad) var(--pad)">Top 6 make the playoffs; 7–10 play in.</p>` : '<p class="loading" style="padding:var(--pad)">Loading standings…</p>'}</div>`;
 
   // Chart of the day, from the charts that don't need all 30 rosters
-  const specs = chartSpecs().filter(s => !['payroll', 'value', 'rookies'].includes(s.id));
+  const specs = chartSpecs().filter(s => !['payroll', 'value', 'rookies', 'height-reb', 'height-blk'].includes(s.id));
   specs.forEach(s => SPECS.set(s.id, s));
   const cod = specs.length ? specs[hashStr('chart' + NBA.today) % specs.length] : null;
   const chartDay = cod ? `<div class="hm hm-chart">${chartCard(cod, 260).replace('<div class="end">', '<div class="end"><span class="tag-day">Chart of the day</span>')}<a class="chip hm-more" href="#facts">Swipe all the charts</a></div>` : '';

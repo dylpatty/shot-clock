@@ -520,7 +520,10 @@ function teamView(id) {
   const rank = k => tsr && tsr.rank[k] ? `<small>${NBA.ord(tsr.rank[k])}</small>` : '';
   const isFav = NBA.S.favorites.includes(id);
   const stat = (v, l, extra = '') => `<div><b>${v}</b><span>${l}</span>${extra}</div>`;
-  const hero = `<section class="team-hero" style="--tc:${esc(t.color || '#444')};--logo:url('${esc(t.logo || '')}')">
+  // The team's star, faded into the banner the same way as on Home
+  const star = NBA.marqueeOf ? NBA.marqueeOf(id) : null;
+  const hero = `<section class="team-hero${star && star.headshot ? ' has-star' : ''}" style="--tc:${esc(t.color || '#444')};--logo:url('${esc(t.logo || '')}')">
+    ${star && star.headshot ? `<img class="hh-star team-star" src="${esc(star.headshot)}" alt="" aria-hidden="true">` : ''}
     <img class="big-logo" src="${esc(t.logoDark || t.logo || '')}" alt="">
     <div><h2>${esc(t.full)}</h2><div class="sub2">${esc([sch && sch.standing, roster && roster.coach ? 'Coach ' + roster.coach : ''].filter(Boolean).join(' · '))}</div>
       <div class="hero-stats">${r ? [
@@ -529,7 +532,7 @@ function teamView(id) {
         stat(NBA.fix(r.ppg), 'Points', rank('ppg')), stat(NBA.fix(r.opp), 'Allowed', rank('oppg')), stat((r.diff > 0 ? '+' : '') + NBA.fix(r.diff), 'Margin', rank('diff')),
       ].join('') : ''}</div></div>
     <div class="hero-side"><div class="hero-rec">${r ? `${r.w}-${r.l}` : esc((sch && sch.record) || '')}</div>
-      <button class="btn hero-btn" data-act="fav" data-id="${id}">${isFav ? '★ Highlighted' : '☆ Highlight team'}</button></div></section>`;
+      ${isFav ? '<span class="btn hero-btn" aria-disabled="true">★ Favorite team</span>' : ''}</div></section>`;
 
   const today = NBA.data('day:');
   const live = today && today.games.find(g => g.state === 'in' && (g.away.id === id || g.home.id === id));

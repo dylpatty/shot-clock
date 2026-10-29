@@ -165,29 +165,36 @@ function renderHeader() {
   const live = today ? today.games.filter(g => g.state === 'in').length : null;
   const pill = $('#livepill');
   pill.className = 'livepill' + (live ? ' on' : '');
-  pill.innerHTML = live == null ? '' : live ? `<i class="dot blink"></i>${live} live` : 'No games live';
+  // While games are live the header shows only a red live button with the count; it opens the schedule
+  pill.innerHTML = live == null ? '' : live ? `<a class="live-btn" href="#schedule" aria-label="${live} game${live > 1 ? 's' : ''} live now, open the schedule"><i class="dot blink"></i>${live} live</a>` : 'No games live';
   const mt = NBA.T(NBA.S.myTeam);
+  if (NBA.S.teamTheme && mt.abbr && UI.lookKey !== mt.id + mt.color + mt.alt + NBA.S.theme) applyLook();
   const teams = [...NBA.teams.values()].filter(t => t.abbr && t.full).sort((a, b) => a.full.localeCompare(b.full));
-  UI.paint($('#teampick'), `${mt.logo ? UI.logo(mt, 22) : ''}<label class="sr" for="team-pick">Your team</label>
-    <select id="team-pick" data-ch="myTeam" title="Your team">${teams.length
+  UI.paint($('#teampick'), `${mt.logo ? UI.logo(mt, 22) : ''}<span class="ht-col"><label class="ht-lbl" for="team-pick">Favorite team</label>
+    <select id="team-pick" data-ch="myTeam" title="Favorite team">${teams.length
       ? teams.map(t => `<option value="${t.id}" ${t.id === NBA.S.myTeam ? 'selected' : ''}>${esc(t.full)}</option>`).join('')
-      : `<option value="${esc(NBA.S.myTeam)}">${esc(mt.full || 'Golden State Warriors')}</option>`}</select>`);
+      : `<option value="${esc(NBA.S.myTeam)}">${esc(mt.full || 'Golden State Warriors')}</option>`}</select></span>`);
   renderUpdated();
 }
 function renderUpdated() {
   const el = $('#upd');
   if (NBA.failing) { el.className = 'upd err'; el.textContent = "Can't reach ESPN · retrying"; return; }
+  const today = NBA.data('day:');
+  if (today && today.games.some(g => g.state === 'in')) { el.className = 'upd'; el.textContent = ''; return; }
   el.className = 'upd';
   if (!NBA.lastUpdate) { el.textContent = 'Loading…'; return; }
   const s = Math.round((Date.now() - NBA.lastUpdate) / 1000);
   el.textContent = 'Updated ' + (s < 5 ? 'just now' : s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago');
 }
-let lastTab = null;
+let lastTab = null, lastRoute = null;
 function renderView() {
   const { tab, arg } = UI.route();
   const view = $('#view');
   const fn = NBA.views[tab];
   if (!fn) return;
+  // A new tab or page opens at the top (on Schedule, today's games), not wherever the last one was scrolled
+  const routeKey = tab + '/' + arg;
+  if (routeKey !== lastRoute) { if (lastRoute !== null) window.scrollTo(0, 0); lastRoute = routeKey; }
   if (tab !== lastTab) { view._html = null; lastTab = tab; }
   const changed = UI.paint(view, fn(arg));
   // The rest-of-season list under the schedule only shows on that tab
@@ -468,55 +475,49 @@ UI.MODELS = MODELS;
 function renderSettings() {
   const el = $('#settings');
   if (!UI.settingsOpen) return;
-  const S = NBA.S;
-  const teams = [...NBA.teams.values()].filter(t => t.abbr && t.conf);
-  const byConf = [['East', 'Eastern Conference'], ['West', 'Western Conference']].map(([k, l]) => [l, teams.filter(t => t.conf === k).sort((a, b) => (a.name || '').localeCompare(b.name || ''))]);
-  const tbtn = t => `<button class="tbtn" data-act="fav" data-id="${t.id}" aria-pressed="${S.favorites.includes(t.id)}">${UI.logo(t, 22)}<span>${esc(t.name || t.abbr)}</span></button>`;
-  const opt = (k, label) => `<label class="chk"><input type="checkbox" id="card-${k}" data-ch="card" data-k="${k}" ${S.card[k] ? 'checked' : ''}> ${label}</label>`;
-  const seg = (k, opts, label) => `<div class="seg" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" aria-pressed="${S[k] === v}">${l}</button>`).join('')}</div>`;
-  const key = NBA.aiKey.get();
+  const S = NBA.S, t = NBA.T(S.myTeam);
+  const seg = (k, opts, label) => `<div class="seg big" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" aria-pressed="${(S[k] || '') === v}">${l}</button>`).join('')}</div>`;
+  const sw = c => c ? `<i class="swatch" style="background:${esc(c)}"></i>` : '';
   const html = `
     <div class="dr-bar dpad"><button class="ib" data-act="close" aria-label="Close settings">${UI.I.close}</button><span class="dr-title" id="st-title">Settings</span><span class="note">Saves automatically</span></div>
     <div class="dpad">
-      <section class="cz-sec"><h3>Your team tab</h3><p class="hint">This team gets its own tab next to Teams.</p>
-        <select id="myteam" data-ch="myTeam">${teams.slice().sort((a, b) => a.full.localeCompare(b.full)).map(t => `<option value="${t.id}" ${S.myTeam === t.id ? 'selected' : ''}>${esc(t.full)}</option>`).join('') || `<option>${esc(NBA.T(S.myTeam).full || 'Golden State Warriors')}</option>`}</select></section>
-      <section class="cz-sec"><h3>Highlighted teams</h3><p class="hint">Starred on score cards and highlighted in the schedule, standings and odds.</p>
-        ${teams.length ? byConf.map(([l, list]) => `<h4>${l}</h4><div class="tgrid">${list.map(tbtn).join('')}</div>`).join('') : '<p class="hint">Loading teams…</p>'}</section>
-      <section class="cz-sec"><h3>Ask anything (Claude)</h3>
-        <p class="hint">The search bar answers common questions on its own. For anything else it uses Claude with your own Anthropic API key. You pay Anthropic per question, separately from any Claude subscription. The key is stored only in this browser and sent only to api.anthropic.com. Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
-        <div class="keyrow"><label class="sr" for="ai-key">Anthropic API key</label><input class="field" id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="${key ? 'Key saved · paste a new one to replace it' : 'sk-ant-…'}">
-          <button class="btn primary" data-act="savekey">Save key</button></div>
-        ${key ? `<div class="row2"><span class="note">A key is saved in this browser.</span><button class="link" data-act="clearkey">Remove key</button></div>` : ''}
-        <div class="row2"><label for="ai-model">Model</label><select id="ai-model" data-ch="aiModel">${MODELS.map(([v, l]) => `<option value="${v}" ${S.aiModel === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></section>
-      <section class="cz-sec"><h3>Score cards</h3><div class="opts">
-        ${opt('quarters', 'Quarter-by-quarter scores')}${opt('winprob', 'Live win chance bar')}${opt('leaders', 'Top scorer under each team')}${opt('lastplay', 'Last play (live) and recap line (final)')}</div></section>
-      <section class="cz-sec"><h3>Spoiler mode</h3><label class="chk"><input type="checkbox" id="spoilers" data-ch="spoilers" ${S.spoilers ? 'checked' : ''}> Hide scores until I open a game</label>
+      <section class="cz-sec"><h3>Theme</h3>${seg('theme', [['light', 'Light'], ['dark', 'Dark']], 'Theme')}</section>
+      <section class="cz-sec"><h3>Colors</h3><p class="hint">Use your favorite team's colors for highlights, buttons and the header. Change your favorite team at the top of the page.</p>
+        ${seg('teamTheme', [['', 'Standard'], ['1', `${t.logo ? UI.logo(t, 18) : ''}${esc(t.name || 'Team')} colors ${sw(t.color)}${sw(t.alt)}`]], 'Colors')}</section>
+      <section class="cz-sec"><h3>No spoilers</h3><label class="chk"><input type="checkbox" id="spoilers" data-ch="spoilers" ${S.spoilers ? 'checked' : ''}> Hide scores until I open a game</label>
         <p class="hint">Hides scores, win chances, leaders, recaps and results. Each card gets a Show score button.</p></section>
-      <section class="cz-sec"><h3>Live updates</h3><div class="row2"><label for="refresh">Refresh while games are live</label>
-        <select id="refresh" data-ch="refresh">${[10, 15, 30, 60].map(s => `<option value="${s}" ${S.refresh === s ? 'selected' : ''}>Every ${s} seconds</option>`).join('')}</select></div>
-        <p class="hint">With no live games it checks every 2 minutes, and it pauses while this tab is in the background.</p></section>
-      <section class="cz-sec"><h3>Look</h3>
-        <div class="row2"><span>Game times</span>${seg('tz', [['et', 'Eastern (ET)'], ['local', 'My time zone']], 'Game times')}</div>
-        <div class="row2"><span>Theme</span>${seg('theme', [['system', 'Match system'], ['light', 'Light'], ['dark', 'Dark']], 'Theme')}</div>
-        <div class="row2"><span>Density</span>${seg('density', [['comfortable', 'Comfortable'], ['compact', 'Compact']], 'Density')}</div>
-        <div class="row2"><span>Box score columns</span>${seg('boxCols', [['compact', 'Key stats'], ['full', 'All stats']], 'Box score columns')}</div></section>
-      <section class="cz-sec"><button class="btn" data-act="reset">${UI.resetArmed ? 'Click again to reset settings' : 'Reset settings'}</button>
-        <p class="hint">Resetting keeps your saved API key.</p></section>
+      <p class="hint">Live scores refresh every 10 seconds while games are on. Everything else refreshes on its own through the day.</p>
     </div>`;
   const top = el.scrollTop;
   if (UI.paint(el, html)) el.scrollTop = top;
 }
+const TEAM_VARS = ['--accent', '--accent-soft', '--accent-ink', '--chrome'];
 function applyLook() {
   const r = document.documentElement;
   if (NBA.S.theme === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', NBA.S.theme);
   r.setAttribute('data-density', NBA.S.density);
+  // Team colors: accents from the favorite team, and a header tinted with its deeper color.
+  // Until ESPN has sent the team's colors, keep the look remembered from the last visit.
+  const team = NBA.T(NBA.S.myTeam);
+  if (NBA.S.teamTheme && !(team.abbr && team.color !== '#888888')) return;
+  UI.lookKey = NBA.S.teamTheme ? team.id + team.color + team.alt + NBA.S.theme : '';
+  const a = NBA.S.teamTheme ? NBA.accentFor(team) : null;
+  let look = null;
+  if (a) {
+    const dark = NBA.isDark();
+    look = { '--accent': a.accent, '--accent-ink': a.ink,
+      '--accent-soft': `color-mix(in srgb, ${a.accent} ${dark ? 22 : 16}%, ${dark ? '#151A21' : '#FFFFFF'})`,
+      '--chrome': `color-mix(in srgb, ${a.base} ${dark ? 26 : 18}%, ${dark ? '#07090C' : '#E2E5EA'})` };
+    Object.entries(look).forEach(([k, v]) => r.style.setProperty(k, v));
+  } else TEAM_VARS.forEach(k => r.style.removeProperty(k));
+  // Remembered so the next visit paints in team colors straight away
+  try { if (look) localStorage.setItem('nba.look', JSON.stringify(look)); else localStorage.removeItem('nba.look'); } catch (e) { /* storage blocked */ }
 }
 UI.applyLook = applyLook;
 function repaintAll() {
   document.querySelectorAll('#view, #tabbar, #drawer, #settings').forEach(el => { el._html = null; });
   NBA.render();
 }
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (NBA.S.theme === 'system') repaintAll(); });
 
 /* ---------- events ---------- */
 Object.assign(NBA.actions, {
@@ -532,35 +533,19 @@ Object.assign(NBA.actions, {
     renderDrawer();
   },
   allplays: () => { if (UI.drawer) { UI.drawer.showAll = true; renderDrawer(); } },
-  fav: a => {
-    const id = a.dataset.id, S = NBA.S, i = S.favorites.indexOf(id);
-    if (i >= 0) S.favorites.splice(i, 1); else S.favorites.push(id);
-    NBA.save(); repaintAll();
-  },
+  // Only the theme and team colors can be set here; everything else is fixed
   set: a => {
-    NBA.S[a.dataset.k] = a.dataset.v; NBA.save();
-    if (a.dataset.k === 'theme' || a.dataset.k === 'density') applyLook();
+    const k = a.dataset.k;
+    if (k !== 'theme' && k !== 'teamTheme' && k !== 'boxCols') return;
+    NBA.S[k] = a.dataset.v; NBA.save();
+    applyLook();
     repaintAll();
-  },
-  savekey: () => {
-    const inp = $('#ai-key'), v = inp.value.trim();
-    if (!v) { inp.focus(); return; }
-    NBA.aiKey.set(v); inp.value = '';
-    $('#settings')._html = null; renderSettings();
-    if (NBA.ask) NBA.ask.keyChanged();
-  },
-  clearkey: () => { NBA.aiKey.set(''); $('#settings')._html = null; renderSettings(); if (NBA.ask) NBA.ask.keyChanged(); },
-  reset: () => {
-    if (!UI.resetArmed) { UI.resetArmed = true; renderSettings(); setTimeout(() => { if (UI.resetArmed) { UI.resetArmed = false; renderSettings(); } }, 4000); return; }
-    UI.resetArmed = false; NBA.resetSettings(); applyLook(); repaintAll();
   },
 });
 Object.assign(NBA.changes, {
-  card: t => { NBA.S.card[t.dataset.k] = t.checked; NBA.save(); NBA.changed(); },
   spoilers: t => { NBA.S.spoilers = t.checked; UI.st.revealed.clear(); NBA.save(); NBA.changed(); },
-  refresh: t => { NBA.S.refresh = +t.value; NBA.save(); NBA.reschedule(); },
-  myTeam: t => { if (!t.value) return; NBA.S.myTeam = t.value; NBA.save(); repaintAll(); },
-  aiModel: t => { NBA.S.aiModel = t.value; NBA.save(); },
+  // The favorite team is also the highlighted team, and drives the team-colors theme
+  myTeam: t => { if (!t.value) return; NBA.S.myTeam = t.value; NBA.S.favorites = [t.value]; NBA.save(); applyLook(); repaintAll(); },
   scoring: t => { if (UI.drawer) { UI.drawer.scoringOnly = t.checked; renderDrawer(); } },
 });
 document.addEventListener('click', e => {

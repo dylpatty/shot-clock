@@ -24,6 +24,8 @@
     var s = JSON.parse(localStorage.getItem('nba.settings.v2') || 'null');
     if (s && s.theme && s.theme !== 'system') document.documentElement.setAttribute('data-theme', s.theme);
     if (s && s.density) document.documentElement.setAttribute('data-density', s.density);
+    var look = s && s.teamTheme ? JSON.parse(localStorage.getItem('nba.look') || 'null') : null;
+    if (look) for (var k in look) document.documentElement.style.setProperty(k, look[k]);
   } catch (e) {}
 </script>
 </head>
