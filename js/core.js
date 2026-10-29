@@ -175,7 +175,7 @@ function need(key, force) {
   let r = RES.get(key);
   if (!r) { r = { t: 0, data: undefined, err: null, p: null }; RES.set(key, r); }
   if (r.p) return r.p;
-  const ttl = typeof L.ttl === 'function' ? L.ttl(arg) : L.ttl;
+  const ttl = typeof L.ttl === 'function' ? L.ttl(arg, r.data) : L.ttl;
   if (!force && r.t && Date.now() - r.t < ttl) return Promise.resolve(r.data);
   r.p = L.load(arg, r.data)
     .then(data => { r.data = data; r.t = Date.now(); r.err = null; return data; })
@@ -222,7 +222,15 @@ function parseOdds(c) {
     const m = o.moneyline && o.moneyline[side];
     return m && m.close && m.close.odds ? m.close.odds : (m && m.open && m.open.odds) || '';
   };
-  return { provider: o.provider && o.provider.name, details: o.details || '', ou: o.overUnder ?? '', awayML: ml('away'), homeML: ml('home') };
+  const ps = o.pointSpread || {}, tot = o.total || {}, mo = o.moneyline || {};
+  const side = (m, k) => ({ open: m && m[k] && m[k].open ? (m[k].open.line ?? m[k].open.odds) : '', now: m && m[k] && m[k].close ? (m[k].close.line ?? m[k].close.odds) : '' });
+  return {
+    provider: o.provider && o.provider.name, details: o.details || '', ou: o.overUnder ?? '', awayML: ml('away'), homeML: ml('home'),
+    // Opening vs current DraftKings lines, for line movement
+    spreadHome: side(ps, 'home'), spreadAway: side(ps, 'away'),
+    total: { open: String(side(tot, 'over').open || '').replace(/^o/, ''), now: String(side(tot, 'over').now || '').replace(/^o/, '') },
+    mlHome: side(mo, 'home'), mlAway: side(mo, 'away'),
+  };
 }
 function parseGame(ev) {
   const c = (ev.competitions || [])[0] || {};
@@ -319,8 +327,9 @@ function parseSummary(j, id) {
   });
   const plays = (j.plays || []).map(p => ({
     id: String(p.id), text: p.text || '', clock: p.clock ? p.clock.displayValue : '', period: p.period ? p.period.number : 0,
-    away: p.awayScore, home: p.homeScore, scoring: !!p.scoringPlay, teamId: p.team ? String(p.team.id) : '',
+    away: p.awayScore, home: p.homeScore, scoring: !!p.scoringPlay, teamId: p.team ? String(p.team.id) : '', wall: p.wallclock || '',
   }));
+  const lastWall = plays.map(p => p.wall).filter(Boolean).pop();
   const injuries = (j.injuries || []).map(t => ({
     teamId: String(t.team && t.team.id),
     list: (t.injuries || []).map(i => ({ name: i.athlete ? i.athlete.displayName : '', status: i.status || '', type: i.details ? i.details.type : '' })),
@@ -329,9 +338,25 @@ function parseSummary(j, id) {
   const link = ((j.header && j.header.links) || []).find(l => (l.rel || []).includes('summary'));
   return {
     id, date: comp.date, away, home, state: st.type.state, detail: st.type.shortDetail || st.type.detail || '',
+    ended: st.type.state === 'post' ? lastWall || '' : '',
     box, tstats, plays, wp: j.winprobability || [], injuries,
     link: link ? link.href : `https://www.espn.com/nba/game/_/gameId/${id}`,
   };
+}
+function parseGameLog(j) {
+  const names = j.names || [];
+  const reg = (j.seasonTypes || []).find(s => /Regular/i.test(s.displayName || '')) || (j.seasonTypes || [])[0] || { categories: [] };
+  const rows = (reg.categories || []).flatMap(c => c.events || []);
+  return rows.map(r => {
+    const e = (j.events || {})[r.eventId] || {};
+    const s = {}; names.forEach((n, i) => { s[n] = (r.stats || [])[i]; });
+    return {
+      id: String(r.eventId), date: e.gameDate, home: e.atVs !== '@', oppId: String(e.opponent && e.opponent.id || ''), oppAbbr: e.opponent && e.opponent.abbreviation,
+      result: e.gameResult || '', score: e.score || '',
+      min: s.minutes, pts: s.points, reb: s.totalRebounds, ast: s.assists, stl: s.steals, blk: s.blocks, tov: s.turnovers,
+      fg: s['fieldGoalsMade-fieldGoalsAttempted'], tp: s['threePointFieldGoalsMade-threePointFieldGoalsAttempted'], ft: s['freeThrowsMade-freeThrowsAttempted'],
+    };
+  }).sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 function catValues(defs, cats) {
   const v = {};
@@ -484,7 +509,31 @@ def('tsched', 15 * 60000, async id => {
   return { standing: j.team && j.team.standingSummary, record: j.team && j.team.recordSummary, events: parseSchedule(j, id) };
 });
 def('roster', 60 * 60000, async id => parseRoster(await getJSON(`${API}/teams/${id}/roster`)));
-def('summary', 15000, async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
+def('summary', (id, d) => (d && d.state === 'post' ? 6 * 3600000 : 15000), async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
+def('gamelog', 15 * 60000, async id => parseGameLog(await getJSON(`${WEB}/common/v3/sports/basketball/nba/athletes/${id}/gamelog?season=${NBA.SEASON}`)));
+/* Season plus-minus per player (ESPN keeps it only in per-player season stats) */
+def('pm', 6 * 3600000, async id => {
+  const j = await getJSON(`${CORE}/seasons/${NBA.SEASON}/types/${NBA.seasonType}/athletes/${id}/statistics/0?lang=en&region=us`);
+  const gen = ((j.splits && j.splits.categories) || []).find(c => c.name === 'general') || {};
+  const s = (gen.stats || []).find(x => x.name === 'plusMinus');
+  return s ? s.value : null;
+});
+/* Plus-minus leaders: rotation players only (20+ minutes, enough games), cached in this browser for 6 hours */
+def('pmlead', 6 * 3600000, async () => {
+  const CACHE = 'nba.pm.v1';
+  const cached = readJSON(CACHE);
+  if (cached && cached.season === NBA.SEASON && Date.now() - cached.t < 6 * 3600000) return cached.rows;
+  await Promise.all([need('players'), need('standings')]);
+  const sm = NBA.standingsMap();
+  const cands = (NBA.players() || []).filter(p => p.min >= 20 && NBA.qualifies(p, null, sm));
+  const rows = [];
+  for (let i = 0; i < cands.length; i += 8) {
+    const chunk = await Promise.allSettled(cands.slice(i, i + 8).map(p => need('pm:' + p.id).then(v => ({ p, v }))));
+    chunk.forEach(c => { if (c.status === 'fulfilled' && c.value.v != null) rows.push({ id: c.value.p.id, total: c.value.v, gp: c.value.p.gp }); });
+  }
+  try { localStorage.setItem(CACHE, JSON.stringify({ t: Date.now(), season: NBA.SEASON, rows })); } catch (e) { /* storage full or blocked */ }
+  return rows;
+});
 
 /* ---------- derived data ---------- */
 NBA.standingsMap = () => {
@@ -573,6 +622,31 @@ NBA.leaders = ({ stat = 'pts', mode = 'game', limit = 10, teamId, conf, pos, low
   }
   list.sort((a, b) => lowest ? NBA.statValue(stat, a, mode) - NBA.statValue(stat, b, mode) : NBA.statValue(stat, b, mode) - NBA.statValue(stat, a, mode));
   return list.slice(0, limit);
+};
+
+/* Team results over the last N days from the daily scoreboards; pass NBA.use as `get` to also start missing loads */
+NBA.recentForm = (days = 7, get = NBA.data) => {
+  const keys = Array.from({ length: days }, (_, i) => i === 0 ? 'day:' : 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -i)));
+  const seen = new Set(), map = new Map();
+  keys.map(k => get(k)).filter(Boolean).flatMap(d => d.games).filter(g => g.state === 'post' && !seen.has(g.id) && seen.add(g.id))
+    .forEach(g => [[g.away, g.home], [g.home, g.away]].forEach(([t, o]) => {
+      const a = map.get(t.id) || { w: 0, l: 0, pf: 0, pa: 0, gp: 0 };
+      a.gp++; a.pf += +t.score; a.pa += +o.score;
+      if (+t.score > +o.score) a.w++; else a.l++;
+      map.set(t.id, a);
+    }));
+  return map;
+};
+/* Every team with ratings per 100 possessions, last-7-days form and trend vs. season margin; null until team stats load */
+NBA.powerRows = (get = NBA.data) => {
+  const ts = get('teamstats');
+  if (!ts) return null;
+  const sm = NBA.standingsMap(), form = NBA.recentForm(7, get);
+  return ts.map(t => {
+    const r = sm.get(t.id) || {}, fm0 = form.get(t.id);
+    const fm = fm0 && fm0.gp ? (fm0.pf - fm0.pa) / fm0.gp : null, season = r.diff ?? t.diff;
+    return Object.assign({}, t, { w: r.w, l: r.l, strk: r.strk, f: fm0, fm, trend: fm == null ? null : fm - season, season });
+  });
 };
 
 /* Box-score totals over recent days, for "best player last week" questions */

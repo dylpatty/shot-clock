@@ -30,8 +30,13 @@ V.schedule = () => {
   else {
     const games = NBA.sortGames(day.games);
     const live = games.filter(g => g.state === 'in'), next = games.filter(g => g.state === 'pre');
-    // ESPN gives no finish time: latest start first, and overtime games ahead of others that started at the same time
-    const done = games.filter(g => g.state === 'post').sort((a, b) => (new Date(b.date) - new Date(a.date)) || (b.home.lines.length - a.home.lines.length));
+    // Order finals by when they actually ended (last play's clock time); estimate from tip-off until that loads
+    const endOf = g => {
+      const s = NBA.use('summary:' + g.id);
+      if (s && s.ended) return new Date(s.ended).getTime();
+      return new Date(g.date).getTime() + (140 + 15 * Math.max(0, g.home.lines.length - 4)) * 60000;
+    };
+    const done = games.filter(g => g.state === 'post').map(g => [g, endOf(g)]).sort((a, b) => b[1] - a[1]).map(x => x[0]);
     const group = (label, list) => list.length ? `<div class="sub-h">${label} · ${list.length}</div><div class="games">${list.map(g => UI.gameCard(g, false)).join('')}</div>` : '';
     main = (live.length ? `<div class="sub-h live"><i class="dot blink"></i>Live now · ${live.length}</div><div class="games live-grid">${live.map(g => UI.gameCard(g, true)).join('')}</div>` : '')
       + group('Up next by tip-off', next)
@@ -144,7 +149,7 @@ V.stats = () => {
     <div class="end">${seg('statsmode', mode, [['game', 'Per game'], ['total', 'Totals']], 'Stat type')}</div></div>`;
   if (!players) return `<section class="sec">${head}${stateOf('players', 'player stats')}</section>`;
   const heroes = HERO[mode].map(k => leadCard(k, mode)).join('');
-  let minis = MINI[mode].map(k => miniCard(k, mode)).join('');
+  let minis = pmCard(NBA.use('pmlead'), mode) + MINI[mode].map(k => miniCard(k, mode)).join('');
   if (mode === 'game' && per && per.length) {
     minis = `<div class="card mini"><div class="card-h"><h3>Player efficiency</h3><div class="end">PER</div></div><ol class="rank">${per.slice(0, 5).map((p, i) => {
       const pl = NBA.playerById(p.id);
@@ -155,8 +160,19 @@ V.stats = () => {
     <section class="sec"><div class="sec-h"><h3>More leaders</h3><span class="sub">Shooting and efficiency leaders use the NBA's minimum-attempt rules, scaled to games played so far</span></div><div class="mini-grid">${minis}</div></section>
     <section class="sec">${teamTable(teams)}</section>
     <section class="sec">${playerTable(players, mode)}</section>
-    <p class="note">Season plus-minus isn't in ESPN's public feed, so it isn't listed here. Each game's box score shows plus-minus for that game.</p>`;
+    <p class="note">Plus-minus covers rotation players (20+ minutes a game with enough games played) and refreshes every few hours.</p>`;
 };
+function pmCard(rows, mode) {
+  const head = `<div class="card-h"><h3>Plus-minus</h3><div class="end">${mode === 'total' ? 'Season total' : 'Per game'}</div></div>`;
+  if (!rows) return `<div class="card mini">${head}<p class="note" style="padding:var(--pad)">${NBA.status('pmlead').err ? "Couldn't load plus-minus from ESPN." : 'Adding up plus-minus for rotation players…'}</p></div>`;
+  const val = r => mode === 'total' ? r.total : r.total / Math.max(1, r.gp);
+  const list = rows.slice().sort((a, b) => val(b) - val(a)).slice(0, 5);
+  return `<div class="card mini">${head}<ol class="rank">${list.map((r, i) => {
+    const p = NBA.playerById(r.id) || {};
+    const v = val(r);
+    return `<li data-act="player" data-id="${r.id}" style="cursor:pointer"><span class="rk">${i + 1}</span><span class="nm">${esc(p.name || '')}<small>${esc(p.team || '')}</small></span><span class="v">${v > 0 ? '+' : ''}${mode === 'total' ? Math.round(v) : NBA.fix(v)}</span></li>`;
+  }).join('')}</ol></div>`;
+}
 function leadCard(k, mode) {
   const d = NBA.STATS[k], list = NBA.leaders({ stat: k, mode, limit: 8 });
   if (!list.length) return '';
@@ -266,11 +282,18 @@ function oddsList(m, { limit = 10, cols = 1 } = {}) {
 function gameLines(days) {
   const games = days.filter(Boolean).flatMap(d => d.games).filter(g => g.state === 'pre');
   const withOdds = games.filter(g => g.odds && (g.odds.details || g.odds.awayML));
+  const mv = txt => txt ? `<br><small class="mut">${esc(txt)}</small>` : '';
   const body = withOdds.length ? `<div class="tblwrap"><table class="tbl lines-tbl"><thead><tr><th class="l" scope="col">Game</th><th scope="col">Line</th><th scope="col">O/U</th><th scope="col">Moneyline</th></tr></thead>
-    <tbody>${withOdds.map(g => `<tr class="click" data-act="game" data-id="${g.id}"><td class="l"><b>${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</b><br><span class="mut">${esc(NBA.fmtDate(g.date, { weekday: 'short' }))} ${esc(NBA.fmtTime(g.date))}</span></td>
-      <td>${esc(g.odds.details)}</td><td>${esc(g.odds.ou)}</td><td>${esc(g.away.abbr)} ${esc(g.odds.awayML)}<br>${esc(g.home.abbr)} ${esc(g.odds.homeML)}</td></tr>`).join('')}</tbody></table></div>`
+    <tbody>${withOdds.map(g => {
+      const o = g.odds;
+      const mlMove = [UI.moved(o.mlAway, g.away.abbr + ' '), UI.moved(o.mlHome, g.home.abbr + ' ')].filter(Boolean).join(', ');
+      return `<tr class="click" data-act="game" data-id="${g.id}"><td class="l"><b>${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</b><br><span class="mut">${esc(NBA.fmtDate(g.date, { weekday: 'short' }))} ${esc(NBA.fmtTime(g.date))}</span></td>
+      <td>${esc(o.details)}${mv(UI.moved(o.spreadHome, g.home.abbr + ' '))}</td><td>${esc(o.ou)}${mv(UI.moved(o.total))}</td>
+      <td>${esc(g.away.abbr)} ${esc(o.awayML)}<br>${esc(g.home.abbr)} ${esc(o.homeML)}${mv(mlMove)}</td></tr>`;
+    }).join('')}</tbody></table></div>`
     : `<p class="empty">${games.length ? 'DraftKings posts game lines on game day. None are up yet for the next games.' : 'No upcoming games today or tomorrow.'}</p>`;
-  return `<div class="card"><div class="card-h"><h3>Game lines</h3><div class="end"><span class="eyebrow">Today & tomorrow</span></div></div><div class="card-b" style="padding-block:6px">${body}</div></div>`;
+  return `<div class="card"><div class="card-h"><h3>Game lines</h3><div class="end"><span class="eyebrow">DraftKings · today & tomorrow</span></div></div><div class="card-b" style="padding-block:6px">${body}
+    ${withOdds.length ? '<p class="note" style="padding-top:8px">"Opened" shows where a line started when DraftKings has moved it since. ESPN only carries DraftKings, so other sportsbooks aren\'t listed.</p>' : ''}</div></div>`;
 }
 
 /* ================= Injuries & News ================= */
@@ -424,28 +447,11 @@ V.teams = arg => {
 
 /* League-wide team comparison: ratings per 100 possessions, recent form, and team stat leaders */
 st.prSort = { k: 'net', desc: true };
-function recentForm(days) {
-  const keys = Array.from({ length: days }, (_, i) => i === 0 ? 'day:' : 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -i)));
-  const seen = new Set(), map = new Map();
-  keys.map(k => NBA.use(k)).filter(Boolean).flatMap(d => d.games).filter(g => g.state === 'post' && !seen.has(g.id) && seen.add(g.id))
-    .forEach(g => [[g.away, g.home], [g.home, g.away]].forEach(([t, o]) => {
-      const a = map.get(t.id) || { w: 0, l: 0, pf: 0, pa: 0, gp: 0 };
-      a.gp++; a.pf += +t.score; a.pa += +o.score;
-      if (+t.score > +o.score) a.w++; else a.l++;
-      map.set(t.id, a);
-    }));
-  return map;
-}
 function teamsOverview() {
-  const ts = NBA.use('teamstats');
   const head = `<div class="sec-h"><h2>Power rankings</h2><span class="sub">All 30 teams by net rating · click a column to sort, a team to open it</span></div>`;
-  if (!ts) return `<section class="sec">${head}${stateOf('teamstats', 'team stats')}</section>`;
-  const sm = NBA.standingsMap(), form = recentForm(7), fav = new Set(NBA.S.favorites);
-  const rows = ts.map(t => {
-    const r = sm.get(t.id) || {}, f = form.get(t.id);
-    const fm = f && f.gp ? (f.pf - f.pa) / f.gp : null, season = r.diff ?? t.diff;
-    return Object.assign({}, t, { w: r.w, l: r.l, strk: r.strk, f, fm, trend: fm == null ? null : fm - season, season });
-  });
+  const rows = NBA.powerRows(NBA.use);
+  if (!rows) return `<section class="sec">${head}${stateOf('teamstats', 'team stats')}</section>`;
+  const fav = new Set(NBA.S.favorites);
   const s = st.prSort, v = x => (x == null || !Number.isFinite(x) ? -1e9 : x);
   const sorted = rows.slice().sort((a, b) => (s.desc ? 1 : -1) * (v(b[s.k]) - v(a[s.k])));
   const rk = (t, k) => `<small class="mut" style="margin-left:5px">${NBA.ord(t.rank[k])}</small>`;

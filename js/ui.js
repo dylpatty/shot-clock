@@ -31,6 +31,8 @@ UI.tipTime = g => {
   return NBA.fmtTime(g.date) + (mins > 0 && mins <= 60 ? ` · in ${mins}m` : '');
 };
 UI.oddsText = o => !o ? '' : [o.details, o.ou ? 'O/U ' + o.ou : ''].filter(Boolean).join(' · ');
+/* "opened -2.5" when DraftKings has moved a line since it opened */
+UI.moved = (m, prefix = '') => m && m.open !== '' && m.now !== '' && String(m.open) !== String(m.now) ? `opened ${prefix}${m.open}` : '';
 
 UI.gameCard = (g, big) => {
   const S = NBA.S, perLabel = NBA.perLabel;
@@ -53,7 +55,10 @@ UI.gameCard = (g, big) => {
   let status;
   if (g.state === 'in') status = `<span class="st-live"><i class="dot blink"></i>${esc(g.detail)}</span>`;
   else if (g.state === 'pre') status = `<span>${esc(UI.tipTime(g))}</span>`;
-  else status = `<span>${esc(g.detail)}</span>`;
+  else {
+    const sum = NBA.data('summary:' + g.id);
+    status = `<span>${esc(g.detail)}${sum && sum.ended ? ' · ended ' + esc(NBA.fmtTime(sum.ended)) : ''}</span>`;
+  }
   const started = g.state !== 'pre' && !/TBD/i.test(g.detail) ? 'Started ' + NBA.fmtTime(g.date) : '';
   const right = [started, g.note, g.tv].filter(Boolean).join(' · ');
   let extra = '';
@@ -281,7 +286,8 @@ function renderDrawer() {
         <tbody><tr><td>${esc(away.abbr)}</td>${cells(away)}<td>${esc(away.score)}</td></tr><tr><td>${esc(home.abbr)}</td>${cells(home)}<td>${esc(home.score)}</td></tr></tbody></table></div>`;
     }
     if (state === 'pre' && g && (g.odds || g.tv || g.venue)) {
-      html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${g.tv ? `<span>TV <b>${esc(g.tv)}</b></span>` : ''}${g.odds && g.odds.details ? `<span>Line <b>${esc(g.odds.details)}</b></span>` : ''}${g.odds && g.odds.ou ? `<span>O/U <b>${esc(g.odds.ou)}</b></span>` : ''}${g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
+      const o = g.odds, sm = o && UI.moved(o.spreadHome, g.home.abbr + ' '), tm = o && UI.moved(o.total);
+      html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${g.tv ? `<span>TV <b>${esc(g.tv)}</b></span>` : ''}${o && o.details ? `<span>Line <b>${esc(o.details)}</b>${sm ? ` (${esc(sm)})` : ''}</span>` : ''}${o && o.ou ? `<span>O/U <b>${esc(o.ou)}</b>${tm ? ` (${esc(tm)})` : ''}</span>` : ''}${o && o.awayML ? `<span>Moneyline <b>${esc(g.away.abbr)} ${esc(o.awayML)} · ${esc(g.home.abbr)} ${esc(o.homeML)}</b></span>` : ''}${g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
     }
   }
   const tabs = [['box', 'Box score'], ['team', 'Team stats'], ['plays', 'Plays'], ['wp', 'Win chance']];

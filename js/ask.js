@@ -13,8 +13,9 @@ const PRICES = { // USD per million tokens: input, output, cache write, cache re
   'claude-haiku-5-5': [.1, .5, .125, .01],
 };
 const MODEL_NAMES = { 'claude-opus-5-5': 'Claude Opus 5.5', 'claude-sonnet-5-5': 'Claude Sonnet 5.5', 'claude-haiku-5-5': 'Claude Haiku 5.5' };
-const SUGGESTIONS = ['What is the Warriors record?', "Warriors' next 10 games", 'Who is leading the MVP race?', 'Top scorers this season',
-  'Best player in the East over the last week', 'Championship odds', 'Lakers injuries', 'Who leads the league in blocks?'];
+const SUGGESTIONS = ['What is the Warriors record?', "Warriors' next 10 games", 'Who is leading the MVP race?', 'Who plays tonight?',
+  'Best player in the East over the last week', 'Power rankings', 'Warriors vs Lakers', 'Stephen Curry last 5 games',
+  'Curry vs Doncic', 'Plus-minus leaders', 'Who is hot right now?', 'Warriors defensive rating'];
 
 const A = NBA.ask = { open: false, turns: [], convo: [], busy: false };
 
@@ -136,11 +137,18 @@ const TOOLS = [
     input_schema: { type: 'object', properties: { sort: { type: 'string', enum: ['ppg', 'oppg', 'diff', 'fgp', 'tpp', 'ftp', 'rpg', 'apg', 'tov', 'spg', 'bpg', 'tpm', 'tpa'] } } } },
   { name: 'get_news', description: 'Latest NBA headlines from ESPN, optionally for one team.',
     input_schema: { type: 'object', properties: { team: { type: 'string' } } } },
+  { name: 'get_power_rankings', description: 'All 30 teams with net, offensive and defensive rating (points per 100 possessions, with league ranks), pace, last-7-days record and margin, and trend versus season margin. Use for best-team, who is hot or slipping, and team efficiency questions.',
+    input_schema: { type: 'object', properties: { sort: { type: 'string', enum: ['net', 'ortg', 'drtg', 'pace', 'last7', 'trend'] } } } },
+  { name: 'get_player_game_log', description: "A player's regular season game log, newest first: date, opponent, result, minutes, points, rebounds, assists, steals, blocks, turnovers and shooting.",
+    input_schema: { type: 'object', properties: { name: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 82 } }, required: ['name'] } },
+  { name: 'get_plus_minus', description: "Season plus-minus. With a player name, that player's total and per game. Without one, league leaders among rotation players (20+ minutes a game).",
+    input_schema: { type: 'object', properties: { name: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 30 } } } },
 ];
 const TOOL_LABEL = {
   get_standings: 'Checking standings', get_team_overview: 'Looking up the team', get_team_schedule: 'Reading the schedule', get_scoreboard: 'Checking the scoreboard',
   get_game_box_score: 'Opening the box score', get_league_leaders: 'Checking league leaders', get_player: 'Looking up the player', get_team_roster: 'Reading the roster',
   get_injuries: 'Checking injuries', get_odds: 'Checking odds', get_recent_performances: 'Reading recent box scores', get_team_stats: 'Comparing team stats', get_news: 'Reading headlines',
+  get_power_rankings: 'Checking power rankings', get_player_game_log: 'Reading the game log', get_plus_minus: 'Checking plus-minus',
 };
 const RUN = {
   async get_standings({ conference }) {
@@ -246,6 +254,35 @@ const RUN = {
     const list = await NBA.need('news:' + (t ? t.abbr.toLowerCase() : ''));
     return list.slice(0, 12).map(a => ({ headline: a.headline, summary: a.description, published: a.published, type: a.type }));
   },
+  async get_power_rankings({ sort = 'net' }) {
+    await Promise.allSettled([NBA.need('teamstats'), NBA.need('standings'), recentDays()]);
+    const rows = NBA.powerRows() || [];
+    const key = { last7: 'fm' }[sort] || sort, low = sort === 'drtg';
+    const r1 = v => Number.isFinite(v) ? Math.round(v * 10) / 10 : null;
+    return rows.slice().sort((a, b) => low ? a[key] - b[key] : (b[key] ?? -1e9) - (a[key] ?? -1e9)).map(t => ({
+      team: NBA.T(t.id).full, record: `${t.w}-${t.l}`, net_rating: r1(t.net), net_rank: t.rank.net, off_rating: r1(t.ortg), off_rank: t.rank.ortg,
+      def_rating: r1(t.drtg), def_rank: t.rank.drtg, pace: r1(t.pace), last_7_days: t.f ? `${t.f.w}-${t.f.l}` : null, last_7_margin: r1(t.fm),
+      season_margin: r1(t.season), trend: r1(t.trend), streak: t.strk,
+    }));
+  },
+  async get_player_game_log({ name, count = 10 }) {
+    await NBA.need('players');
+    const p = NBA.findPlayers(name)[0] || (NBA.players() || []).find(x => x.name.toLowerCase().includes(String(name).toLowerCase()));
+    if (!p) return { error: `No player matching "${name}" has played this season.` };
+    const log = await NBA.need('gamelog:' + p.id);
+    return { player: p.name, team: p.team, games: log.slice(0, Math.min(82, count || 10)).map(g => ({ date: localDate(g.date), opponent: (g.home ? 'vs ' : '@ ') + g.oppAbbr, result: `${g.result} ${g.score}`, min: g.min, pts: g.pts, reb: g.reb, ast: g.ast, stl: g.stl, blk: g.blk, tov: g.tov, fg: g.fg, three: g.tp, ft: g.ft })) };
+  },
+  async get_plus_minus({ name, limit = 10 }) {
+    await NBA.need('players');
+    if (name) {
+      const p = NBA.findPlayers(name)[0] || (NBA.players() || []).find(x => x.name.toLowerCase().includes(String(name).toLowerCase()));
+      if (!p) return { error: `No player matching "${name}" has played this season.` };
+      const v = await NBA.need('pm:' + p.id);
+      return { player: p.name, team: p.team, games: p.gp, plus_minus_total: v, plus_minus_per_game: v == null ? null : Math.round(v / Math.max(1, p.gp) * 10) / 10 };
+    }
+    const rows = await NBA.need('pmlead');
+    return rows.slice().sort((a, b) => b.total - a.total).slice(0, Math.min(30, limit || 10)).map((r, i) => { const p = NBA.playerById(r.id) || {}; return { rank: i + 1, player: p.name, team: p.team, games: r.gp, plus_minus_total: r.total, per_game: Math.round(r.total / Math.max(1, r.gp) * 10) / 10 }; });
+  },
 };
 
 /* ---------- built-in answers (no API key needed) ---------- */
@@ -256,27 +293,145 @@ const STAT_WORDS = [
   [/turnover/, 'tov'], [/minute/, 'min'], [/double[- ]double/, 'dd'], [/triple[- ]double/, 'td'], [/point|scor|\bppg\b|buckets/, 'pts'],
 ];
 async function quick(q) {
-  const s = ' ' + q.toLowerCase() + ' ';
-  await NBA.need('standings').catch(() => {});
-  const team = NBA.findTeams(q)[0];
+  const s = ' ' + q.toLowerCase().replace(/[?!,]/g, ' ') + ' ';
+  await Promise.allSettled([NBA.need('standings'), NBA.need('players')]);
+  const teams = NBA.findTeams(q), team = teams[0];
   const nm = s.match(/\b(\d{1,2})\b/), n = nm ? Math.min(30, +nm[1]) : null;
   const conf = /\beast(ern)?\b/.test(s) ? 'East' : /\bwest(ern)?\b/.test(s) ? 'West' : null;
+  const teamWords = new Set(teams.flatMap(t => [t.name, t.location].filter(Boolean).map(x => x.toLowerCase())));
+  const players = NBA.findPlayers(q).filter(p => !teamWords.has(p.name.split(' ').slice(-1)[0].toLowerCase())).slice(0, 2);
+  const player = players[0];
+  const stat = (STAT_WORDS.find(([re]) => re.test(s)) || [])[1];
+
   if (/\bmvp\b|most valuable/.test(s)) return mvpAnswer();
   if (/champion|title|win (it all|the finals)|finals odds|favorite to win/.test(s)) return oddsAnswer('championship', 'Championship odds');
+  if (teams.length >= 2 && /\b(vs|versus|against|play|meet|matchup|head to head|h2h|series|beat)\b/.test(s)) return matchupAnswer(teams[0], teams[1]);
+  if (/plus[ -]?minus|\+\/-|\+-/.test(s)) return pmAnswer(player);
+  if (players.length >= 2 && /\b(vs|versus|compare|comparison|or|better)\b/.test(s)) return compareAnswer(players[0], players[1]);
+  if (player && /\b(last|recent|lately|game ?log|past)\b/.test(s) && !/week|days/.test(s)) return gamelogAnswer(player, n || 5);
   if (team && /next|upcoming|schedule|coming up|play next|when do/.test(s)) return scheduleAnswer(team, 'upcoming', n || 5);
-  if (team && /last|recent|results|previous|past/.test(s) && !/week|days/.test(s)) return scheduleAnswer(team, 'recent', n || 5);
+  if (team && /\b(last|recent|results|previous|past)\b/.test(s) && !/week|days/.test(s)) return scheduleAnswer(team, 'recent', n || 5);
+  if (/last night|yesterday/.test(s)) return slateAnswer('yesterday');
+  if (/tonight|today|on tv|who plays|games on/.test(s) && !player && teams.length < 2) return slateAnswer('today');
   if (/injur|hurt|\bout\b/.test(s)) return injuriesAnswer(team);
   if (/(best|top|hottest|who.*(dominat|played)).*(last|past|this) (week|\d+ days)|(last|past|this) (week|\d+ days).*(best|top)/.test(s)) {
     const dm = s.match(/(\d+) days/);
     return recentAnswer({ days: dm ? Math.min(14, +dm[1]) : 7, conf, team: team && /\b(on|for)\b/.test(s) ? team : null });
   }
-  const stat = (STAT_WORDS.find(([re]) => re.test(s)) || [])[1];
+  if (!team && /power rank|best team|top teams|net rating|rank(ing)? (all|the) teams|team rankings/.test(s)) return powerAnswer();
+  if (!player && /\b(hot|cold|slipping|struggling|rolling|form|trending)\b/.test(s)) return formAnswer(team);
+  if (team && /rating|offense|offence|defense|defence|pace|efficien/.test(s)) return teamRatingAnswer(team);
+  if (team && /roster|lineup|who plays for/.test(s)) return rosterAnswer(team);
+  if (team && /news|headline/.test(s)) return newsAnswer(team);
+  if (team && !stat && /best player|leader|leading|top scorer|who leads|star/.test(s)) return teamLeadersAnswer(team);
   if (stat && /lead|leader|top|most|best|highest|who has|rank|averag|league/.test(s)) return leadersAnswer(stat, /total/.test(s) ? 'total' : 'game', team, conf, n || 10);
   if (/standing|seed|playoff picture|table/.test(s)) return standingsAnswer(conf);
-  const player = !team || !/record|doing|standing/.test(s) ? (await NBA.need('players').then(() => NBA.findPlayers(q)[0]).catch(() => null)) : null;
   if (player && (!team || s.includes(player.name.toLowerCase()))) return playerAnswer(player);
   if (team) return teamAnswer(team);
   return null;
+}
+const recentDays = () => Promise.allSettled(Array.from({ length: 7 }, (_, i) => NBA.need(i === 0 ? 'day:' : 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -i)))));
+const signed = v => (v > 0 ? '+' : '') + NBA.fix(v);
+async function matchupAnswer(a, b) {
+  const sch = await NBA.need('tsched:' + a.id);
+  const games = sch.events.filter(e => e.oppId === b.id);
+  if (!games.length) return `<p>The ${esc(a.name)} and ${esc(b.name)} don't play each other in the regular season schedule.</p>`;
+  const done = games.filter(e => e.state === 'post'), wins = done.filter(e => e.won).length, next = games.find(e => e.state !== 'post');
+  let lead;
+  if (!done.length) lead = `They haven't played yet this season.`;
+  else if (NBA.S.spoilers) lead = `They've played ${done.length} time${done.length > 1 ? 's' : ''} this season.`;
+  else lead = wins * 2 === done.length ? `The season series is tied ${wins}-${wins}.` : `The ${esc(wins * 2 > done.length ? a.name : b.name)} lead the season series ${Math.max(wins, done.length - wins)}-${Math.min(wins, done.length - wins)}.`;
+  const nx = next ? ` Next meeting: ${esc(localDate(next.date))} at ${esc(NBA.fmtTime(next.date))}, ${next.home ? 'in ' + esc(a.location || a.name) : 'in ' + esc(b.location || b.name)}.` : '';
+  return `<p><b>${esc(a.name)} vs. ${esc(b.name)}:</b> ${lead}${nx}</p>
+    ${table(['Date', 'Where', 'Result'], games.map(e => [esc(localDate(e.date)), e.home ? `at ${esc(a.abbr)}` : `at ${esc(b.abbr)}`,
+      e.state === 'post' ? (NBA.S.spoilers ? 'Final' : `${esc(a.abbr)} ${e.won ? 'won' : 'lost'} ${esc(e.my)}–${esc(e.their)}`) : esc(NBA.fmtTime(e.date))]))}`;
+}
+async function slateAnswer(which) {
+  const key = which === 'yesterday' ? 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -1)) : 'day:';
+  const d = await NBA.need(key);
+  const label = which === 'yesterday' ? 'Yesterday' : 'Today';
+  if (!d.games.length) return `<p>No NBA games ${which === 'yesterday' ? 'yesterday' : 'today'}.</p>`;
+  const games = NBA.sortGames(d.games);
+  const cell = g => g.state === 'pre' ? esc(NBA.fmtTime(g.date)) + (g.tv ? ` · ${esc(g.tv)}` : '')
+    : NBA.S.spoilers ? esc(g.state === 'in' ? 'Live' : 'Final') : `${g.state === 'in' ? '<b>Live</b> ' : ''}${esc(g.away.abbr)} ${esc(g.away.score)} – ${esc(g.home.abbr)} ${esc(g.home.score)}${g.state === 'in' ? ` · ${esc(g.detail)}` : ''}`;
+  return `<p><b>${label}: ${games.length} game${games.length > 1 ? 's' : ''}</b> (${esc(NBA.fmtDay(d.day, { weekday: 'long', month: 'short', day: 'numeric' }))}).</p>
+    ${table(['Matchup', which === 'yesterday' ? 'Final' : 'Time or score'], games.map(g => [`${esc(g.away.name)} @ ${esc(g.home.name)}`, cell(g)]))}`;
+}
+async function powerAnswer() {
+  await Promise.allSettled([NBA.need('teamstats'), recentDays()]);
+  const rows = (NBA.powerRows() || []).sort((a, b) => b.net - a.net).slice(0, 10);
+  if (!rows.length) return `<p>Team stats haven't loaded yet. Try again in a moment.</p>`;
+  return `<p><b>The ${esc(NBA.T(rows[0].id).name)} rank first by net rating</b> at ${signed(rows[0].net)} points per 100 possessions.</p>
+    ${table(['#', 'Team', 'W-L', 'Net', 'Off rtg', 'Def rtg'], rows.map((t, i) => [i + 1, esc(NBA.T(t.id).name), `${t.w}-${t.l}`, `<b>${signed(t.net)}</b>`, `${NBA.fix(t.ortg)} (${NBA.ord(t.rank.ortg)})`, `${NBA.fix(t.drtg)} (${NBA.ord(t.rank.drtg)})`]))}
+    <p><a href="#teams">Full power rankings →</a></p>`;
+}
+async function formAnswer(team) {
+  if (NBA.S.spoilers) return `<p>Recent form is hidden while spoiler mode is on.</p>`;
+  await Promise.allSettled([NBA.need('teamstats'), recentDays()]);
+  const rows = (NBA.powerRows() || []).filter(t => t.f && t.f.gp >= 1);
+  if (team) {
+    const t = rows.find(x => x.id === team.id);
+    if (!t) return `<p>The ${esc(team.name)} haven't played in the last week.</p>`;
+    const word = t.trend > 3 ? 'trending up' : t.trend < -3 ? 'trending down' : 'playing about to their season level';
+    return `<p><b>The ${esc(team.name)} are ${t.f.w}-${t.f.l} over the last 7 days</b>, outscoring opponents by ${signed(t.fm)} a game against ${signed(t.season)} for the season, so they're ${word}.${t.strk ? ` Current streak: ${esc(t.strk)}.` : ''}</p>`;
+  }
+  const hot = rows.filter(t => t.f.gp >= 2 && t.f.w > t.f.l).sort((a, b) => b.fm - a.fm).slice(0, 5);
+  const slip = rows.filter(t => t.f.gp >= 2 && t.trend < 0 && (t.f.l > t.f.w || /^L/.test(t.strk || ''))).sort((a, b) => a.trend - b.trend).slice(0, 5);
+  const list = l => table(['Team', 'Last 7 days', 'Margin', 'Streak'], l.map(t => [esc(NBA.T(t.id).name), `${t.f.w}-${t.f.l}`, signed(t.fm), esc(t.strk || '')]));
+  return `<p><b>Hot right now</b></p>${hot.length ? list(hot) : '<p class="mut">No team has a winning week with 2+ games yet.</p>'}<p><b>Slipping</b></p>${slip.length ? list(slip) : '<p class="mut">No one is clearly slipping.</p>'}`;
+}
+async function teamRatingAnswer(team) {
+  await Promise.allSettled([NBA.need('teamstats'), recentDays()]);
+  const t = (NBA.powerRows() || []).find(x => x.id === team.id);
+  if (!t) return `<p>Team stats haven't loaded yet. Try again in a moment.</p>`;
+  return `<p><b>The ${esc(team.name)} have a net rating of ${signed(t.net)}</b>, ${NBA.ord(t.rank.net)} in the NBA.</p>
+    ${table(['', 'Value', 'League rank'], [['Offensive rating', NBA.fix(t.ortg), NBA.ord(t.rank.ortg)], ['Defensive rating', NBA.fix(t.drtg), NBA.ord(t.rank.drtg)], ['Pace (possessions)', NBA.fix(t.pace), NBA.ord(t.rank.pace)], ['Points per game', NBA.fix(t.ppg), NBA.ord(t.rank.ppg)], ['Allowed per game', NBA.fix(t.oppg), NBA.ord(t.rank.oppg)]])}
+    <p class="note">Ratings are points per 100 possessions, estimated from ESPN's team stats.</p>`;
+}
+async function rosterAnswer(team) {
+  const r = await RUN.get_team_roster({ team: team.abbr });
+  return `<p><b>${esc(r.team)} roster</b>${r.coach ? ` · Coach ${esc(r.coach)}` : ''}</p>
+    ${table(['Player', '#', 'Pos', 'Age', 'PTS', 'REB', 'AST', 'Status'], r.players.slice().sort((a, b) => (b.pts ?? -1) - (a.pts ?? -1)).map(p => [esc(p.name), esc(p.jersey || ''), esc(p.pos || ''), esc(p.age ?? ''), p.pts ?? '–', p.reb ?? '–', p.ast ?? '–', esc(p.status)]))}`;
+}
+async function newsAnswer(team) {
+  const list = await NBA.need('news:' + team.abbr.toLowerCase());
+  const items = list.filter(a => a.links && a.links.web).slice(0, 6);
+  if (!items.length) return `<p>No recent ${esc(team.name)} headlines.</p>`;
+  return `<p><b>Latest ${esc(team.name)} news</b></p><ul>${items.map(a => `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${esc(a.headline)}</a> <span class="mut">${esc(NBA.relTime(a.published))}</span></li>`).join('')}</ul>`;
+}
+function teamLeadersAnswer(team) {
+  const rows = ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm'].map(k => [k, NBA.leaders({ stat: k, teamId: team.id, limit: 1 })[0]]).filter(x => x[1]);
+  if (!rows.length) return `<p>No ${esc(team.name)} stats yet.</p>`;
+  const top = rows[0][1];
+  return `<p><b>${esc(top.name)} leads the ${esc(team.name)} in scoring</b> at ${NBA.fix(top.pts)} points a game.</p>
+    ${table(['Category', 'Leader', 'Per game'], rows.map(([k, p]) => [esc(NBA.STATS[k].label), esc(p.name), NBA.statFmt(k, NBA.statValue(k, p, 'game'), 'game')]))}`;
+}
+function compareAnswer(a, b) {
+  const R = [['PTS', 'pts'], ['REB', 'reb'], ['AST', 'ast'], ['STL', 'stl'], ['BLK', 'blk'], ['3PM', 'tpm'], ['FG%', 'fgp'], ['3P%', 'tpp'], ['TS%', 'ts'], ['TOV', 'tov', true], ['MIN', 'min']];
+  const cell = (k, x, y, low) => { const v = NBA.statValue(k, x, 'game'), w = NBA.statValue(k, y, 'game'); const s = NBA.statFmt(k, v, 'game'); return (low ? v < w : v > w) ? `<b>${s}</b>` : s; };
+  return `<p><b>${esc(a.name)} vs. ${esc(b.name)}</b>, season averages (the better number is bold):</p>
+    ${table(['', esc(a.name), esc(b.name)], [['Team', esc(a.team), esc(b.team)], ['Games', a.gp, b.gp], ...R.map(([l, k, low]) => [l, cell(k, a, b, low), cell(k, b, a, low)])])}`;
+}
+async function gamelogAnswer(p, n) {
+  const log = await NBA.need('gamelog:' + p.id);
+  if (!log.length) return `<p>${esc(p.name)} hasn't played a regular season game yet.</p>`;
+  const games = log.slice(0, n);
+  const avg = k => NBA.fix(games.reduce((s, g) => s + (parseFloat(g[k]) || 0), 0) / games.length);
+  return `<p><b>${esc(p.name)}, last ${games.length} game${games.length > 1 ? 's' : ''}:</b> ${avg('pts')} points, ${avg('reb')} rebounds and ${avg('ast')} assists a game.</p>${logTable(games)}`;
+}
+const logTable = games => table(['Date', 'Opp', 'Result', 'MIN', 'PTS', 'REB', 'AST', 'FG', '3PT'], games.map(g => [esc(localDate(g.date)), `${g.home ? 'vs' : '@'} ${esc(g.oppAbbr || '')}`,
+  NBA.S.spoilers ? '–' : `${esc(g.result)} ${esc(g.score)}`, esc(g.min ?? ''), `<b>${esc(g.pts ?? '')}</b>`, esc(g.reb ?? ''), esc(g.ast ?? ''), esc(g.fg ?? ''), esc(g.tp ?? '')]));
+async function pmAnswer(p) {
+  if (p) {
+    const v = await NBA.need('pm:' + p.id);
+    if (v == null) return `<p>ESPN has no plus-minus for ${esc(p.name)} yet.</p>`;
+    return `<p><b>${esc(p.name)} is ${signed(v).replace('.0', '')} this season</b>, ${signed(v / Math.max(1, p.gp))} per game over ${p.gp} game${p.gp > 1 ? 's' : ''}. That's how much the ${esc(NBA.T(p.teamId).name)} outscore opponents with ${esc(p.name)} on the floor.</p>`;
+  }
+  const rows = await NBA.need('pmlead');
+  const list = rows.slice().sort((a, b) => b.total - a.total).slice(0, 10);
+  return `<p><b>${esc((NBA.playerById(list[0].id) || {}).name || '')} leads the league in plus-minus</b> at ${signed(list[0].total).replace('.0', '')}.</p>
+    ${table(['#', 'Player', 'Team', 'GP', '+/-', 'Per game'], list.map((r, i) => { const pl = NBA.playerById(r.id) || {}; return [i + 1, esc(pl.name || ''), esc(pl.team || ''), r.gp, `<b>${signed(r.total).replace('.0', '')}</b>`, signed(r.total / Math.max(1, r.gp))]; }))}
+    <p class="note">Rotation players only (20+ minutes a game).</p>`;
 }
 async function teamAnswer(t) {
   const o = await RUN.get_team_overview({ team: t.abbr });
@@ -332,11 +487,13 @@ async function recentAnswer({ days, conf, team }) {
     ${table(['#', 'Player', 'Team', 'GP', 'Game Score', 'PTS', 'REB', 'AST', '+/-'], r.players.map((p, i) => [i + 1, esc(p.player), esc(p.team), p.games, `<b>${p.game_score}</b>`, p.pts, p.reb, p.ast, p.plus_minus]))}
     <p class="note">Ranked by average Game Score, a one-number rating of a box score line, from ${r.games_read} games.</p>`;
 }
-function playerAnswer(p) {
+async function playerAnswer(p) {
   const l = playerLine(p);
+  const [log, pm] = await Promise.all([NBA.need('gamelog:' + p.id).catch(() => null), NBA.need('pm:' + p.id).catch(() => null)]);
   return `<div style="display:flex;gap:14px;align-items:center">${UI.hs(p.headshot)}<div><b style="font-size:17px">${esc(p.name)}</b><div class="mut">${esc(l.team)} · ${esc(p.pos)}${p.age ? ' · age ' + p.age : ''} · ${p.gp} games</div></div></div>
-    ${table(['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', '3P%', 'FT%', 'TS%', 'MIN'], [[l.per_game.pts, l.per_game.reb, l.per_game.ast, l.per_game.stl, l.per_game.blk, l.per_game.threes_made, l.shooting.fg_pct ?? '–', l.shooting.three_pct ?? '–', l.shooting.ft_pct ?? '–', l.shooting.true_shooting_pct ?? '–', l.minutes]].map(r => r.map(v => esc(v ?? '–'))))}
-    <p class="mut">Season totals: ${l.totals.pts} points, ${l.totals.reb} rebounds, ${l.totals.ast} assists${p.dd ? `, ${p.dd} double-doubles` : ''}${p.td ? `, ${p.td} triple-doubles` : ''}.</p>`;
+    ${table(['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'FG%', '3P%', 'FT%', 'TS%', 'MIN', '+/-'], [[l.per_game.pts, l.per_game.reb, l.per_game.ast, l.per_game.stl, l.per_game.blk, l.per_game.threes_made, l.shooting.fg_pct ?? '–', l.shooting.three_pct ?? '–', l.shooting.ft_pct ?? '–', l.shooting.true_shooting_pct ?? '–', l.minutes, pm != null ? signed(pm / Math.max(1, p.gp)) : '–']].map(r => r.map(v => esc(v ?? '–'))))}
+    <p class="mut">Season totals: ${l.totals.pts} points, ${l.totals.reb} rebounds, ${l.totals.ast} assists${p.dd ? `, ${p.dd} double-doubles` : ''}${p.td ? `, ${p.td} triple-doubles` : ''}${pm != null ? `, ${signed(pm).replace('.0', '')} plus-minus` : ''}.</p>
+    ${log && log.length ? `<p><b>Last ${Math.min(5, log.length)} games</b></p>${logTable(log.slice(0, 5))}` : ''}`;
 }
 
 /* ---------- Claude ---------- */
@@ -452,9 +609,12 @@ A.player = async id => {
   const p = NBA.playerById(id);
   if (!p) return;
   A.open = true;
-  A.turns.push({ q: p.name, steps: [], html: playerAnswer(p), meta: 'Season stats from ESPN' });
+  const turn = { q: p.name, steps: ['Looking up the player'], pending: true };
+  A.turns.push(turn);
+  renderPanel(); scrollToLast();
+  turn.html = await playerAnswer(p);
+  turn.pending = false; turn.steps = []; turn.meta = 'Season stats and game log from ESPN';
   renderPanel();
-  scrollToLast();
 };
 function scrollToLast() {
   const el = $('#ask-panel'), qs = el.querySelectorAll('.qa-q');
@@ -475,7 +635,7 @@ async function ask(q) {
       turn.steps.push('Looking it up');
       const html = await quick(q);
       if (html) { turn.html = html; turn.meta = 'Built-in answer from site data · free'; }
-      else turn.html = `<p>I can't answer that one without Claude. Built-in answers cover team records, schedules and results, league leaders, standings, injuries, odds, players, and recent form.</p><p><button class="link" data-act="settings">Add an Anthropic API key</button> to ask anything.</p>`;
+      else turn.html = `<p>I can't answer that one without Claude. Built-in answers cover team records, schedules, results and head-to-head, tonight's games and last night's scores, league and team leaders, standings, power rankings and ratings, who's hot or slipping, injuries, rosters, news, odds and MVP, player stats, game logs, comparisons and plus-minus, and the best players over recent days.</p><p><button class="link" data-act="settings">Add an Anthropic API key</button> to ask anything.</p>`;
       turn.steps = [];
     }
   } catch (e) {
