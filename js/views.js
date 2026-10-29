@@ -49,28 +49,130 @@ V.schedule = () => {
       <button class="ib" data-act="date" data-v="1" aria-label="Next day">${UI.I.right}</button></div>
     ${isToday ? '' : `<button class="chip" data-act="date" data-v="0">Back to today</button>`}
     <span class="end sub">Times in ${esc(NBA.tzLabel())}</span></div>`;
-  const side = performers(day ? day.games : []) + myTeamCard();
+  const slate = performerSlate(day);
+  const side = performers(slate) + myTeamCard();
+  // The phone band lives in its own spot above the view (#pband), painted in NBA.after.schedule, so live refreshes
+  // of the games below don't rebuild it in the middle of a swipe
+  st.bandHtml = perfBand(slate);
   return `<section class="sec"><div class="sched"><div class="sec" style="gap:12px">${head}${main}</div><aside class="sched-side">${side}</aside></div></section>${upcoming()}`;
 };
-function performers(games) {
-  const cats = [['points', 'PTS'], ['rebounds', 'REB'], ['assists', 'AST']];
-  const cat = st.perfCat;
-  const head = `<div class="card-h"><h3>Top performers</h3><div class="end">${seg('perf', cat, cats, 'Stat')}</div></div>`;
-  if (NBA.S.spoilers) return `<div class="card">${head}<div class="card-b"><p class="empty">Hidden while spoiler mode is on.</p></div></div>`;
+/* Top performers come from the day being viewed. On today's slate, last night's leaders stay up until the
+   first game of the new day tips off; then they clear and fill in as tonight's games are played. */
+// A game postponed or canceled ahead of time shows as over before anyone plays, so it doesn't count as tipped off
+const tipped = g => g.state === 'in' || (g.state === 'post' && !/postpon|cancel/i.test(g.detail));
+function performerSlate(day) {
+  const games = day ? day.games : [];
+  const live = games.some(g => g.state === 'in');
+  if (NBA.dayParam || games.some(tipped)) return { games, live, when: NBA.dayParam ? '' : 'tonight' };
+  // Which day is "today" isn't known until its scoreboard loads, so don't guess at last night before then
+  if (!day) return { games: [], live: false, when: '', loading: true };
+  // After a night with no games (Thanksgiving, Christmas Eve, the All-Star break), go back to the last one that had some
+  for (let i = 1; i <= 4; i++) {
+    const iso = NBA.shiftIso(NBA.today, -i), prev = NBA.use('day:' + NBA.paramOf(iso));
+    if (!prev) return { games: [], live: false, when: 'last night', loading: true };
+    if (prev.games.some(tipped)) return { games: prev.games, live: false, when: i === 1 ? 'last night' : NBA.fmtDay(iso, { weekday: 'long' }) };
+  }
+  return { games: [], live: false, when: 'last night' };
+}
+function perfRows(games, cat) {
   const rows = [];
   games.filter(g => g.state !== 'pre').forEach(g => [g.away, g.home].forEach(t => {
     const l = t.leaders.find(x => x.cat === cat);
     if (l && l.value != null) rows.push({ l, t, opp: t === g.away ? g.home : g.away, at: t === g.away, g });
   }));
-  rows.sort((a, b) => NBA.num(b.l.value) - NBA.num(a.l.value));
-  const body = rows.length ? `<ol class="perf">${rows.slice(0, 10).map((x, i) => `
+  return rows.sort((a, b) => NBA.num(b.l.value) - NBA.num(a.l.value)).slice(0, 10);
+}
+function performers(slate) {
+  const cats = [['points', 'PTS'], ['rebounds', 'REB'], ['assists', 'AST']];
+  const cat = st.perfCat;
+  const head = `<div class="card-h"><h3>Top performers${slate.when ? `<small>${esc(slate.when)}</small>` : ''}</h3><div class="end">${seg('perf', cat, cats, 'Stat')}</div></div>`;
+  if (NBA.S.spoilers) return `<div class="card perf-card">${head}<div class="card-b"><p class="empty">Hidden while spoiler mode is on.</p></div></div>`;
+  const rows = perfRows(slate.games, cat);
+  const body = rows.length ? `<ol class="perf">${rows.map((x, i) => `
     <li><span class="rk">${i + 1}</span>${UI.hs(x.l.headshot)}
       <button class="who" data-act="game" data-id="${x.g.id}"><div class="nm">${esc(x.l.full || x.l.short)}</div>
       <div class="mt2">${esc(x.t.abbr)} ${x.at ? '@' : 'vs'} ${esc(x.opp.abbr)} · ${esc(x.g.detail)}</div></button>
       <span class="val">${esc(x.l.value)}</span></li>`).join('')}</ol>`
-    : `<p class="empty">${games.length ? 'Leaders show up once games tip off.' : 'No games on this day.'}</p>`;
-  return `<div class="card">${head}<div class="card-b" style="padding-block:4px">${body}</div></div>`;
+    : `<p class="empty">${slate.loading ? 'Loading leaders…' : slate.games.length ? 'Leaders show up once games tip off.' : slate.when === 'last night' ? 'No games in the last few nights.' : 'No games on this day.'}</p>`;
+  return `<div class="card perf-card">${head}<div class="card-b" style="padding-block:4px">${body}</div></div>`;
 }
+/* Phones: the top 10 scorers as a band across the top of the Schedule that drifts slowly on its own
+   and can be swiped. The list is drawn twice so the drift loops without a jump. */
+function perfBand(slate) {
+  if (NBA.S.spoilers) return '';
+  const rows = perfRows(slate.games, 'points');
+  const label = `<div class="pb-label">${slate.live ? '<i class="dot blink"></i>' : ''}Top performers${slate.when ? `<small>${esc(slate.when)}</small>` : ''}</div>`;
+  // Keeps the band's height while leaders load or before anyone has scored, so the page below doesn't jump
+  if (!rows.length) return `<div class="perf-band">${label}<div class="pb-empty">${slate.loading ? 'Loading leaders…' : slate.games.some(g => g.state !== 'pre') ? 'Leaders show up in a moment.' : slate.games.length ? 'Leaders show up once games tip off.' : 'No games in the last few nights.'}</div></div>`;
+  // Its own action name: a repaint puts keyboard focus back on the first [data-act="game"] for that game,
+  // and the band (hidden on desktop) comes before the game cards
+  const run = copy => rows.map((x, i) => `<button class="pb-item" data-act="pbgame" data-id="${x.g.id}"${copy ? ' tabindex="-1"' : ''}><span class="pb-rk">${i + 1}</span>${UI.hs(x.l.headshot)}
+    <span class="pb-txt"><b>${esc(x.l.short || x.l.full)}</b><small>${esc(x.t.abbr)} ${x.at ? '@' : 'vs'} ${esc(x.opp.abbr)}${x.g.state === 'in' ? ' · live' : ''}</small></span><span class="pb-val">${esc(x.l.value)}<small>PTS</small></span></button>`).join('');
+  return `<div class="perf-band" role="region" aria-label="Top performers ${esc(slate.when)}">
+    ${label}
+    <div class="pb-track" id="pb-track"><div class="pb-run">${run(false)}</div><div class="pb-run" aria-hidden="true">${run(true)}</div></div></div>`;
+}
+// Time-based, so the drift is the same speed on 60, 120 or 180 Hz screens. A touch, drag or wheel pauses it,
+// and it picks up again from wherever you left it a few seconds after you let go.
+const PB_SPEED = 26;
+let pbRaf = 0, pbLast = 0, pbHold = 0;
+const pbReduce = matchMedia('(prefers-reduced-motion: reduce)');
+// The copy is only there for the loop. Hide it when the whole list already fits on screen (early in the night,
+// or on a tablet) or motion is reduced, so the same players never show twice side by side
+function bandFits(tr) {
+  const fits = pbReduce.matches || tr.firstElementChild.offsetWidth <= tr.clientWidth;
+  tr.classList.toggle('fits', fits);
+  return fits;
+}
+function bandTick(t) {
+  pbRaf = 0;
+  const tr = document.getElementById('pb-track');
+  if (!tr || !tr.offsetParent || bandFits(tr)) { pbLast = 0; return; }
+  const dt = pbLast ? Math.min(50, t - pbLast) : 0;
+  pbLast = t;
+  if (Date.now() > pbHold) {
+    // One run along, the copy looks exactly like the start, so wrap back there
+    const run = tr.firstElementChild.offsetWidth;
+    const x = ((st.pbX == null ? tr.scrollLeft : st.pbX) + PB_SPEED * dt / 1000) % run;
+    st.pbX = x;
+    tr.scrollLeft = x;
+  }
+  pbRaf = requestAnimationFrame(bandTick);
+}
+function bindBand(view) {
+  const tr = view.querySelector('#pb-track');
+  if (!tr) return;
+  if (!tr._bound) {
+    tr._bound = true;
+    bandFits(tr);
+    // Re-renders replace the band, so it carries on from the same spot
+    if (st.pbX) tr.scrollLeft = st.pbX;
+    const hold = () => { pbHold = Infinity; };
+    // New leaders that arrived mid-touch are painted as soon as the finger lifts
+    const release = () => { pbHold = Date.now() + 3000; if (st.bandDirty) paintBand(); };
+    tr.addEventListener('touchstart', hold, { passive: true });
+    tr.addEventListener('touchend', release, { passive: true });
+    tr.addEventListener('touchcancel', release, { passive: true });
+    // The mouse button can come up outside the band, so listen for it on the whole window
+    tr.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') { hold(); window.addEventListener('pointerup', release, { once: true }); } });
+    tr.addEventListener('wheel', release, { passive: true });
+    // While paused, follow the hand-scrolled position so the drift resumes from there
+    tr.addEventListener('scroll', () => { if (Date.now() < pbHold) st.pbX = tr.scrollLeft; }, { passive: true });
+  }
+  if (!pbRaf) pbRaf = requestAnimationFrame(bandTick);
+}
+// The band only repaints when its own HTML changes (a leader's points, a new name), and never under a finger
+function paintBand() {
+  const host = document.getElementById('pband');
+  if (!host) return;
+  if (pbHold === Infinity && host._html) { st.bandDirty = true; return; }
+  st.bandDirty = false;
+  UI.paint(host, st.bandHtml || '');
+  bindBand(host);
+}
+// Turning a tablet or narrowing the window can show the band (or make the list overflow), so check again
+window.addEventListener('resize', () => { if (!pbRaf && document.getElementById('pb-track')) pbRaf = requestAnimationFrame(bandTick); });
+NBA.actions.pbgame = a => UI.openGame(a.dataset.id, a);
 /* A team's schedule is cached for 15 minutes, so lay today's scoreboard (refreshed every 10 s while live) over it.
    A game that just ended then shows as a result right away instead of as live or upcoming. */
 NBA.teamEvents = id => {
@@ -97,7 +199,7 @@ function myTeamCard() {
   return `<div class="card"><div class="card-h"><h3>${esc(t.name || 'Your team')}</h3><div class="end"><a class="chip" href="#myteam">Team page</a></div></div>
     <ul class="glist">${last ? glistItem(last) : ''}${next ? glistItem(next) : ''}</ul>${!next && !last ? '<p class="empty">No games scheduled.</p>' : ''}</div>`;
 }
-const dayCard = (iso, games) => `<div class="card day" data-n="${games.length}"><div class="card-h"><h3>${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'short', day: 'numeric' }))}<small>${games.length} game${games.length > 1 ? 's' : ''}</small></h3></div>
+const dayCard = (iso, games) => `<div class="card day"><div class="card-h"><h3>${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'short', day: 'numeric' }))}<small>${games.length} game${games.length > 1 ? 's' : ''}</small></h3></div>
   <ol class="lines">${games.map(UI.line).join('')}</ol></div>`;
 function upcoming() {
   const days = Array.from({ length: 7 }, (_, i) => NBA.shiftIso(NBA.today, i + 1));
@@ -180,31 +282,10 @@ function paintSeason() {
   }
   el._seasonKey = key;
   UI.paint(el, seasonSkeleton(days, months));
-  months.forEach(ym => { const sec = document.getElementById('sm-' + ym); UI.paint(sec, monthHtml(ym, days)); if (sec) masonry(sec.querySelector('.days')); });
+  months.forEach(ym => UI.paint(document.getElementById('sm-' + ym), monthHtml(ym, days)));
   loadNearMonths();
 }
-/* Day cards stack like bricks: each one goes under the shortest column, so a 3-game day next to a
-   14-game day doesn't leave a hole. Cards keep their date order, filling left to right. */
-function masonry(grid) {
-  if (!grid) return;
-  // Keep the date order from the first layout: once dealt into columns, the DOM order is column by column.
-  // A repaint makes a new grid, so this never goes stale.
-  const cards = grid._cards || (grid._cards = [...grid.querySelectorAll(':scope > .day')]);
-  if (!cards.length) return;
-  const gap = parseFloat(getComputedStyle(grid).columnGap) || 18, W = grid.clientWidth;
-  const n = Math.max(1, Math.floor((W + gap) / (Math.min(520, W) + gap)));
-  if (grid._cols === n && grid._count === cards.length) return;
-  grid._cols = n; grid._count = cards.length;
-  const cols = Array.from({ length: n }, () => { const c = document.createElement('div'); c.className = 'mcol'; return c; });
-  const h = new Array(n).fill(0);
-  // Heights are estimated from the game count, so laying out never waits on a measurement
-  cards.forEach(c => { const i = h.indexOf(Math.min(...h)); cols[i].appendChild(c); h[i] += 70 + 56 * (+c.dataset.n || 1); });
-  grid.replaceChildren(...cols);
-  grid.classList.add('masoned');
-}
-NBA.masonry = masonry;
-window.addEventListener('resize', () => document.querySelectorAll('.days.masoned').forEach(masonry));
-NBA.after.schedule = view => { view.querySelectorAll('.days').forEach(masonry); paintSeason(); };
+NBA.after.schedule = () => { paintBand(); paintSeason(); };
 NBA.actions.seasonmine = a => {
   st.seasonMine = !!a.dataset.v;
   paintSeason();

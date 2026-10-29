@@ -193,13 +193,15 @@ function renderView() {
   const routeKey = tab + '/' + arg;
   if (routeKey !== lastRoute) { if (lastRoute !== null) window.scrollTo(0, 0); lastRoute = routeKey; }
   if (tab !== lastTab) { view._html = null; lastTab = tab; }
+  // Lets the stylesheet give a tab its own page layout (the Schedule's right-hand performers rail)
+  document.documentElement.dataset.tab = tab;
   const html = fn(arg), season = $('#season');
   // iPhone Safari doesn't hold the scroll still when today's games above change height, so when the
   // rest-of-season list is scrolled into, keep it where it was (Chrome's own correction leaves nothing to do)
   const t0 = tab === 'schedule' && view._html !== html ? season.getBoundingClientRect().top : 0;
   const changed = UI.paint(view, html);
   // The rest-of-season list under the schedule only shows on that tab
-  if (tab !== 'schedule') UI.paint(season, '');
+  if (tab !== 'schedule') { UI.paint(season, ''); UI.paint($('#pband'), ''); }
   if (NBA.after[tab]) NBA.after[tab](view, changed);
   if (t0 < 0) { const dy = season.getBoundingClientRect().top - t0; if (dy) window.scrollBy(0, dy); }
 }

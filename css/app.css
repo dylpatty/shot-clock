@@ -171,13 +171,41 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .grid-auto{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--min,320px)),1fr))}
 
 /* ---------- schedule ---------- */
-.sched{display:grid;grid-template-columns:minmax(0,1fr) clamp(320px,22vw,460px);gap:var(--gap);align-items:start}
-@media (max-width:1100px){.sched{grid-template-columns:minmax(0,1fr)}}
-.sched-side{position:sticky;top:150px;display:flex;flex-direction:column;gap:var(--gap)}
-@media (max-width:1100px){.sched-side{position:static}}
-/* On shorter windows the sidebar is taller than the space below the header, so it scrolls with the page
-   instead of hiding its bottom (the team card) until the end of the games list */
-@media (max-height:1100px){.sched-side{position:static}}
+.sched{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--gap);align-items:start}
+.sched-side{display:flex;flex-direction:column;gap:var(--gap)}
+/* Desktop: the whole right side of the Schedule page is a rail for Top performers (and your team), fixed in place
+   while today's games, the next 7 days and the rest of the season scroll past on the left. The rail scrolls on its own
+   if it is taller than the window. --rail-right uses 100% (the window without its scrollbar, as the page sees it)
+   rather than 100vw, so on ultrawide screens the rail lines up with the centered page's right edge. */
+@media (min-width:1101px){
+  html[data-tab="schedule"]{--rail:clamp(320px,22vw,460px);--rail-right:calc(max(0px,(100% - 3200px) / 2) + max(16px,2vw))}
+  html[data-tab="schedule"] #view,html[data-tab="schedule"] #season,html[data-tab="schedule"] .foot{padding-right:calc(max(16px,2vw) + var(--rail) + var(--gap))}
+  .sched-side{position:fixed;z-index:5;top:calc(env(safe-area-inset-top,0px) + var(--top-h,130px) + 22px);bottom:16px;right:var(--rail-right);width:var(--rail);
+    overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding-bottom:2px}
+}
+/* Phones and tablets: performers move to the band at the top, so the stacked sidebar keeps only your team */
+@media (max-width:1100px){.sched-side .perf-card{display:none}}
+/* The phone band sits in its own spot above the Schedule (#pband); desktop uses the rail instead */
+.band-host,.perf-band{display:none}
+@media (max-width:1100px){
+  .band-host:not(:empty){display:block;padding-top:16px}
+  .perf-band{display:block}
+  .pb-empty{height:46px;display:flex;align-items:center;padding:0 12px;border:1px dashed var(--line);border-radius:12px;font-size:13px;color:var(--muted)}
+  .pb-label{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .pb-label small{font-size:11px;font-weight:600;letter-spacing:0;text-transform:none;margin-left:2px}
+  .pb-label .dot{color:var(--live)}
+  .pb-track{display:flex;overflow-x:auto;scrollbar-width:none;overscroll-behavior-x:contain;-webkit-mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 24px),transparent);mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 24px),transparent)}
+  .pb-track::-webkit-scrollbar{display:none}
+  .pb-run{display:flex;gap:10px;padding-right:10px;flex:none}
+  .pb-track.fits .pb-run[aria-hidden]{display:none}
+  .pb-item{display:flex;align-items:center;gap:8px;flex:none;padding:7px 12px 7px 8px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:inherit;font:inherit;text-align:left;cursor:pointer}
+  .pb-rk{font-size:11px;font-weight:800;color:var(--muted);min-width:1.1em;text-align:center}
+  .pb-item img,.pb-item .hs{width:40px;height:30px;object-fit:cover;object-position:top;border-radius:6px;background:var(--card-2);flex:none}
+  .pb-txt b{display:block;font-size:13px;white-space:nowrap}
+  .pb-txt small{display:block;font-size:11px;color:var(--muted);white-space:nowrap}
+  .pb-val{display:flex;flex-direction:column;align-items:flex-end;margin-left:4px;font-family:var(--f-display);font-weight:900;font-size:24px;line-height:1}
+  .pb-val small{font-family:var(--f-ui);font-size:9px;font-weight:800;letter-spacing:.08em;color:var(--muted)}
+}
 .datenav{display:inline-flex;align-items:center;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:2px}
 .datelbl{font-weight:700;min-width:10.5em;text-align:center;font-variant-numeric:tabular-nums}
 .sub-h{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:6px 0 -2px}
@@ -264,13 +292,12 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .perf .val{font-family:var(--f-display);font-weight:800;font-size:28px;font-variant-numeric:tabular-nums}
 .who{background:none;border:0;padding:0;text-align:left;cursor:pointer;min-width:0}
 
-.days{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(min(100%,520px),1fr));align-items:start}
-/* Once laid out as bricks (see masonry() in views.js), each column stacks its cards with no gaps */
-.days.masoned{display:flex;align-items:flex-start}
-.mcol{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:var(--gap)}
+.days{display:grid;gap:min(14px,var(--gap));grid-template-columns:repeat(auto-fill,minmax(min(100%,520px),1fr));align-items:start}
+.day .card-h{padding-block:10px}
+.perf-card .card-h h3 small{font-family:var(--f-ui);font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0;text-transform:none;margin-left:8px}
 .day .card-h h3 small{font-family:var(--f-ui);font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0;text-transform:none;margin-left:8px}
-.lines{list-style:none;margin:0;padding:4px 0}
-.line{display:grid;grid-template-columns:6.9em minmax(0,1fr) 1.6em minmax(0,1fr) minmax(0,9em);align-items:center;gap:10px;padding:10px var(--pad);border-bottom:1px solid var(--line-2);cursor:pointer}
+.lines{list-style:none;margin:0;padding:2px 0}
+.line{display:grid;grid-template-columns:6.9em minmax(0,1fr) 1.6em minmax(0,1fr) minmax(0,9em);align-items:center;gap:9px;padding:7px var(--pad);border-bottom:1px solid var(--line-2);cursor:pointer}
 .line:last-child{border-bottom:0}
 .line:hover{background:var(--card-2)}
 .ln-time{display:flex;flex-direction:column;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
@@ -284,7 +311,7 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .ln-odds{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ln-score{font-family:var(--f-display);font-weight:800;font-size:18px}
 @media (max-width:640px){
-  .line{grid-template-columns:6.4em minmax(0,1fr) 1.2em minmax(0,1fr);gap:6px;padding:10px 12px}
+  .line{grid-template-columns:6.4em minmax(0,1fr) 1.2em minmax(0,1fr);gap:6px;padding:8px 12px}
   .ln-time{font-size:12px}
   .ln-odds{display:none}
   .ln-team small{display:none}
@@ -450,7 +477,8 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 /* The team's star sits between the stats and the record, behind the text */
 .team-hero.has-star > :not(.team-star){position:relative;z-index:1}
 .team-hero .team-star{right:clamp(150px,15vw,320px);left:auto;top:auto;bottom:0;height:100%}
-@media (max-width:760px){.team-hero .team-star{right:-24px;top:0;bottom:auto;height:170px;opacity:.5}}
+/* Phones skip the player photo on team pages too; the banner's faded logo stays */
+@media (max-width:760px){.team-hero .team-star{display:none}}
 .hero-rec{font-family:var(--f-display);font-weight:900;font-size:clamp(40px,5vw,84px);line-height:.9;font-variant-numeric:tabular-nums}
 .hero-btn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#F4F6F8}
 .hero-btn:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.4)}
@@ -613,8 +641,9 @@ button.q-face{cursor:pointer}
   .home-hero.has-next{flex-direction:column;align-items:stretch}
   .home-hero.has-next .hh-logo{left:auto;right:-18px;top:-12px;transform:none;width:130px;opacity:.14}
   .hh-next{min-width:0;width:100%}
-  .hh-star,.home-hero:not(.has-next) .hh-star{right:-26px;top:0;bottom:auto;height:200px;opacity:.6}
-  .home-hero.has-star .hh-logo{display:none}
+  /* Phones skip the player photo; a faded half of the team logo sits behind the headline instead */
+  .hh-star,.home-hero:not(.has-next) .hh-star{display:none}
+  .home-hero .hh-logo,.home-hero.has-next .hh-logo{display:block;position:absolute;left:auto;right:-110px;top:18px;transform:none;width:240px;height:auto;opacity:.13;filter:none}
 }
 .hchips{display:flex;flex-wrap:wrap;gap:8px}
 .hchip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-size:13px;text-decoration:none}
