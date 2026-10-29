@@ -505,9 +505,17 @@ function parseRoster(j) {
       id: String(a.id), name: a.displayName, jersey: a.jersey, pos: a.position && a.position.abbreviation, age: a.age,
       ht: a.displayHeight, wt: a.displayWeight, exp: a.experience && a.experience.years, college: a.college && (a.college.shortName || a.college.name),
       injury: a.injuries && a.injuries[0] ? a.injuries[0].status : '', headshot: headshotOf(a.headshot),
-      // This season's salary from ESPN's contract list (0 when unknown)
-      salary: ((a.contracts || []).find(c => c.season && c.season.year === NBA.SEASON) || {}).salary || 0,
+      // This season's salary from ESPN's contract list, or the current deal when the list hasn't caught up (0 when unknown)
+      salary: ((a.contracts || []).find(c => c.season && c.season.year === NBA.SEASON) || {}).salary
+        || (a.contract && a.contract.season && a.contract.season.year === NBA.SEASON && a.contract.salary) || 0,
+      // An active deal with no salary is a two-way contract, which doesn't count against the cap
+      deal: !!(a.contract && a.contract.active),
       htIn: a.height || 0,
+      first: a.firstName || '', last: a.lastName || '', dob: a.dateOfBirth || '',
+      born: a.birthPlace ? [a.birthPlace.city, a.birthPlace.state || a.birthPlace.country].filter(Boolean).join(', ') : '',
+      // Seasons left on the deal, counting this one, and every season's salary ESPN has on record
+      years: a.contract && a.contract.active ? a.contract.yearsRemaining || 0 : 0,
+      pay: (a.contracts || []).filter(c => c.season && c.salary).map(c => ({ yr: c.season.year, salary: c.salary })).sort((x, y) => x.yr - y.yr),
     })),
   };
 }

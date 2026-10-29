@@ -140,6 +140,7 @@ const TABS = [
   { id: 'teams', label: 'Teams' },
   { id: 'facts', label: 'Fun Facts' },
   { id: 'games', label: 'Games' },
+  { id: 'players', label: 'Players' },
 ];
 UI.route = () => {
   const h = decodeURIComponent(location.hash.replace(/^#/, ''));
@@ -282,10 +283,22 @@ UI.openGame = (id, opener) => {
   NBA.need('summary:' + id, true).catch(() => {});
   NBA.changed();
 };
+/* A player's card opens in the same window as a game, so closing, the back button and swipes all work the same way */
+UI.openPlayer = (id, opener) => {
+  UI.lastFocus = opener || document.activeElement;
+  UI.drawer = { kind: 'player', id: String(id) };
+  UI.settingsOpen = false; $('#settings').hidden = true;
+  if (!UI.histPushed) { history.pushState({ nbaPlayer: id }, ''); UI.histPushed = true; }
+  $('#drawer').hidden = false; lock(true);
+  $('#drawer')._html = null;
+  renderDrawer();
+  $('#drawer').scrollTop = 0;
+  const c = $('#drawer [data-act="close"]'); if (c) c.focus();
+};
 NBA.pollHooks.push({
   live: () => { const d = UI.drawer && NBA.data('summary:' + UI.drawer.id); return !!(d && d.state === 'in'); },
   run: () => {
-    if (!UI.drawer) return null;
+    if (!UI.drawer || UI.drawer.kind === 'player') return null;
     const k = 'summary:' + UI.drawer.id, d = NBA.data(k), g = findGame(UI.drawer.id);
     // A game opened before tip-off is refetched once tip is near (or the scoreboard says it started), so it turns live on its own
     const tipping = d && d.state === 'pre' && ((g && g.state !== 'pre') || new Date(d.date) - Date.now() < 15 * 60000);
@@ -295,6 +308,8 @@ NBA.pollHooks.push({
 function renderDrawer() {
   const d = UI.drawer, el = $('#drawer');
   if (!d) return;
+  el.classList.toggle('pmodal', d.kind === 'player');
+  if (d.kind === 'player') { UI.paint(el, NBA.playerCard ? NBA.playerCard(d.id) : ''); return; }
   const data = NBA.data('summary:' + d.id), err = NBA.status('summary:' + d.id).err;
   const g = findGame(d.id) || d.game;
   const away = data ? data.away : g && g.away, home = data ? data.home : g && g.home;

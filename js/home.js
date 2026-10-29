@@ -263,7 +263,8 @@ function deckHtml(id, cards, { label = 'Cards', cls = '', keys = [] } = {}) {
 }
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const slides = t => t.querySelectorAll('.deck-slide');
-const slideStep = t => { const s = slides(t); return s.length > 1 ? s[1].offsetLeft - s[0].offsetLeft : (s[0] ? s[0].offsetWidth : 1) || 1; };
+// A hidden deck lays out at zero width, so never hand back a step of 0
+const slideStep = t => { const s = slides(t); return (s.length > 1 ? s[1].offsetLeft - s[0].offsetLeft : s[0] ? s[0].offsetWidth : 1) || 1; };
 function deckState(track) {
   const n = slides(track).length;
   if (!n) return;

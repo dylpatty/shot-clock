@@ -615,18 +615,6 @@ A.render = () => { if (A.open) renderPanel(); };
 A.isOpen = () => A.open;
 A.close = () => { A.open = false; renderPanel(); };
 A.keyChanged = () => { A.convo = []; renderPanel(); };
-A.player = async id => {
-  await NBA.need('players').catch(() => {});
-  const p = NBA.playerById(id);
-  if (!p) return;
-  A.open = true;
-  const turn = { q: p.name, steps: ['Looking up the player'], pending: true };
-  A.turns.push(turn);
-  renderPanel(); scrollToLast();
-  turn.html = await playerAnswer(p);
-  turn.pending = false; turn.steps = []; turn.meta = 'Season stats and game log from ESPN';
-  renderPanel();
-};
 function scrollToLast() {
   const el = $('#ask-panel'), qs = el.querySelectorAll('.qa-q');
   if (qs.length) el.scrollTop = qs[qs.length - 1].offsetTop - 60;

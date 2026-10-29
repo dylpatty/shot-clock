@@ -499,7 +499,7 @@ NBA.actions.psort = a => { const k = a.dataset.k; st.psort = st.psort.k === k ? 
 NBA.actions.pmore = () => { st.plimit += 50; NBA.changed(); };
 NBA.changes.pq = t => { st.pq = t.value; st.plimit = 50; NBA.render(); };
 NBA.changes.pteam = t => { st.pteam = t.value; st.plimit = 50; NBA.changed(); };
-NBA.actions.player = a => { if (NBA.ask) NBA.ask.player(a.dataset.id); };
+NBA.actions.player = a => UI.openPlayer(a.dataset.id, a);
 
 /* ================= Odds ================= */
 V.odds = () => {
@@ -755,9 +755,9 @@ function teamView(id) {
     const byId = new Map((players || []).filter(p => p.teamId === id).map(p => [p.id, p]));
     const rows = roster.players.map(p => ({ ...p, s: byId.get(p.id) })).sort((a, b) => ((b.s && b.s.pts) || -1) - ((a.s && a.s.pts) || -1));
     const c = (p, k) => p.s ? NBA.statFmt(k, NBA.statValue(k, p.s, 'game'), 'game') : '–';
-    rosterHtml = `<div class="tblwrap"><table class="tbl"><thead><tr><th class="l sticky" scope="col">Player</th><th scope="col">#</th><th class="l" scope="col">Pos</th><th scope="col">Age</th><th class="l" scope="col">Ht</th>
+    rosterHtml = `<div class="tblwrap"><table class="tbl"><thead><tr><th class="l sticky" scope="col">Player</th><th scope="col">#</th><th class="l" scope="col">Pos</th><th scope="col">Age</th><th class="l" scope="col">Ht</th><th scope="col">Salary</th>
       <th scope="col">GP</th><th scope="col">MIN</th><th scope="col">PTS</th><th scope="col">REB</th><th scope="col">AST</th><th scope="col">STL</th><th scope="col">BLK</th><th scope="col">FG%</th><th scope="col">3P%</th><th scope="col">FT%</th><th class="l" scope="col">Status</th></tr></thead>
-      <tbody>${rows.map(p => `<tr class="click" data-act="player" data-id="${p.id}"><td class="l sticky"><b>${esc(p.name)}</b></td><td>${esc(p.jersey || '')}</td><td class="l">${esc(p.pos || '')}</td><td>${esc(p.age ?? '')}</td><td class="l">${esc(p.ht || '')}</td>
+      <tbody>${rows.map(p => `<tr class="click" data-act="player" data-id="${p.id}"><td class="l sticky"><b>${esc(p.name)}</b></td><td>${esc(p.jersey || '')}</td><td class="l">${esc(p.pos || '')}</td><td>${esc(p.age ?? '')}</td><td class="l">${esc(p.ht || '')}</td><td>${NBA.money(p.salary)}</td>
         <td>${p.s ? p.s.gp : 0}</td><td>${c(p, 'min')}</td><td><b>${c(p, 'pts')}</b></td><td>${c(p, 'reb')}</td><td>${c(p, 'ast')}</td><td>${c(p, 'stl')}</td><td>${c(p, 'blk')}</td><td>${c(p, 'fgp')}</td><td>${c(p, 'tpp')}</td><td>${c(p, 'ftp')}</td>
         <td class="l">${p.injury ? statusPill(p.injury) : '<span class="pill ok">Active</span>'}</td></tr>`).join('')}</tbody></table></div>`;
   }
@@ -772,7 +772,8 @@ function teamView(id) {
     ${listCard('Upcoming games', upcomingList)}
     ${listCard('Recent results', recent)}
     <div class="card"><div class="card-h"><h3>Team stats</h3><div class="end"><span class="eyebrow">League rank</span></div></div>${ranksHtml}</div>
-    <div class="card w12"><div class="card-h"><h3>Roster</h3><div class="end"><span class="eyebrow">Season averages</span></div></div><div class="card-b">${rosterHtml}</div></div>
+    ${NBA.payrollCard(id)}
+    <div class="card w12"><div class="card-h"><h3>Full roster</h3><div class="end"><span class="eyebrow">Season averages · tap a player for their card</span></div></div><div class="card-b">${rosterHtml}</div></div>
     <div class="card"><div class="card-h"><h3>Injuries</h3></div>${injHtml}</div>
     <div class="card w8"><div class="card-h"><h3>${esc(t.name)} news</h3></div>${newsHtml}</div>
   </div>
