@@ -671,64 +671,14 @@ V.facts = () => {
     const roadW = finals.filter(g => +g.away.score > +g.home.score).length, ot = finals.filter(g => g.away.lines.length > 4).length;
     fact('Road vs. home', `${roadW}-${finals.length - roadW}`, `Road teams' record over the last 7 days. ${ot ? `${ot} of the ${finals.length} games went to overtime.` : 'None of them went to overtime.'}`);
   }
-  const quiz = players && players.length ? quizCard(players, rows) : '';
   const group = (title, sub, list) => list.length ? `<section class="sec"><div class="sec-h"><h2>${title}</h2><span class="sub">${sub}</span></div><div class="facts">${list.join('')}</div></section>` : '';
   return `<section class="sec">${head}${scatter(rows)}</section>
-    <section class="sec"><div class="fun-duo${quiz ? '' : ' solo'}">${quiz}${luckCard(rows)}</div></section>
+    <section class="sec">${luckCard(rows)}</section>
     ${group('Around the league', 'Team records, styles and extremes', league)}
     ${group('Player oddities', 'Season numbers that stand out', people)}
     ${group('This week', 'From every game in the last 7 days', week)}`;
 };
 const rec = s => { const m = /^(\d+)-(\d+)/.exec(s || ''); return m ? { w: +m[1], l: +m[2] } : null; };
-
-/* Guess the player: four names, one season stat line. The question stays put across refreshes until you answer. */
-const POS = { G: 'Guard', F: 'Forward', C: 'Center' };
-const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const quizPool = players => players.filter(p => p.gp >= 2 && p.min >= 22 && p.teamId).sort((a, b) => b.pts - a.pts).slice(0, 90);
-function newQuiz(pool) {
-  st.quizSeen = st.quizSeen || [];
-  let fresh = pool.filter(p => !st.quizSeen.includes(p.id));
-  if (!fresh.length) { st.quizSeen = []; fresh = pool; }
-  const ans = fresh[Math.floor(Math.random() * fresh.length)];
-  st.quizSeen.push(ans.id);
-  // Decoys play the same position when possible, so the numbers have to do the work
-  const decoys = shuffle(pool.filter(p => p.id !== ans.id && p.pos === ans.pos)).concat(shuffle(pool.filter(p => p.id !== ans.id && p.pos !== ans.pos))).slice(0, 3);
-  return { id: ans.id, opts: shuffle([ans, ...decoys].map(p => p.id)), pick: null };
-}
-function quizCard(players, rows) {
-  const pool = quizPool(players);
-  if (pool.length < 8) return '';
-  if (!st.quiz || !pool.some(p => p.id === st.quiz.id)) st.quiz = newQuiz(pool);
-  const q = st.quiz, s = st.quizScore = st.quizScore || { right: 0, n: 0, streak: 0 };
-  const byId = id => players.find(p => p.id === id);
-  const p = byId(q.id), done = q.pick != null;
-  const conf = (rows.find(r => r.id === p.teamId) || {}).conf;
-  const clues = [
-    `${NBA.fix(p.pts)} points · ${NBA.fix(p.reb)} rebounds · ${NBA.fix(p.ast)} assists`,
-    `${p.tpa >= .5 ? `${NBA.fix(p.tpp)}% from three on ${NBA.fix(p.tpa)} attempts` : 'Almost never shoots threes'} · ${NBA.fix(p.min)} minutes a game`,
-    [p.age ? `Age ${p.age}` : '', POS[p.pos] || p.pos, conf ? `${conf}ern Conference` : ''].filter(Boolean).join(' · '),
-  ];
-  return `<div class="card quiz"><div class="card-h"><h3>Guess the player</h3><div class="end">${s.n ? `${s.right} of ${s.n} right${s.streak > 1 ? ` · ${s.streak} in a row` : ''}` : 'This season\'s numbers'}</div></div>
-    <div class="card-b">
-      <div class="q-mystery">${done ? `<button class="q-face" data-act="player" data-id="${p.id}" aria-label="Open ${esc(p.name)}'s player card">${UI.hs(p.headshot, '')}</button>` : '<div class="q-face" aria-hidden="true">?</div>'}
-        <ul class="q-clues">${clues.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>
-      <div class="q-opts">${q.opts.map(id => {
-        const o = byId(id) || {};
-        const cls = !done ? '' : id === q.id ? ' right' : id === q.pick ? ' wrong' : '';
-        return `<button class="q-opt${cls}" data-act="quizpick" data-id="${id}"${done ? ' disabled' : ''}>${esc(o.name || '')}${done ? `<small>${esc(o.team || '')}</small>` : ''}</button>`;
-      }).join('')}</div>
-      ${done ? `<div class="q-foot"><span class="${q.pick === q.id ? 'w' : 'lo'}">${q.pick === q.id ? 'Correct!' : `It was ${esc(p.name)}.`}</span><button class="btn primary" data-act="quiznext">Next player</button></div>` : ''}
-    </div></div>`;
-}
-NBA.actions.quizpick = a => {
-  const q = st.quiz, s = st.quizScore;
-  if (!q || q.pick != null) return;
-  q.pick = a.dataset.id;
-  s.n++;
-  if (q.pick === q.id) { s.right++; s.streak++; } else s.streak = 0;
-  NBA.changed();
-};
-NBA.actions.quiznext = () => { st.quiz = null; NBA.changed(); };
 
 /* Lucky or good: actual wins against the wins a team's scoring margin predicts (Pythagorean expectation, exponent 14) */
 function luckCard(rows) {
