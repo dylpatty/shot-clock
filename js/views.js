@@ -419,8 +419,76 @@ V.teams = arg => {
     <div class="team-pick">${confs.map(c => `<div class="card"><div class="card-h"><h3>${esc(c.name)}</h3></div><div class="tp-grid">${c.rows.slice().sort((a, b) => a.full.localeCompare(b.full)).map(r => {
       const t = NBA.T(r.id);
       return `<a class="tp" href="#teams/${r.id}">${UI.logo(t.logo ? t : r, 36)}<span><b>${esc(r.full)}</b><small>${r.w}-${r.l} · ${NBA.ord(r.seed || 0)} ${esc(c.abbr)}</small></span></a>`;
-    }).join('')}</div></div>`).join('')}</div></section>`;
+    }).join('')}</div></div>`).join('')}</div></section>${teamsOverview()}`;
 };
+
+/* League-wide team comparison: ratings per 100 possessions, recent form, and team stat leaders */
+st.prSort = { k: 'net', desc: true };
+function recentForm(days) {
+  const keys = Array.from({ length: days }, (_, i) => i === 0 ? 'day:' : 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -i)));
+  const seen = new Set(), map = new Map();
+  keys.map(k => NBA.use(k)).filter(Boolean).flatMap(d => d.games).filter(g => g.state === 'post' && !seen.has(g.id) && seen.add(g.id))
+    .forEach(g => [[g.away, g.home], [g.home, g.away]].forEach(([t, o]) => {
+      const a = map.get(t.id) || { w: 0, l: 0, pf: 0, pa: 0, gp: 0 };
+      a.gp++; a.pf += +t.score; a.pa += +o.score;
+      if (+t.score > +o.score) a.w++; else a.l++;
+      map.set(t.id, a);
+    }));
+  return map;
+}
+function teamsOverview() {
+  const ts = NBA.use('teamstats');
+  const head = `<div class="sec-h"><h2>Power rankings</h2><span class="sub">All 30 teams by net rating · click a column to sort, a team to open it</span></div>`;
+  if (!ts) return `<section class="sec">${head}${stateOf('teamstats', 'team stats')}</section>`;
+  const sm = NBA.standingsMap(), form = recentForm(7), fav = new Set(NBA.S.favorites);
+  const rows = ts.map(t => {
+    const r = sm.get(t.id) || {}, f = form.get(t.id);
+    const fm = f && f.gp ? (f.pf - f.pa) / f.gp : null, season = r.diff ?? t.diff;
+    return Object.assign({}, t, { w: r.w, l: r.l, strk: r.strk, f, fm, trend: fm == null ? null : fm - season, season });
+  });
+  const s = st.prSort, v = x => (x == null || !Number.isFinite(x) ? -1e9 : x);
+  const sorted = rows.slice().sort((a, b) => (s.desc ? 1 : -1) * (v(b[s.k]) - v(a[s.k])));
+  const rk = (t, k) => `<small class="mut" style="margin-left:5px">${NBA.ord(t.rank[k])}</small>`;
+  const trendCell = t => {
+    if (NBA.S.spoilers || t.trend == null) return '<span class="mut">–</span>';
+    if (t.trend > 3) return `<span class="w">▲ +${NBA.fix(t.trend)}</span>`;
+    if (t.trend < -3) return `<span class="lo">▼ ${NBA.fix(t.trend)}</span>`;
+    return `<span class="mut">Steady</span>`;
+  };
+  const th = (k, l) => `<th scope="col"><button class="sortb${s.k === k ? ' on' : ''}" data-act="prsort" data-k="${k}">${l}${s.k === k ? (s.desc ? ' ↓' : ' ↑') : ''}</button></th>`;
+  const table = `<div class="card"><div class="card-b"><div class="tblwrap"><table class="tbl spread">
+    <thead><tr><th class="n" scope="col">#</th><th class="tm sticky" scope="col">Team</th><th scope="col">W-L</th>${th('net', 'Net rtg')}${th('ortg', 'Off rtg')}${th('drtg', 'Def rtg')}${th('pace', 'Pace')}${th('fm', 'Last 7 days')}${th('trend', 'Trend')}<th scope="col">Strk</th></tr></thead>
+    <tbody>${sorted.map((t, i) => `<tr class="click${fav.has(t.id) ? ' fav' : ''}" data-act="team" data-id="${t.id}"><td class="n">${i + 1}</td>
+      <td class="tm sticky"><span>${UI.logo(NBA.T(t.id), 22)}${esc(NBA.T(t.id).name || t.name)}</span></td><td>${t.w ?? '–'}-${t.l ?? '–'}</td>
+      <td><b>${t.net > 0 ? '+' : ''}${NBA.fix(t.net)}</b>${rk(t, 'net')}</td><td>${NBA.fix(t.ortg)}${rk(t, 'ortg')}</td><td>${NBA.fix(t.drtg)}${rk(t, 'drtg')}</td><td>${NBA.fix(t.pace)}${rk(t, 'pace')}</td>
+      <td>${NBA.S.spoilers || !t.f ? '–' : `${t.f.w}-${t.f.l} <small class="mut">${t.fm > 0 ? '+' : ''}${NBA.fix(t.fm)}</small>`}</td><td>${trendCell(t)}</td>
+      <td class="${/^W/.test(t.strk || '') ? 'w' : /^L/.test(t.strk || '') ? 'lo' : ''}">${esc(t.strk || '')}</td></tr>`).join('')}</tbody></table></div></div></div>
+    <p class="note">Offensive and defensive ratings are points scored and allowed per 100 possessions, so fast and slow teams compare fairly. Net rating is the difference. Pace is possessions per game. Trend compares the last 7 days' scoring margin with the season margin.</p>`;
+
+  const formRows = rows.filter(t => t.f && t.f.gp >= 2);
+  const formList = (list, kind) => list.length ? `<ol class="rank">${list.map((t, i) => `<li data-act="team" data-id="${t.id}" style="cursor:pointer"><span class="rk">${i + 1}</span>
+      <span class="nm" style="display:flex;align-items:center;gap:8px">${UI.logo(NBA.T(t.id), 22)}${esc(NBA.T(t.id).name)}<small>${t.f.w}-${t.f.l} last 7 days${t.strk ? ' · ' + esc(t.strk) : ''}</small></span>
+      <span class="v ${kind === 'hot' ? 'w' : 'lo'}">${kind === 'hot' ? (t.fm > 0 ? '+' : '') + NBA.fix(t.fm) : '▼ ' + NBA.fix(t.trend)}</span></li>`).join('')}</ol>` : '<p class="empty" style="padding:var(--pad)">Not enough games in the last week yet.</p>';
+  const hot = formRows.filter(t => t.f.w > t.f.l).sort((a, b) => b.fm - a.fm).slice(0, 6);
+  const slipping = formRows.filter(t => t.trend < 0 && (t.f.l > t.f.w || /^L/.test(t.strk || ''))).sort((a, b) => a.trend - b.trend).slice(0, 6);
+  const formCards = NBA.S.spoilers ? `<div class="card"><div class="card-b"><p class="empty">Hot and slipping teams are hidden while spoiler mode is on.</p></div></div>`
+    : `<div class="card mini"><div class="card-h"><h3>Hot right now</h3><div class="end">Margin a game, last 7 days</div></div>${formList(hot, 'hot')}</div>
+       <div class="card mini"><div class="card-h"><h3>Slipping</h3><div class="end">Last 7 days vs. season margin</div></div>${formList(slipping, 'slip')}</div>`;
+
+  const BOARDS = [['ortg', 'Best offense', 'Off rtg'], ['drtg', 'Best defense', 'Def rtg', true], ['net', 'Net rating', 'Net'], ['pace', 'Fastest pace', 'Poss.'],
+    ['ppg', 'Most points', 'PPG'], ['oppg', 'Fewest allowed', 'Opp PPG', true], ['tpp', '3-point %', '3P%'], ['fgp', 'Field goal %', 'FG%'],
+    ['rpg', 'Rebounds', 'RPG'], ['apg', 'Assists', 'APG'], ['tov', 'Fewest turnovers', 'TOV', true], ['spg', 'Steals', 'SPG'], ['bpg', 'Blocks', 'BPG'], ['tpm', '3-pointers made', '3PM']];
+  const boards = BOARDS.map(([k, title, short, low]) => {
+    const list = rows.slice().sort((a, b) => low ? a[k] - b[k] : b[k] - a[k]).slice(0, 5);
+    const fmt = x => (k === 'net' && x > 0 ? '+' : '') + NBA.fix(x) + (['tpp', 'fgp'].includes(k) ? '%' : '');
+    return `<div class="card mini"><div class="card-h"><h3>${title}</h3><div class="end">${short}</div></div><ol class="rank">${list.map((t, i) => `<li data-act="team" data-id="${t.id}" style="cursor:pointer"><span class="rk">${i + 1}</span>
+      <span class="nm" style="display:flex;align-items:center;gap:8px">${UI.logo(NBA.T(t.id), 22)}${esc(NBA.T(t.id).name || t.name)}</span><span class="v">${fmt(t[k])}</span></li>`).join('')}</ol></div>`;
+  }).join('');
+  return `<section class="sec">${head}${table}</section>
+    <section class="sec"><div class="sec-h"><h2>Form guide</h2><span class="sub">Who's rolling and who's cooling off over the last week</span></div><div class="mini-grid" style="--min:340px">${formCards}</div></section>
+    <section class="sec"><div class="sec-h"><h2>Team leaders</h2><span class="sub">Top five teams in each category, per game</span></div><div class="mini-grid">${boards}</div></section>`;
+}
+NBA.actions.prsort = a => { const k = a.dataset.k; st.prSort = st.prSort.k === k ? { k, desc: !st.prSort.desc } : { k, desc: k !== 'drtg' }; NBA.changed(); };
 
 /* ================= Fun Facts ================= */
 V.facts = () => {
@@ -487,42 +555,63 @@ V.facts = () => {
   }
   return `<section class="sec">${head}${scatter(rows)}</section><section class="sec"><div class="facts">${cards.join('')}</div></section>`;
 };
-const SC = { W: 1000, H: 560, l: 64, r: 28, t: 28, b: 56 };
+/* The chart is drawn after layout at the card's real size, so it always fits one screen with no scrolling or zooming */
 function scatter(rows) {
   if (!rows.length || !rows.some(r => r.ppg)) return '';
+  return `<div class="card"><div class="card-h"><h3>Offense vs. defense</h3><div class="end"><span class="eyebrow">Points per game · all 30 teams</span></div></div>
+    <div class="scatter-wrap" id="scatter"></div>
+    <p class="note" style="padding:0 var(--pad) var(--pad)">Dashed lines mark the league averages. Hover or tap a logo for details; click it to open the team.</p></div>`;
+}
+function drawScatter(wrap) {
+  const rows = (NBA.data('standings') || []).flatMap(c => c.rows);
+  if (!wrap || !rows.length) return;
+  const cs = getComputedStyle(wrap);
+  const W = Math.max(260, Math.floor(wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)));
+  const narrow = W < 600;
+  const avail = window.innerHeight - document.getElementById('top').offsetHeight - 150;
+  const H = Math.round(Math.max(300, Math.min(avail, W * (narrow ? 1.25 : .6))));
+  const m = narrow ? { l: 38, r: 10, t: 14, b: 44 } : { l: 64, r: 24, t: 24, b: 56 };
+  const rad = narrow ? 11 : W < 1200 ? 16 : 20;
   const xs = rows.map(r => r.ppg), ys = rows.map(r => r.opp);
   const x0 = Math.floor(Math.min(...xs) - 2), x1 = Math.ceil(Math.max(...xs) + 2), y0 = Math.floor(Math.min(...ys) - 2), y1 = Math.ceil(Math.max(...ys) + 2);
-  const X = v => SC.l + (v - x0) / (x1 - x0) * (SC.W - SC.l - SC.r);
-  const Y = v => SC.t + (v - y0) / (y1 - y0) * (SC.H - SC.t - SC.b);
+  const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
+  const Y = v => m.t + (v - y0) / (y1 - y0) * (H - m.t - m.b);
   const ax = rows.reduce((n, r) => n + r.ppg, 0) / rows.length, ay = rows.reduce((n, r) => n + r.opp, 0) / rows.length;
-  const step = (x1 - x0) > 24 ? 5 : 2;
+  const step = narrow || (x1 - x0) > 24 ? 5 : 2;
   let grid = '';
-  for (let v = Math.ceil(x0 / step) * step; v <= x1; v += step) grid += `<line class="gl" x1="${X(v)}" x2="${X(v)}" y1="${SC.t}" y2="${SC.H - SC.b}"/><text class="ax" x="${X(v)}" y="${SC.H - SC.b + 20}" text-anchor="middle">${v}</text>`;
-  for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) grid += `<line class="gl" x1="${SC.l}" x2="${SC.W - SC.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="ax" x="${SC.l - 10}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+  for (let v = Math.ceil(x0 / step) * step; v <= x1; v += step) grid += `<line class="gl" x1="${X(v)}" x2="${X(v)}" y1="${m.t}" y2="${H - m.b}"/><text class="ax" x="${X(v)}" y="${H - m.b + 18}" text-anchor="middle">${v}</text>`;
+  for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) grid += `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text class="ax" x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
   const fav = new Set(NBA.S.favorites);
   const pts = rows.map(r => {
     const t = NBA.T(r.id);
     return `<g class="pt${fav.has(r.id) ? ' on' : ''}" data-id="${r.id}" data-tip="${esc(`${r.full}|${r.w}-${r.l} · ${NBA.fix(r.ppg)} scored · ${NBA.fix(r.opp)} allowed`)}" transform="translate(${X(r.ppg).toFixed(1)},${Y(r.opp).toFixed(1)})" data-act="team" tabindex="0" role="button" aria-label="${esc(r.full)}: ${NBA.fix(r.ppg)} points scored, ${NBA.fix(r.opp)} allowed">
-      <circle r="19"/><image href="${esc(NBA.lg(t.logo ? t : r))}" x="-14" y="-14" width="28" height="28"/></g>`;
+      <circle r="${rad}"/><image href="${esc(NBA.lg(t.logo ? t : r))}" x="${-rad * .74}" y="${-rad * .74}" width="${rad * 1.48}" height="${rad * 1.48}"/></g>`;
   }).join('');
-  return `<div class="card"><div class="card-h"><h3>Offense vs. defense</h3><div class="end"><span class="eyebrow">Points per game · all 30 teams</span></div></div>
-    <div class="scatter-wrap" id="scatter"><svg viewBox="0 0 ${SC.W} ${SC.H}" role="img" aria-label="Scatter chart of points scored versus points allowed per game for every team. Teams up and to the right score more and allow less.">
+  const q = narrow ? ['Best of both', 'Defense first', 'Shootouts', 'Struggling'] : ['Score a lot · allow little', 'Defense first', 'Shootouts', 'Struggling both ends'];
+  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Scatter chart of points scored versus points allowed per game for every team. Teams up and to the right score more and allow less.">
       ${grid}
-      <line class="avg" x1="${X(ax)}" x2="${X(ax)}" y1="${SC.t}" y2="${SC.H - SC.b}"/><line class="avg" x1="${SC.l}" x2="${SC.W - SC.r}" y1="${Y(ay)}" y2="${Y(ay)}"/>
-      <text class="quad" x="${SC.W - SC.r - 8}" y="${SC.t + 18}" text-anchor="end">Score a lot · allow little</text>
-      <text class="quad" x="${SC.l + 8}" y="${SC.t + 18}">Defense first</text>
-      <text class="quad" x="${SC.W - SC.r - 8}" y="${SC.H - SC.b - 10}" text-anchor="end">Shootouts</text>
-      <text class="quad" x="${SC.l + 8}" y="${SC.H - SC.b - 10}">Struggling both ends</text>
-      <text class="axt" x="${(SC.l + SC.W - SC.r) / 2}" y="${SC.H - 10}" text-anchor="middle">Points scored per game →</text>
-      <text class="axt" transform="translate(16 ${(SC.t + SC.H - SC.b) / 2}) rotate(-90)" text-anchor="middle">← Points allowed per game (fewer is higher)</text>
+      <line class="avg" x1="${X(ax)}" x2="${X(ax)}" y1="${m.t}" y2="${H - m.b}"/><line class="avg" x1="${m.l}" x2="${W - m.r}" y1="${Y(ay)}" y2="${Y(ay)}"/>
+      <text class="quad" x="${W - m.r - 6}" y="${m.t + 16}" text-anchor="end">${q[0]}</text>
+      <text class="quad" x="${m.l + 6}" y="${m.t + 16}">${q[1]}</text>
+      <text class="quad" x="${W - m.r - 6}" y="${H - m.b - 8}" text-anchor="end">${q[2]}</text>
+      <text class="quad" x="${m.l + 6}" y="${H - m.b - 8}">${q[3]}</text>
+      <text class="axt" x="${(m.l + W - m.r) / 2}" y="${H - 8}" text-anchor="middle">Points scored per game →</text>
+      <text class="axt" transform="translate(12 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle">${narrow ? '← Points allowed (fewer is higher)' : '← Points allowed per game (fewer is higher)'}</text>
       ${pts}
-    </svg><div class="tip" id="sc-tip" hidden></div></div>
-    <p class="note" style="padding:0 var(--pad) var(--pad)">Dashed lines mark the league averages. Hover a logo for details; click it to open the team.</p></div>`;
+    </svg><div class="tip" id="sc-tip" hidden></div>`;
+  bindScatter(wrap);
 }
+let scatterW = 0;
+window.addEventListener('resize', () => {
+  const wrap = document.getElementById('scatter');
+  if (wrap && wrap.clientWidth !== scatterW) { scatterW = wrap.clientWidth; drawScatter(wrap); }
+});
 NBA.after.facts = (view, changed) => {
-  if (!changed) return;
-  const wrap = view.querySelector('#scatter'), tip = view.querySelector('#sc-tip');
-  if (!wrap) return;
+  const wrap = view.querySelector('#scatter');
+  if (wrap && (changed || !wrap.firstChild)) { scatterW = wrap.clientWidth; drawScatter(wrap); }
+};
+function bindScatter(wrap) {
+  const tip = wrap.querySelector('#sc-tip');
   const show = g => {
     const [name, line] = g.dataset.tip.split('|');
     tip.innerHTML = `<b>${esc(name)}</b>${esc(line)}`;

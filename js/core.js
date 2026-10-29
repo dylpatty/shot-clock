@@ -367,7 +367,7 @@ function parsePlayers(j) {
 }
 function parseTeamStats(j) {
   const defs = j.categories || [];
-  const LOWER = new Set(['oppg', 'tov', 'oppFgp', 'opp3p']);
+  const LOWER = new Set(['oppg', 'tov', 'oppFgp', 'opp3p', 'drtg']);
   const list = (j.teams || []).map(t => {
     const own = {}, opp = {};
     (t.categories || []).forEach((c, i) => {
@@ -384,9 +384,12 @@ function parseTeamStats(j) {
       rpg: own.avgRebounds, apg: own.avgAssists, tov: own.avgTurnovers, spg: own.avgSteals, bpg: own.avgBlocks,
       orpg: own.avgOffensiveRebounds, tpm: own.avgThreePointFieldGoalsMade, tpa: own.avgThreePointFieldGoalsAttempted,
       fta: own.avgFreeThrowsAttempted, oppFgp: opp.fieldGoalPct, opp3p: opp.threePointFieldGoalPct,
+      // Possessions per game, the standard estimate (FGA - OREB + TOV + 0.44 x FTA), averaged with the opponents' count
+      pace: ((own.avgFieldGoalsAttempted - own.avgOffensiveRebounds + own.avgTurnovers + .44 * own.avgFreeThrowsAttempted)
+        + (opp.avgFieldGoalsAttempted - opp.avgOffensiveRebounds + opp.avgTurnovers + .44 * opp.avgFreeThrowsAttempted)) / 2,
     };
-  });
-  const keys = ['ppg', 'oppg', 'diff', 'fgp', 'tpp', 'ftp', 'rpg', 'apg', 'tov', 'spg', 'bpg', 'orpg', 'tpm', 'tpa', 'oppFgp', 'opp3p'];
+  }).map(t => Object.assign(t, { ortg: t.ppg / t.pace * 100, drtg: t.oppg / t.pace * 100, net: (t.ppg - t.oppg) / t.pace * 100 }));
+  const keys = ['ppg', 'oppg', 'diff', 'fgp', 'tpp', 'ftp', 'rpg', 'apg', 'tov', 'spg', 'bpg', 'orpg', 'tpm', 'tpa', 'oppFgp', 'opp3p', 'ortg', 'drtg', 'net', 'pace'];
   keys.forEach(k => {
     const sorted = list.slice().sort((a, b) => LOWER.has(k) ? a[k] - b[k] : b[k] - a[k]);
     sorted.forEach((t, i) => { t.rank = t.rank || {}; t.rank[k] = i + 1; });

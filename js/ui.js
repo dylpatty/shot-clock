@@ -24,6 +24,7 @@ UI.logo = (t, size = 28, cls = '') => `<img class="${cls}" src="${esc(NBA.lg(t))
 UI.hs = (url, cls = 'hs') => url ? `<img class="${cls}" src="${esc(url)}" alt="" loading="lazy">` : `<span class="${cls}"></span>`;
 UI.teamLink = id => `#teams/${id}`;
 UI.isFav = g => NBA.S.favorites.includes(g.away.id) || NBA.S.favorites.includes(g.home.id);
+UI.isMine = g => g.away.id === NBA.S.myTeam || g.home.id === NBA.S.myTeam;
 UI.tipTime = g => {
   if (/TBD/i.test(g.detail)) return 'Time TBD';
   const mins = Math.round((new Date(g.date) - Date.now()) / 60000);
@@ -74,7 +75,7 @@ UI.gameCard = (g, big) => {
     }
   }
   const label = `${g.away.full} at ${g.home.full}, ${g.state === 'pre' ? UI.tipTime(g) : g.detail}`;
-  return `<div class="game${big ? ' big' : ''}${UI.isFav(g) ? ' fav' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(label)}">
+  return `<div class="game${big ? ' big' : ''}${UI.isFav(g) ? ' fav' : ''}${UI.isMine(g) ? ' mine' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(label)}">
     <div class="g-top">${status}<span>${esc(right)}</span></div>
     <div class="ls" style="grid-template-columns:${cols}">${head}${row(g.away)}${row(g.home)}</div>${extra}</div>`;
 };
@@ -92,7 +93,7 @@ UI.line = g => {
       ? `<span class="ln-team home">${sc}<small>${esc(t.record)}</small>${name}${UI.logo(t, 26)}</span>`
       : `<span class="ln-team away">${UI.logo(t, 26)}${name}<small>${esc(t.record)}</small>${sc}</span>`;
   };
-  return `<li class="line${UI.isFav(g) ? ' fav' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(g.away.full)} at ${esc(g.home.full)}">
+  return `<li class="line${UI.isFav(g) ? ' fav' : ''}${UI.isMine(g) ? ' mine' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(g.away.full)} at ${esc(g.home.full)}">
     <span class="ln-time">${time}</span>${side(g.away, false)}<span class="ln-at">@</span>${side(g.home, true)}<span class="ln-odds">${esc(UI.oddsText(g.odds))}</span></li>`;
 };
 
@@ -157,6 +158,12 @@ function renderHeader() {
   const pill = $('#livepill');
   pill.className = 'livepill' + (live ? ' on' : '');
   pill.innerHTML = live == null ? '' : live ? `<i class="dot blink"></i>${live} live` : 'No games live';
+  const mt = NBA.T(NBA.S.myTeam);
+  const teams = [...NBA.teams.values()].filter(t => t.abbr && t.full).sort((a, b) => a.full.localeCompare(b.full));
+  UI.paint($('#teampick'), `${mt.logo ? UI.logo(mt, 22) : ''}<label class="sr" for="team-pick">Your team</label>
+    <select id="team-pick" data-ch="myTeam" title="Your team">${teams.length
+      ? teams.map(t => `<option value="${t.id}" ${t.id === NBA.S.myTeam ? 'selected' : ''}>${esc(t.full)}</option>`).join('')
+      : `<option value="${esc(NBA.S.myTeam)}">${esc(mt.full || 'Golden State Warriors')}</option>`}</select>`);
   renderUpdated();
 }
 function renderUpdated() {
@@ -194,13 +201,30 @@ window.addEventListener('hashchange', () => {
 
 /* ---------- overlays ---------- */
 function lock(on) { document.body.classList.toggle('locked', on); $('#scrim').hidden = !on; }
-UI.closeAll = () => {
+UI.closeAll = fromHistory => {
   const had = UI.drawer || UI.settingsOpen;
   UI.drawer = null; UI.settingsOpen = false; UI.resetArmed = false;
   $('#drawer').hidden = true; $('#settings').hidden = true;
   lock(false);
+  if (UI.histPushed) { UI.histPushed = false; if (fromHistory !== true) history.back(); }
   if (had && UI.lastFocus && document.contains(UI.lastFocus)) UI.lastFocus.focus();
 };
+/* The game view takes a history entry, so the browser's back button or a phone's back swipe closes it */
+window.addEventListener('popstate', () => { if (UI.drawer || UI.settingsOpen) UI.closeAll(true); else UI.histPushed = false; });
+/* On touch screens, a sideways swipe closes the game view (except inside tables and the chart, which scroll sideways) */
+(() => {
+  const el = document.getElementById('drawer');
+  let x0 = 0, y0 = 0, armed = false;
+  el.addEventListener('touchstart', e => {
+    const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY;
+    armed = e.touches.length === 1 && !e.target.closest('.tblwrap, .dtabs, .wpwrap');
+  }, { passive: true });
+  el.addEventListener('touchend', e => {
+    if (!armed || !UI.drawer) return;
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Math.abs(dx) > 90 && Math.abs(dx) > 2 * Math.abs(dy)) UI.closeAll();
+  }, { passive: true });
+})();
 
 /* ---------- game drawer ---------- */
 const BOX_COMPACT = ['minutes', 'points', 'rebounds', 'assists', 'fieldGoalsMade-fieldGoalsAttempted', 'threePointFieldGoalsMade-threePointFieldGoalsAttempted', 'plusMinus'];
@@ -220,6 +244,7 @@ UI.openGame = (id, opener) => {
   UI.st.revealed.add(id);
   UI.drawer = { id, tab: 'box', sort: null, scoringOnly: false, showAll: false, game: findGame(id) };
   UI.settingsOpen = false; $('#settings').hidden = true;
+  if (!UI.histPushed) { history.pushState({ nbaGame: id }, ''); UI.histPushed = true; }
   $('#drawer').hidden = false; lock(true);
   $('#drawer')._html = null;
   renderDrawer();
@@ -280,7 +305,7 @@ function paneBox(d, data) {
   const teams = data.box.filter(b => b.players.some(p => !p.dnp));
   let out = '';
   if (!teams.length) out += `<p class="empty">The box score fills in once the game tips off.</p>`;
-  else out += tools + [data.away, data.home].map(t => data.box.find(b => b.teamId === t.id)).filter(Boolean).map(b => boxTeam(b, d)).join('');
+  else out += tools + `<div class="box-pair">${[data.away, data.home].map(t => data.box.find(b => b.teamId === t.id)).filter(Boolean).map(b => boxTeam(b, d)).join('')}</div>`;
   if (data.injuries.length) {
     out += `<div><h3 class="bx-team">Injury report</h3>${data.injuries.map(t => `<p class="note" style="margin:8px 0 4px;font-weight:800;color:var(--ink)">${esc(NBA.T(t.teamId).name || NBA.T(t.teamId).abbr)}</p>
       <ul class="inj2">${t.list.map(i => `<li><b>${esc(i.name)}</b> <span class="mut">${esc(i.status)}${i.type ? ' · ' + esc(i.type) : ''}</span></li>`).join('')}</ul>`).join('')}</div>`;
@@ -523,7 +548,7 @@ Object.assign(NBA.changes, {
   card: t => { NBA.S.card[t.dataset.k] = t.checked; NBA.save(); NBA.changed(); },
   spoilers: t => { NBA.S.spoilers = t.checked; UI.st.revealed.clear(); NBA.save(); NBA.changed(); },
   refresh: t => { NBA.S.refresh = +t.value; NBA.save(); NBA.reschedule(); },
-  myTeam: t => { NBA.S.myTeam = t.value; NBA.save(); repaintAll(); },
+  myTeam: t => { if (!t.value) return; NBA.S.myTeam = t.value; NBA.save(); repaintAll(); },
   aiModel: t => { NBA.S.aiModel = t.value; NBA.save(); },
   scoring: t => { if (UI.drawer) { UI.drawer.scoringOnly = t.checked; renderDrawer(); } },
 });
