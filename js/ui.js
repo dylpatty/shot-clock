@@ -167,6 +167,7 @@ const TABS = [
   { id: 'facts', label: 'Fun Facts' },
   { id: 'games', label: 'Games' },
   { id: 'players', label: 'Players' },
+  { id: 'social', label: 'Social' },
 ];
 UI.route = () => {
   const h = decodeURIComponent(location.hash.replace(/^#/, ''));

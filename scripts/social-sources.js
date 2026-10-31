@@ -220,7 +220,7 @@ export async function readX({ get, prev = [], now, log = () => {} }) {
   // Nitter: today's most-liked NBA posts and the insiders' feeds, from the first mirror that answers
   const ids = new Set();
   const since = new Date(now - 30 * 3600000).toISOString().slice(0, 10);
-  const q = encodeURIComponent(`(nba OR lakers OR celtics OR warriors OR knicks OR thunder OR nuggets OR "full highlights") min_faves:2000 since:${since}`);
+  const q = encodeURIComponent(`(nba OR lakers OR celtics OR warriors OR knicks OR thunder OR nuggets OR "full highlights") min_faves:1000 since:${since}`);
   // When X turned the timeline widget away (its limit is per address, and GitHub's are shared), the mirrors stand in for it
   const paths = [`/search/rss?f=tweets&q=${q}`, ...NITTER_FEEDS.map(u => `/${u}/rss`), ...(tl ? [] : X_TIMELINES.slice(0, 5).map(u => `/${u}/rss`))];
   let nit = 0;
