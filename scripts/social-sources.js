@@ -124,15 +124,33 @@ export async function readReddit({ get, prev = [], state = {}, now, log = () => 
 }
 
 /* ---------- X ---------- */
-/* X has no free API. Posts are found three ways: the public timelines behind X's embedded-timeline widget (an account's
-   newest 20 posts with full counts; some big accounts only get a frozen "top posts" list there, which is skipped), Nitter
-   mirrors' RSS (a search for today's most-liked NBA posts, and insiders' feeds), and r/nba links. Counts and media for a
-   post come from the data behind X's embedded-post widget */
-export const X_TIMELINES = ['NBA', 'BleacherReport', 'espn', 'SportsCenter', 'warriors', 'Lakers', 'celtics', 'NBATV'];
-const X_NBA_ONLY = new Set(['NBA', 'warriors', 'Lakers', 'celtics', 'NBATV', 'ShamsCharania', 'UnderdogNBA', 'TheNBACentral', 'TheHoopCentral', 'ChrisBHaynes', 'TheSteinLine', 'JakeLFischer', 'MikeAScotto', 'NBAonPrime', 'NBAonTNT', 'NBAonNBC']);
-const X_INSIDERS = new Set(['ShamsCharania', 'ChrisBHaynes', 'TheSteinLine', 'JakeLFischer', 'MikeAScotto', 'KeithSmith', 'wojespn', 'BobbyMarks42', 'TimBontemps', 'anthonyVslater']);
+/* X has no free API. Posts are found three ways:
+   - the accounts themselves (the league, all 30 teams, star players, insiders, NBA media), read through Nitter mirrors'
+     RSS (each account's newest 20 posts), a third of the list each run so every account is read every half hour; the
+     timeline behind X's own embedded-timeline widget is tried first, but GitHub's servers share its per-address limit
+   - searches on a Nitter mirror for popular posts from anyone that name the NBA, a team, a star player or a coach,
+     two pages each
+   - r/nba links
+   Counts and media for every post come from the data behind X's embedded-post widget */
+const X_LEAGUE = ['NBA', 'NBATV', 'NBAonPrime', 'NBAonNBC', 'ESPNNBA'];
+export const X_TEAMS = ['ATLHawks', 'celtics', 'BrooklynNets', 'hornets', 'chicagobulls', 'cavs', 'dallasmavs', 'nuggets', 'DetroitPistons', 'warriors', 'HoustonRockets', 'Pacers', 'LAClippers', 'Lakers', 'memgrizz', 'MiamiHEAT', 'Bucks', 'Timberwolves', 'PelicansNBA', 'nyknicks', 'okcthunder', 'OrlandoMagic', 'sixers', 'Suns', 'trailblazers', 'SacramentoKings', 'spurs', 'Raptors', 'utahjazz', 'WashWizards'];
+const X_PLAYERS = ['KingJames', 'StephenCurry30', 'KDTrey5', 'JoelEmbiid', 'jaytatum0', 'AntDavis23', 'Giannis_An34', 'luka7doncic', 'DevinBook', 'JaMorant', 'TheTraeYoung', 'Dame_Lillard', 'KyrieIrving', 'JHarden13', 'KarlTowns', 'swipathefox', 'jalenbrunson1', 'KlayThompson', 'Money23Green', 'CJMcCollum', 'FCHWPO', 'Zionwilliamson', 'Bam1of1', 'TyHaliburton22', 'wemby', 'shaiglalex', 'theantedwards_'];
+const X_INSIDER_LIST = ['ShamsCharania', 'ChrisBHaynes', 'TheSteinLine', 'JakeLFischer', 'MikeAScotto', 'BobbyMarks42', 'TimBontemps', 'anthonyVslater', 'WindhorstESPN', 'KCJHoop', 'ZachLowe_NBA'];
+const X_MEDIA = ['BleacherReport', 'HoHighlights', 'TheHoopCentral', 'UnderdogNBA', 'ClutchPointsApp', 'SLAMonline', 'Ballislife', 'TheNBACentral'];
+export const X_ACCOUNTS = [...X_LEAGUE, ...X_TEAMS, ...X_PLAYERS, ...X_INSIDER_LIST, ...X_MEDIA];
+export const X_TIMELINES = ['NBA', 'BleacherReport', 'warriors', 'Lakers', 'celtics', 'NBATV'];
+// Accounts whose posts always count; anyone else's has to be about the NBA
+const X_NBA_ONLY = new Set([...X_LEAGUE, ...X_TEAMS, ...X_PLAYERS, ...X_INSIDER_LIST, 'UnderdogNBA', 'TheNBACentral', 'TheHoopCentral', 'NBAonTNT', 'HoHighlights'].map(s => s.toLowerCase()));
+const X_INSIDERS = new Set([...X_INSIDER_LIST, 'KeithSmith', 'wojespn'].map(s => s.toLowerCase()));
 export const NITTER = ['nitter.kareem.one', 'nitter.mizuki.st', 'nitter.jaydenha.uk', 'nitter.mie.foundation', 'nitter.netbub.com'];
-const NITTER_FEEDS = ['ShamsCharania', 'UnderdogNBA', 'TheHoopCentral', 'ChrisBHaynes'];
+// Searches: popular posts from anyone naming the league, a team, a star or a coach (each one two pages of 20)
+const X_SEARCHES = [
+  ['nba', 800],
+  ['(lakers OR celtics OR warriors OR knicks OR sixers OR 76ers OR nets OR raptors OR bulls OR cavs OR cavaliers OR pistons OR pacers OR bucks OR hawks)', 300],
+  ['(hornets OR "miami heat" OR "orlando magic" OR wizards OR nuggets OR timberwolves OR thunder OR blazers OR "utah jazz" OR clippers OR "sacramento kings" OR suns OR mavericks OR mavs OR rockets OR grizzlies OR pelicans OR spurs)', 300],
+  ['(lebron OR "steph curry" OR luka OR doncic OR wemby OR wembanyama OR giannis OR jokic OR "shai gilgeous" OR sga OR "anthony edwards" OR "cooper flagg" OR tatum OR embiid OR durant OR brunson OR "ja morant" OR haliburton OR dybantsa OR booker)', 300],
+  ['("steve kerr" OR redick OR spoelstra OR mazzulla OR daigneault OR "doc rivers" OR thibodeau OR "jason kidd" OR udoka OR "chris finch" OR "nick nurse" OR "mike budenholzer" OR "kenny atkinson" OR "jb bickerstaff" OR "joe mazzulla")', 150],
+];
 const BOT_UA = 'shot-clock/1.0 (+https://dylpatty.github.io/shot-clock)';
 // Posts from general sports accounts only count when they're about the NBA
 export const NBA_WORDS = /\bNBA\b|Lakers|Celtics|Warriors|Knicks|\bNets\b|76ers|Sixers|Raptors|\bBulls\b|Cavaliers|\bCavs\b|Pistons|Pacers|\bBucks\b|\bHawks\b|Hornets|\bHeat\b|\bMagic\b|Wizards|Nuggets|Timberwolves|Wolves|Thunder|Blazers|\bJazz\b|Clippers|\bKings\b|\bSuns\b|Mavericks|\bMavs\b|Rockets|Grizzlies|Pelicans|\bSpurs\b|LeBron|Curry|\bSteph\b|Luka|Giannis|Jokic|Wemby|Wembanyama|Durant|Embiid|Tatum|Edwards|\bShai\b|\bSGA\b|Flagg|Brunson|Morant|Haliburton|Dybantsa|Boozer/i;
@@ -169,7 +187,7 @@ export function xItem(t) {
     author: { name: u.name, handle: '@' + handle, avatar: (u.profile_image_url_https || '').replace('_normal.', '_bigger.'), verified: !!(u.is_blue_verified || u.verified || u.verified_type) },
     text: xText(t), time: Date.parse(t.created_at), url: `https://x.com/${handle}/status/${t.id_str}`,
     stats: { likes: t.favorite_count || 0, reposts: t.retweet_count, replies: t.reply_count != null ? t.reply_count : t.conversation_count, quotes: t.quote_count },
-    news: X_INSIDERS.has(handle) || undefined, media, sensitive: !!t.possibly_sensitive,
+    news: X_INSIDERS.has(String(handle).toLowerCase()) || undefined, media, sensitive: !!t.possibly_sensitive,
   };
 }
 // The widget timeline: __NEXT_DATA__ props.pageProps.timeline.entries[].content.tweet; null when it's the frozen top list
@@ -186,42 +204,79 @@ export function xTimeline(html, now) {
 // Nitter RSS: each item's guid is the post id
 export const rssIds = xml => [...String(xml || '').matchAll(/<guid[^>]*>(\d{10,25})<\/guid>/g)].map(m => m[1]);
 
-export async function readX({ get, prev = [], now, log = () => {} }) {
+/* Each run: the widget timelines while X allows (it stops at its first refusal), a third of the accounts through the
+   mirrors (spread across them in turn, skipping any that fails), the searches (two pages each, on the mirrors that
+   search), then counts and media for every new post (newest searches first) and fresh counts for the biggest recent
+   ones. extra: post ids found elsewhere (r/nba links). Returns the posts and how many of each step worked */
+export async function readX({ get, prev = [], now, extra = [], log = () => {}, maxNew = 260, maxRefresh = 60 }) {
   const found = new Map();
-  const keep = it => it && !it.sensitive && now - it.time < 30 * 3600000 && (X_NBA_ONLY.has(it.author.handle.slice(1)) || NBA_WORDS.test(it.text || ''));
+  const keep = it => it && !it.sensitive && now - it.time < 30 * 3600000 && (X_NBA_ONLY.has(it.author.handle.slice(1).toLowerCase()) || NBA_WORDS.test(it.text || ''));
   let tl = 0;
   for (const name of X_TIMELINES) {
     try {
       const list = xTimeline(await get(`https://syndication.twitter.com/srv/timeline-profile/screen-name/${name}`, { headers: PAGE_HEADERS }), now);
       if (list) { tl++; list.filter(keep).forEach(it => found.set(it.id, it)); }
-    } catch (e) { if (/429/.test(e.message)) { log('X: timeline limit reached for this run'); break; } }
-    await sleep(500);
-  }
-  // Nitter: today's most-liked NBA posts and the insiders' feeds, from the first mirror that answers
-  const ids = new Set();
-  const since = new Date(now - 30 * 3600000).toISOString().slice(0, 10);
-  const q = encodeURIComponent(`(nba OR lakers OR celtics OR warriors OR knicks OR thunder OR nuggets OR "full highlights") min_faves:1000 since:${since}`);
-  // When X turned the timeline widget away (its limit is per address, and GitHub's are shared), the mirrors stand in for it
-  const paths = [`/search/rss?f=tweets&q=${q}`, ...NITTER_FEEDS.map(u => `/${u}/rss`), ...(tl ? [] : X_TIMELINES.slice(0, 5).map(u => `/${u}/rss`))];
-  let nit = 0;
-  for (const p of paths) {
-    for (const host of NITTER) {
-      try { const xml = await get(`https://${host}${p}`, { headers: { 'User-Agent': BOT_UA, Accept: 'application/rss+xml, text/xml' } }); const got = rssIds(xml); if (got.length) { got.forEach(id => ids.add(id)); nit++; break; } } catch (e) { /* next mirror */ }
-    }
+    } catch (e) { if (/429/.test(e.message)) { log('X: the timeline widget refused this run (its limit is shared)'); break; } }
     await sleep(400);
   }
-  // Posts r/nba linked to aren't known here; the job passes them in through prev's dup keys elsewhere
-  const need = [...ids].filter(id => !found.has('x:' + id));
-  const refresh = prev.filter(it => now - it.time < 12 * 3600000 && !found.has(it.id)).sort((a, b) => (b.stats.likes || 0) - (a.stats.likes || 0)).slice(0, 25).map(it => it.id.slice(2));
-  let hyd = 0;
-  for (const id of [...need.slice(0, 40), ...refresh]) {
-    try {
-      const it = xItem(JSON.parse(await get(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=${xToken(id)}`, { headers: { 'User-Agent': CHROME_UA, Accept: 'application/json' } })));
-      if (keep(it)) { found.set(it.id, it); hyd++; }
-    } catch (e) { /* deleted, or not reachable */ }
+  const RSS = { 'User-Agent': BOT_UA, Accept: 'application/rss+xml, text/xml' };
+  const dead = new Set(), searchIds = [], accountIds = [];
+  // One mirror after another, starting from a different one each time so the load is shared; a mirror that fails is
+  // left out for the rest of the run
+  let turn = 0;
+  const mirror = async (path, only) => {
+    const hosts = (only || NITTER).filter(h => !dead.has(h));
+    for (let k = 0; k < hosts.length; k++) {
+      const host = hosts[(turn + k) % hosts.length];
+      try {
+        const r = await get(`https://${host}${path}`, { headers: RSS, withHeaders: true });
+        const ids = rssIds(r.text);
+        if (ids.length) { turn++; return { ids, cursor: r.header('min-id') }; }
+      } catch (e) { if (/HTTP (403|429)|no answer/.test(e.message)) dead.add(host); } // a 5xx can be one route's trouble
+    }
+    return null;
+  };
+  // The accounts: a third of the list per run
+  const slot = Math.floor(now / 600000) % 3;
+  const accounts = X_ACCOUNTS.filter((_, i) => i % 3 === slot);
+  let acc = 0;
+  for (const u of accounts) {
+    const r = await mirror(`/${u}/rss`);
+    if (r) { acc++; accountIds.push(...r.ids); }
     await sleep(250);
   }
-  if (!tl && !nit && !hyd) throw new Error('no X timeline, mirror or post could be read');
-  log(`X: ${tl} timelines, ${nit} mirror feeds, ${hyd} posts looked up`);
+  // The searches, on the mirrors that search (the others answer with nothing)
+  const since = new Date(now - 30 * 3600000).toISOString().slice(0, 10);
+  let srch = 0;
+  for (const [terms, faves] of X_SEARCHES) {
+    const q = encodeURIComponent(`${terms} min_faves:${faves} -filter:replies since:${since}`);
+    let r = await mirror(`/search/rss?f=tweets&q=${q}`, NITTER.slice(0, 2));
+    if (r) { srch++; searchIds.push(...r.ids); }
+    if (r && r.cursor) {
+      await sleep(600);
+      const r2 = await mirror(`/search/rss?f=tweets&q=${q}&cursor=${encodeURIComponent(r.cursor)}`, NITTER.slice(0, 2));
+      if (r2) searchIds.push(...r2.ids);
+    }
+    await sleep(500);
+  }
+  // Counts and media: popular finds first, then the accounts' posts and r/nba links, then refreshes
+  const known = new Set(prev.map(it => it.id.slice(2)));
+  const need = [...new Set([...searchIds, ...extra, ...accountIds])].filter(id => !found.has('x:' + id) && !known.has(id)).slice(0, maxNew);
+  const refresh = prev.filter(it => now - it.time < 12 * 3600000 && !found.has(it.id)).sort((a, b) => (b.stats.likes || 0) - (a.stats.likes || 0)).slice(0, maxRefresh).map(it => it.id.slice(2));
+  let hyd = 0;
+  const queue = [...need, ...refresh];
+  // A few at a time: the post data comes from X's CDN, which answered dozens in a row without limits
+  await Promise.all(Array.from({ length: 5 }, async () => {
+    while (queue.length) {
+      const id = queue.shift();
+      try {
+        const it = xItem(JSON.parse(await get(`https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=${xToken(id)}`, { headers: { 'User-Agent': CHROME_UA, Accept: 'application/json' } })));
+        if (keep(it)) { found.set(it.id, it); hyd++; }
+      } catch (e) { /* deleted, protected, or not reachable */ }
+      await sleep(120);
+    }
+  }));
+  if (!tl && !acc && !srch && !hyd) throw new Error('no X timeline, mirror or post could be read');
+  log(`X: ${tl} timelines, ${acc} of ${accounts.length} accounts, ${srch} of ${X_SEARCHES.length} searches, ${need.length} new posts and ${refresh.length} refreshes looked up, ${hyd} kept${dead.size ? `; mirrors down: ${[...dead].join(', ')}` : ''}`);
   return [...found.values()].map(it => { delete it.sensitive; return it; });
 }

@@ -24,7 +24,7 @@ concurrency:
 jobs:
   highlights:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,7 +62,7 @@ jobs:
 
       - name: Refresh the social feed
         if: ${{ !cancelled() }}
-        timeout-minutes: 6
+        timeout-minutes: 9
         env:
           PREV: ${{ runner.temp }}/prev/social.json
           PREV_ARCH: ${{ runner.temp }}/prev/social-archive.json

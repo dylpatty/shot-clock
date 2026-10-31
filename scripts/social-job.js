@@ -11,7 +11,7 @@ const { PREV, PREV_ARCH, OUT = 'social.json', OUT_ARCH = 'social-archive.json' }
 const CHECK = process.env.CHECK === 'true';
 // The feed's sites and how many of each site's posts a day keeps. Posts from any other site in the saved lists (Instagram
 // was one until Oct 31, 2026) are dropped on the next run
-const CAP = { reddit: 220, x: 200 };
+const CAP = { reddit: 220, x: 450 };
 const ours = it => it && CAP[it.src] != null;
 const readJSON = async f => { try { return f ? JSON.parse(await readFile(f, 'utf8')) : null; } catch { return null; } };
 const prev = (await readJSON(PREV)) || { items: [], status: {}, state: {} };
@@ -19,12 +19,14 @@ prev.items = (prev.items || []).filter(ours);
 const prevArch = (await readJSON(PREV_ARCH)) || {};
 ['week', 'season'].forEach(k => { prevArch[k] = (prevArch[k] || []).filter(ours); });
 
-async function get(url, { headers = {}, timeout = 30000 } = {}) {
+// withHeaders: also hand back the response's headers (Nitter sends the next page's cursor in one)
+async function get(url, { headers = {}, timeout = 30000, withHeaders = false } = {}) {
   const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeout);
   try {
     const r = await fetch(url, { headers, signal: ac.signal, redirect: 'follow' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return await r.text();
+    const text = await r.text();
+    return withHeaders ? { text, header: n => r.headers.get(n) } : text;
   } catch (e) {
     throw e.name === 'AbortError' ? new Error(`no answer in ${timeout / 1000}s`) : e;
   } finally {
@@ -51,7 +53,9 @@ const run = async (src, label, f) => {
 };
 
 await run('reddit', 'Reddit', async () => { const r = await readReddit({ get, prev: mine('reddit'), state: state.reddit, now, log }); state.reddit = r.state; return r.items; });
-await run('x', 'X', () => readX({ get, prev: mine('x'), now, log }));
+// X posts r/nba linked to get looked up too
+const linked = (fresh.reddit || []).map(it => it.dup).filter(d => d && d.startsWith('x:')).map(d => d.slice(2));
+await run('x', 'X', () => readX({ get, prev: mine('x'), now, extra: linked, log }));
 
 let items = mergeFeed(prev.items, fresh, now);
 // Each site's day is trimmed to the posts worth ranking: Reddit's quiet posts (no score, few comments) once they've had
