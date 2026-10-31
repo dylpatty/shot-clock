@@ -14,15 +14,24 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#E2E5EA" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#07090C" media="(prefers-color-scheme: dark)">
+<!-- Bump this and every ?v= below in any commit that changes js/ or css/ -->
+<meta name="build" content="20261030a">
+<!-- ESPN's feeds (fetch() makes CORS requests, hence crossorigin) and its image host (no-cors) -->
+<link rel="preconnect" href="https://site.api.espn.com" crossorigin>
+<link rel="preconnect" href="https://site.web.api.espn.com" crossorigin>
+<link rel="preconnect" href="https://sports.core.api.espn.com" crossorigin>
+<link rel="preconnect" href="https://a.espncdn.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Big+Shoulders+Display:wght@600;700;800;900&display=swap">
-<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/app.css?v=20261030a">
 <script>
   /* Apply the saved theme before first paint so the page doesn't flash */
   try {
     var s = JSON.parse(localStorage.getItem('nba.settings.v2') || 'null');
     if (s && s.theme && s.theme !== 'system') document.documentElement.setAttribute('data-theme', s.theme);
+    // The browser toolbar matches a chosen theme, not just the phone's setting
+    if (s && (s.theme === 'dark' || s.theme === 'light')) document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.removeAttribute('media'); m.setAttribute('content', s.theme === 'dark' ? '#07090C' : '#E2E5EA'); });
     if (s && s.density) document.documentElement.setAttribute('data-density', s.density);
     var look = s && s.teamTheme ? JSON.parse(localStorage.getItem('nba.look') || 'null') : null;
     if (look) for (var k in look) document.documentElement.style.setProperty(k, look[k]);
@@ -62,14 +71,16 @@
 <div class="scrim" id="scrim" hidden data-act="close"></div>
 <aside class="drawer modal" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="dr-title"></aside>
 <aside class="drawer narrow" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="st-title"></aside>
+<!-- Highlight videos play here, outside the view and the game window, so live repaints can't cut one off -->
+<dialog class="vid" id="vid" aria-label="Highlights"></dialog>
 
-<script src="js/core.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/views.js"></script>
-<script src="js/games.js"></script>
-<script src="js/home.js"></script>
-<script src="js/players.js"></script>
-<script src="js/ask.js"></script>
+<script src="js/core.js?v=20261030a"></script>
+<script src="js/ui.js?v=20261030a"></script>
+<script src="js/views.js?v=20261030a"></script>
+<script src="js/games.js?v=20261030a"></script>
+<script src="js/home.js?v=20261030a"></script>
+<script src="js/players.js?v=20261030a"></script>
+<script src="js/ask.js?v=20261030a"></script>
 <script>NBA.boot();</script>
 </body>
 </html>

@@ -67,19 +67,23 @@ const localDate = iso => NBA.fmtDate(iso, { weekday: 'short', month: 'short', da
 const gameLine = g => ({
   id: g.id, date: localDate(g.date), time: NBA.fmtTime(g.date), status: g.state === 'pre' ? 'scheduled' : g.state === 'in' ? 'live ' + g.detail : g.detail,
   away: `${g.away.full} (${g.away.record})`, home: `${g.home.full} (${g.home.record})`,
-  score: g.state === 'pre' ? null : `${g.away.abbr} ${g.away.score} - ${g.home.abbr} ${g.home.score}`,
+  score: g.state === 'pre' || (g.state === 'post' && !NBA.isFinal(g)) ? null : `${g.away.abbr} ${g.away.score} - ${g.home.abbr} ${g.home.score}`,
   top_scorers: g.state === 'pre' ? undefined : [g.away, g.home].map(t => { const l = t.leaders.find(x => x.cat === 'points'); return l ? `${t.abbr}: ${l.full} ${l.value}` : null; }).filter(Boolean),
   tv: g.tv || undefined, odds: g.odds && g.odds.details ? `${g.odds.details}, O/U ${g.odds.ou}` : undefined,
 });
 async function teamSchedule(team, which, count) {
   const sch = await NBA.need('tsched:' + team.id);
+  // Through today's scoreboard, so a game that just ended counts as final before the schedule refreshes
+  const evs = NBA.teamEvents(team.id) || sch.events;
   let list;
-  if (which === 'recent') list = sch.events.filter(e => e.state === 'post').slice(-count).reverse();
-  else if (which === 'all') list = sch.events;
-  else list = sch.events.filter(e => e.state !== 'post').slice(0, count);
+  if (which === 'recent') list = evs.filter(NBA.isFinal).slice(-count).reverse();
+  else if (which === 'all') list = evs;
+  else list = evs.filter(e => e.state !== 'post').slice(0, count);
   return list.map(e => ({
     id: e.id, date: localDate(e.date), time: NBA.fmtTime(e.date), where: e.home ? 'home' : 'away', opponent: NBA.T(e.oppId).full || e.oppName,
-    result: e.state === 'post' ? `${e.won ? 'W' : 'L'} ${e.my}-${e.their}` : e.state === 'in' ? 'live now' : null, tv: e.tv || undefined,
+    // A postponed game is 'post' with no score
+    result: NBA.isFinal(e) ? (NBA.S.spoilers ? 'Final' : `${e.won ? 'W' : 'L'} ${e.my}-${e.their}`) : e.state === 'post' ? (e.detail || 'Postponed') : e.state === 'in' ? 'live now' : null,
+    tv: e.tv || undefined,
   }));
 }
 function playerLine(p) {
@@ -154,7 +158,7 @@ const RUN = {
   async get_standings({ conference }) {
     const confs = await NBA.need('standings');
     return confs.filter(c => !conference || conference === 'both' || c.abbr === conference).map(c => ({
-      conference: c.name, teams: c.rows.map(r => ({ seed: r.seed, team: r.full, w: r.w, l: r.l, pct: r.pct, gb: r.gb, streak: r.strk, last10: r.l10, home: r.home, road: r.road, ppg: +NBA.fix(r.ppg), opp_ppg: +NBA.fix(r.opp) })),
+      conference: c.name, teams: c.rows.map(r => ({ seed: r.seed, team: r.full, w: r.w, l: r.l, pct: r.pct, gb: r.gb, streak: NBA.S.spoilers ? undefined : r.strk, last10: r.l10, home: r.home, road: r.road, ppg: +NBA.fix(r.ppg), opp_ppg: +NBA.fix(r.opp) })),
     }));
   },
   async get_team_overview({ team }) {
@@ -164,15 +168,16 @@ const RUN = {
     await Promise.allSettled([NBA.need('players'), NBA.need('teamstats'), NBA.need('injuries')]);
     const r = confs.flatMap(c => c.rows).find(x => x.id === t.id) || {};
     const ts = (NBA.data('teamstats') || []).find(x => x.id === t.id);
-    const next = sch.events.find(e => e.state !== 'post'), last = sch.events.filter(e => e.state === 'post').slice(-1)[0];
+    const evs = NBA.teamEvents(t.id) || sch.events;
+    const next = evs.find(e => e.state !== 'post'), last = evs.filter(NBA.isFinal).slice(-1)[0];
     const lead = k => { const p = NBA.leaders({ stat: k, teamId: t.id, limit: 1 })[0]; return p ? `${p.name} ${NBA.statFmt(k, NBA.statValue(k, p, 'game'), 'game')}` : null; };
     const inj = ((NBA.data('injuries') || []).find(g => g.teamId === t.id) || { list: [] }).list;
     return {
       team: t.full, record: `${r.w}-${r.l}`, standing: sch.standing, conference_seed: r.seed ? `${NBA.ord(r.seed)} in the ${r.conf}` : null,
-      streak: r.strk, last10: r.l10, home: r.home, road: r.road, coach: roster && roster.coach,
+      streak: NBA.S.spoilers ? undefined : r.strk, last10: r.l10, home: r.home, road: r.road, coach: roster && roster.coach,
       scoring: ts ? { ppg: +NBA.fix(ts.ppg), ppg_rank: ts.rank.ppg, opp_ppg: +NBA.fix(ts.oppg), opp_rank: ts.rank.oppg, margin: +NBA.fix(ts.diff), margin_rank: ts.rank.diff } : { ppg: r.ppg, opp_ppg: r.opp },
       next_game: next ? { date: localDate(next.date), time: NBA.fmtTime(next.date), opponent: NBA.T(next.oppId).full, where: next.home ? 'home' : 'away', status: next.state === 'in' ? 'live now' : 'scheduled' } : null,
-      last_game: last ? { date: localDate(last.date), opponent: NBA.T(last.oppId).full, result: `${last.won ? 'W' : 'L'} ${last.my}-${last.their}` } : null,
+      last_game: last ? { date: localDate(last.date), opponent: NBA.T(last.oppId).full, result: NBA.S.spoilers ? 'Final' : `${last.won ? 'W' : 'L'} ${last.my}-${last.their}` } : null,
       team_leaders: { points: lead('pts'), rebounds: lead('reb'), assists: lead('ast'), steals: lead('stl'), blocks: lead('blk'), threes: lead('tpm') },
       injuries: inj.map(i => `${i.name}: ${i.status}${i.type ? ' (' + i.type + ')' : ''}`),
     };
@@ -252,7 +257,7 @@ const RUN = {
   async get_news({ team }) {
     const t = team ? resolveTeam(team) : null;
     const list = await NBA.need('news:' + (t ? t.abbr.toLowerCase() : ''));
-    return list.slice(0, 12).map(a => ({ headline: a.headline, summary: a.description, published: a.published, type: a.type }));
+    return list.filter(NBA.newsSafe).slice(0, 12).map(a => ({ headline: a.headline, summary: a.description, published: a.published, type: a.type }));
   },
   async get_power_rankings({ sort = 'net' }) {
     await Promise.allSettled([NBA.need('teamstats'), NBA.need('standings'), recentDays()]);
@@ -270,7 +275,11 @@ const RUN = {
     const p = NBA.findPlayers(name)[0] || (NBA.players() || []).find(x => x.name.toLowerCase().includes(String(name).toLowerCase()));
     if (!p) return { error: `No player matching "${name}" has played this season.` };
     const log = await NBA.need('gamelog:' + p.id);
-    return { player: p.name, team: p.team, games: log.slice(0, Math.min(82, count || 10)).map(g => ({ date: localDate(g.date), opponent: (g.home ? 'vs ' : '@ ') + g.oppAbbr, result: `${g.result} ${g.score}`, min: g.min, pts: g.pts, reb: g.reb, ast: g.ast, stl: g.stl, blk: g.blk, tov: g.tov, fg: g.fg, three: g.tp, ft: g.ft })) };
+    return { player: p.name, team: p.team, games: log.slice(0, Math.min(82, count || 10)).map(g => {
+      const row = { date: localDate(g.date), opponent: (g.home ? 'vs ' : '@ ') + g.oppAbbr, result: NBA.S.spoilers ? 'Final' : `${g.result} ${g.score}` };
+      // No spoilers: a game from the last 2 days keeps its stat line hidden too
+      return NBA.masked(g.id, g.date) ? row : Object.assign(row, { min: g.min, pts: g.pts, reb: g.reb, ast: g.ast, stl: g.stl, blk: g.blk, tov: g.tov, fg: g.fg, three: g.tp, ft: g.ft });
+    }) };
   },
   async get_plus_minus({ name, limit = 10 }) {
     await NBA.need('players');
@@ -334,9 +343,9 @@ const recentDays = () => Promise.allSettled(Array.from({ length: 7 }, (_, i) => 
 const signed = v => (v > 0 ? '+' : '') + NBA.fix(v);
 async function matchupAnswer(a, b) {
   const sch = await NBA.need('tsched:' + a.id);
-  const games = sch.events.filter(e => e.oppId === b.id);
+  const games = (NBA.teamEvents(a.id) || sch.events).filter(e => e.oppId === b.id);
   if (!games.length) return `<p>The ${esc(a.name)} and ${esc(b.name)} don't play each other in the regular season schedule.</p>`;
-  const done = games.filter(e => e.state === 'post'), wins = done.filter(e => e.won).length, next = games.find(e => e.state !== 'post');
+  const done = games.filter(NBA.isFinal), wins = done.filter(e => e.won).length, next = games.find(e => e.state !== 'post');
   let lead;
   if (!done.length) lead = `They haven't played yet this season.`;
   else if (NBA.S.spoilers) lead = `They've played ${done.length} time${done.length > 1 ? 's' : ''} this season.`;
@@ -344,7 +353,7 @@ async function matchupAnswer(a, b) {
   const nx = next ? ` Next meeting: ${esc(localDate(next.date))} at ${esc(NBA.fmtTime(next.date))}, ${next.home ? 'in ' + esc(a.location || a.name) : 'in ' + esc(b.location || b.name)}.` : '';
   return `<p><b>${esc(a.name)} vs. ${esc(b.name)}:</b> ${lead}${nx}</p>
     ${table(['Date', 'Where', 'Result'], games.map(e => [esc(localDate(e.date)), e.home ? `at ${esc(a.abbr)}` : `at ${esc(b.abbr)}`,
-      e.state === 'post' ? (NBA.S.spoilers ? 'Final' : `${esc(a.abbr)} ${e.won ? 'won' : 'lost'} ${esc(e.my)}–${esc(e.their)}`) : esc(NBA.fmtTime(e.date))]))}`;
+      NBA.isFinal(e) ? (NBA.S.spoilers ? 'Final' : `${esc(a.abbr)} ${e.won ? 'won' : 'lost'} ${esc(e.my)}–${esc(e.their)}`) : e.state === 'post' ? esc(e.detail || 'Postponed') : esc(NBA.fmtTime(e.date))]))}`;
 }
 async function slateAnswer(which) {
   const key = which === 'yesterday' ? 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -1)) : 'day:';
@@ -353,6 +362,7 @@ async function slateAnswer(which) {
   if (!d.games.length) return `<p>No NBA games ${which === 'yesterday' ? 'yesterday' : 'today'}.</p>`;
   const games = NBA.sortGames(d.games);
   const cell = g => g.state === 'pre' ? esc(NBA.fmtTime(g.date)) + (g.tv ? ` · ${esc(g.tv)}` : '')
+    : g.state === 'post' && !NBA.isFinal(g) ? esc(g.detail || 'Postponed')
     : NBA.S.spoilers ? esc(g.state === 'in' ? 'Live' : 'Final') : `${g.state === 'in' ? '<b>Live</b> ' : ''}${esc(g.away.abbr)} ${esc(g.away.score)} – ${esc(g.home.abbr)} ${esc(g.home.score)}${g.state === 'in' ? ` · ${esc(g.detail)}` : ''}`;
   return `<p><b>${label}: ${games.length} game${games.length > 1 ? 's' : ''}</b> (${esc(NBA.fmtDay(d.day, { weekday: 'long', month: 'short', day: 'numeric' }))}).</p>
     ${table(['Matchup', which === 'yesterday' ? 'Final' : 'Time or score'], games.map(g => [`${esc(g.away.name)} @ ${esc(g.home.name)}`, cell(g)]))}`;
@@ -395,7 +405,7 @@ async function rosterAnswer(team) {
 }
 async function newsAnswer(team) {
   const list = await NBA.need('news:' + team.abbr.toLowerCase());
-  const items = list.filter(a => a.links && a.links.web).slice(0, 6);
+  const items = list.filter(a => a.links && a.links.web && NBA.newsSafe(a)).slice(0, 6);
   if (!items.length) return `<p>No recent ${esc(team.name)} headlines.</p>`;
   return `<p><b>Latest ${esc(team.name)} news</b></p><ul>${items.map(a => `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${esc(a.headline)}</a> <span class="mut">${esc(NBA.relTime(a.published))}</span></li>`).join('')}</ul>`;
 }
@@ -415,12 +425,17 @@ function compareAnswer(a, b) {
 async function gamelogAnswer(p, n) {
   const log = await NBA.need('gamelog:' + p.id);
   if (!log.length) return `<p>${esc(p.name)} hasn't played a game yet.</p>`;
-  const games = log.slice(0, n);
-  const avg = k => NBA.fix(games.reduce((s, g) => s + (parseFloat(g[k]) || 0), 0) / games.length);
-  return `<p><b>${esc(p.name)}, last ${games.length} game${games.length > 1 ? 's' : ''}:</b> ${avg('pts')} points, ${avg('reb')} rebounds and ${avg('ast')} assists a game.</p>${logTable(games)}`;
+  // No spoilers: games from the last 2 days stay hidden, and out of the averages, until opened
+  const games = log.slice(0, n), shown = games.filter(g => !NBA.masked(g.id, g.date)), hid = games.length - shown.length;
+  const avg = k => NBA.fix(shown.reduce((s, g) => s + (parseFloat(g[k]) || 0), 0) / Math.max(1, shown.length));
+  return `<p><b>${esc(p.name)}, last ${games.length} game${games.length > 1 ? 's' : ''}:</b> ${shown.length ? `${avg('pts')} points, ${avg('reb')} rebounds and ${avg('ast')} assists a game${hid ? ` (not counting ${hid} hidden recent game${hid > 1 ? 's' : ''})` : ''}.` : 'recent games are hidden while spoiler mode is on.'}</p>${logTable(games)}`;
 }
-const logTable = games => table(['Date', 'Opp', 'Result', 'MIN', 'PTS', 'REB', 'AST', 'FG', '3PT'], games.map(g => [esc(localDate(g.date)), `${g.home ? 'vs' : '@'} ${esc(g.oppAbbr || '')}`,
-  NBA.S.spoilers ? '–' : `${esc(g.result)} ${esc(g.score)}`, esc(g.min ?? ''), `<b>${esc(g.pts ?? '')}</b>`, esc(g.reb ?? ''), esc(g.ast ?? ''), esc(g.fg ?? ''), esc(g.tp ?? '')]));
+// A hidden row's date opens that game, which reveals it
+const logTable = games => table(['Date', 'Opp', 'Result', 'MIN', 'PTS', 'REB', 'AST', 'FG', '3PT'], games.map(g => {
+  const m = NBA.masked(g.id, g.date), c = v => m ? '·' : esc(v ?? '');
+  return [`<a href="#" data-act="game" data-id="${esc(g.id)}">${esc(localDate(g.date))}</a>`, `${g.home ? 'vs' : '@'} ${esc(g.oppAbbr || '')}`,
+    NBA.S.spoilers ? '–' : `${esc(g.result)} ${esc(g.score)}`, c(g.min), `<b>${c(g.pts)}</b>`, c(g.reb), c(g.ast), c(g.fg), c(g.tp)];
+}));
 async function pmAnswer(p) {
   if (p) {
     const v = await NBA.need('pm:' + p.id);
@@ -439,7 +454,7 @@ async function teamAnswer(t) {
   const nx = o.next_game ? `Next: ${o.next_game.where === 'home' ? 'vs' : '@'} ${esc(o.next_game.opponent)}, ${esc(o.next_game.date)} at ${esc(o.next_game.time)}.` : '';
   return `<p><b>The ${esc(t.name)} are ${esc(o.record)}</b>${o.conference_seed ? `, ${esc(o.conference_seed)}` : ''}${o.streak ? `, on a ${esc(o.streak)} streak` : ''}.</p>
     ${table(['Last 10', 'Home', 'Road', 'Points', 'Allowed', 'Margin'], [[esc(o.last10 || '–'), esc(o.home || '–'), esc(o.road || '–'), `${o.scoring.ppg}${o.scoring.ppg_rank ? ` (${NBA.ord(o.scoring.ppg_rank)})` : ''}`, `${o.scoring.opp_ppg}${o.scoring.opp_rank ? ` (${NBA.ord(o.scoring.opp_rank)})` : ''}`, `${o.scoring.margin ?? '–'}`]])}
-    <p>${nx} ${o.last_game ? `Last: ${esc(o.last_game.result)} vs ${esc(o.last_game.opponent)}.` : ''}</p>
+    <p>${nx} ${o.last_game && !NBA.S.spoilers ? `Last: ${esc(o.last_game.result)} vs ${esc(o.last_game.opponent)}.` : ''}</p>
     <p><a href="#teams/${t.id}">Open the ${esc(t.name)} page →</a></p>`;
 }
 async function scheduleAnswer(t, which, count) {
@@ -457,7 +472,7 @@ async function leadersAnswer(stat, mode, team, conf, n) {
 }
 async function standingsAnswer(conf) {
   const r = await RUN.get_standings({ conference: conf || 'both' });
-  return r.map(c => `<p><b>${esc(c.conference)}</b></p>${table(['#', 'Team', 'W-L', 'GB', 'Streak'], c.teams.map(t => [t.seed, esc(t.team), `${t.w}-${t.l}`, esc(t.gb), esc(t.streak)]))}`).join('');
+  return r.map(c => `<p><b>${esc(c.conference)}</b></p>${table(['#', 'Team', 'W-L', 'GB', 'Streak'], c.teams.map(t => [t.seed, esc(t.team), `${t.w}-${t.l}`, esc(t.gb), NBA.S.spoilers ? '–' : esc(t.streak)]))}`).join('');
 }
 async function injuriesAnswer(team) {
   const r = await RUN.get_injuries({ team: team && team.abbr });
@@ -520,7 +535,7 @@ How to answer:
 - Use common team names (Warriors, Lakers) and full player names.`;
 function contextLine() {
   const zone = NBA.S.tz === 'local' ? `the viewer's time zone (${Intl.DateTimeFormat().resolvedOptions().timeZone})` : 'Eastern Time (ET)';
-  return `Today is ${NBA.fmtDay(NBA.today, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Times are in ${zone}. Season: ${NBA.SEASON_LABEL}. Viewer's team: ${NBA.T(NBA.S.myTeam).full || 'Golden State Warriors'}.`;
+  return `Today is ${NBA.fmtDay(NBA.today, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Times are in ${zone}. Season: ${NBA.SEASON_LABEL}. Viewer's team: ${NBA.T(NBA.S.myTeam).full || 'Golden State Warriors'}.${NBA.S.spoilers ? ' The viewer has no-spoilers mode on: never state final scores, winners, streaks or results of finished games, or individual player stat lines from games in the last 2 days, even if a tool returns them, unless the viewer asks about one game by name.' : ''}`;
 }
 async function askClaude(turn, q) {
   const Anthropic = await loadSdk();
@@ -585,6 +600,9 @@ function explain(e, Anthropic) {
 function placePanel() {
   const top = $('#top').getBoundingClientRect().bottom;
   document.documentElement.style.setProperty('--ask-top', Math.round(top + 8) + 'px');
+  // iOS doesn't shrink 100vh for the keyboard, but the visual viewport does, so end the panel just above it
+  const vv = window.visualViewport;
+  if (vv) document.documentElement.style.setProperty('--ask-max', Math.max(160, Math.round(vv.height + vv.offsetTop - top - 20)) + 'px');
 }
 function renderPanel() {
   const el = $('#ask-panel');
@@ -634,7 +652,7 @@ async function ask(q) {
       turn.steps.push('Looking it up');
       const html = await quick(q);
       if (html) { turn.html = html; turn.meta = 'Built-in answer from site data · free'; }
-      else turn.html = `<p>I can't answer that one without Claude. Built-in answers cover team records, schedules, results and head-to-head, tonight's games and last night's scores, league and team leaders, standings, power rankings and ratings, who's hot or slipping, injuries, rosters, news, odds and MVP, player stats, game logs, comparisons and plus-minus, and the best players over recent days.</p><p><button class="link" data-act="settings">Add an Anthropic API key</button> to ask anything.</p>`;
+      else turn.html = `<p>I can't answer that one without Claude. Built-in answers cover team records, schedules, results and head-to-head, tonight's games and last night's scores, league and team leaders, standings, power rankings and ratings, who's hot or slipping, injuries, rosters, news, odds and MVP, player stats, game logs, comparisons and plus-minus, and the best players over recent days.</p><p><button class="link" data-act="ask-keyfocus">Add an Anthropic API key</button> to ask anything.</p>`;
       turn.steps = [];
     }
   } catch (e) {
@@ -649,6 +667,8 @@ Object.assign(NBA.actions, {
   // No reset while a question is running: it is still writing to A.convo and holds A.busy
   'ask-new': () => { if (A.busy) return; A.turns = []; A.convo = []; renderPanel(); $('#ask-input').focus(); },
   'ask-close': () => A.close(),
+  // The key field sits at the bottom of this panel, under the answers
+  'ask-keyfocus': () => { const k = $('#ask-key'); if (k) { k.scrollIntoView({ block: 'center', behavior: 'smooth' }); k.focus({ preventScroll: true }); } },
   'ask-key-save': () => {
     const inp = $('#ask-key'), v = inp ? inp.value.trim() : '';
     if (!v) { if (inp) inp.focus(); return; }
@@ -665,6 +685,8 @@ document.getElementById('ask-form').addEventListener('submit', e => {
 });
 document.getElementById('ask-input').addEventListener('focus', () => { if (!A.open && !A.turns.length) { A.open = true; renderPanel(); } });
 window.addEventListener('resize', () => { if (A.open) placePanel(); });
+// The keyboard resizes the visual viewport (and can scroll it) without a window resize
+if (window.visualViewport) ['resize', 'scroll'].forEach(t => visualViewport.addEventListener(t, () => { if (A.open) placePanel(); }));
 document.addEventListener('pointerdown', e => {
   if (!A.open || A.busy) return;
   if (e.target.closest('#ask-panel, #ask-form, .drawer, .scrim')) return;

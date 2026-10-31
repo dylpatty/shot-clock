@@ -82,19 +82,25 @@ const CARD_STATS = ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm', 'min', 'fgp', 'tpp
 const RANKED = new Set(['pts', 'reb', 'ast', 'stl', 'blk', 'tpm']);
 NBA.playerCard = id => {
   id = String(id);
-  NBA.loadRosters();
-  const stats = NBA.use('players'), log = NBA.use('gamelog:' + id);
+  const stats = NBA.use('players'), log = NBA.use('gamelog:' + id), s = NBA.playerById(id);
+  // Only his own roster: the salary rank comes from data/extras.json. Someone missing from the stats feed, or not on
+  // the roster it names (a trade it hasn't caught up with), is looked for on every roster.
+  const own = s && s.teamId ? NBA.use('roster:' + s.teamId) : null;
+  if (s && s.teamId ? own && !own.players.some(p => p.id === id) : stats || NBA.status('players').err) { NBA.use('standings'); NBA.loadRosters(); }
   const { idx, done } = rosterIndex();
-  const r = idx.get(id), s = NBA.playerById(id);
+  // Standings may not be loaded on this tab, so his roster goes in directly
+  if (own) own.players.forEach(p => { if (!idx.has(p.id)) idx.set(p.id, { ...p, teamId: String(s.teamId) }); });
+  const r = idx.get(id);
   const name = (r && r.name) || (s && s.name) || 'Player';
   const teamId = (r && r.teamId) || (s && s.teamId) || '', t = NBA.T(teamId);
+  const back = UI.drawerBack ? `<button class="chip dr-back" data-act="drawerback">← ${esc(UI.drawerBack.title || 'Back to game')}</button>` : '';
   const bar = `<div class="dr-bar dpad"><button class="ib" data-act="close" aria-label="Close player">${UI.I.close}</button>
-    <span class="dr-title" id="dr-title">${esc(name)}</span><a class="ext" href="https://www.espn.com/nba/player/_/id/${esc(id)}" target="_blank" rel="noopener">Open on ESPN ↗</a></div>`;
-  if (!r && !s) return bar + `<div class="dpad pc-wait">${!done || !stats ? '<p class="loading">Loading player…</p>' : `<p class="empty">This player isn't on a current NBA roster.</p>`}</div>`;
+    <span class="dr-title" id="dr-title">${esc(name)}</span>${back}<a class="ext" href="https://www.espn.com/nba/player/_/id/${esc(id)}" target="_blank" rel="noopener">Open on ESPN ↗</a></div>`;
+  if (!r && !s) return bar + `<div class="dpad pc-wait">${!done || (!stats && !NBA.status('players').err) ? '<p class="loading">Loading player…</p>' : `<p class="empty">This player isn't on a current NBA roster.</p>`}</div>`;
   const pos = (r && r.pos) || (s && s.pos) || '', headshot = (r && r.headshot) || (s && s.headshot);
 
-  const hero = `<section class="pc-hero" style="--tc:${esc(t.color || '#444')};--logo:url('${esc(t.logo || '')}')">
-    ${headshot ? `<img class="pc-shot" src="${esc(headshot)}" alt="">` : ''}
+  const hero = `<section class="pc-hero" style="--tc:${esc(t.color || '#444')};--logo:url('${esc(NBA.img(t.logo || '', 384))}')">
+    ${headshot ? `<img class="pc-shot" src="${esc(NBA.img(headshot, 528))}" alt="">` : ''}
     <div class="pc-id"><div class="pc-team">${t.abbr ? UI.logo(t, 22) : ''}${esc([t.full, r && r.jersey ? '#' + r.jersey : '', pos].filter(Boolean).join(' · '))}</div>
       <h2>${esc(name)}</h2>
       <div class="pc-tags">${r && r.injury ? pill(r.injury) : '<span class="pill ok">Active</span>'}${r && r.exp === 0 ? '<span class="pill neutral">Rookie</span>' : ''}</div></div>
@@ -115,7 +121,17 @@ NBA.playerCard = id => {
   if (r && (r.salary || r.pay.length)) {
     const paid = [...idx.values()].filter(x => x.salary > 0).sort((a, b) => b.salary - a.salary);
     const teamPay = paid.filter(x => x.teamId === teamId).reduce((n, x) => n + x.salary, 0);
-    const rank = done && r.salary ? paid.findIndex(x => x.id === id) + 1 : 0;
+    // League rank from this season's pay in data/extras.json (about 440 players), topped up by the rosters that are loaded.
+    // Ignored, like the rosters do, once Basketball-Reference has moved to next season.
+    const exAll = NBA.data('extras') || {}, cur = !(exAll.season > NBA.SEASON), ex = cur ? exAll.players || {} : {}, pay = new Map();
+    Object.entries(ex).forEach(([pid, x]) => { const p = (x.pay || []).find(q => q[0] === NBA.SEASON); if (p) pay.set(pid, p[1]); });
+    if (cur) Object.entries(exAll.espnPay || {}).forEach(([pid, v]) => pay.set(pid, v));
+    paid.forEach(x => pay.set(x.id, x.salary));
+    // Without extras, or with an extras file from before it listed ESPN's salaries, it counts every roster, as before
+    const full = pay.size >= 200 && !!exAll.espnPay;
+    if (!full && r.salary) { NBA.use('standings'); NBA.loadRosters(); }
+    const paidList = full ? [...pay.entries()].sort((a, b) => b[1] - a[1]).map(([pid]) => pid) : paid.map(x => x.id);
+    const rank = r.salary && (full || done) ? paidList.indexOf(id) + 1 : 0;
     const fut = r.future || [];
     const end = fut.length ? fut[fut.length - 1][0] : r.years ? NBA.SEASON + r.years - 1 : 0;
     // Only options still to come: the current season's mark stays on the page even after the option was picked up
@@ -129,7 +145,7 @@ NBA.playerCard = id => {
       tile('Contract length', r.years ? (r.years === 1 ? 'Final year' : `${r.years} years left`) : '–', end ? `Signed through ${seasonLabel(end)}${opts.length ? ' · ' + esc(opts.join(', ')) : ''}` : 'Not listed'),
       fut.length > 1 ? tile('Left on the deal', NBA.money(fut.reduce((n, p) => n + p[1], 0)), [opts.length ? 'Counting option years' : 'Every season left, this one included', r.gtd != null ? (r.gtd ? `${NBA.money(r.gtd)} guaranteed` : 'None of it guaranteed') : ''].filter(Boolean).join(' · '))
         : r.years && r.salary ? tile('Left on the deal', r.years > 1 ? '≈ ' + NBA.money(r.salary * r.years) : NBA.money(r.salary), r.years > 1 ? "Estimate at this year's salary" : r.gtd === 0 ? 'This season only · not guaranteed' : 'This season only') : '',
-      r.salary ? tile('NBA salary rank', rank ? NBA.ord(rank) : '…', rank ? `of ${paid.length} posted salaries` : 'Counting every roster') : '',
+      r.salary ? tile('NBA salary rank', rank ? NBA.ord(rank) : '…', rank ? `of ${paidList.length} posted salaries` : 'Counting every roster') : '',
       tile('Career earnings', NBA.money(career), past.length ? `${past.length} season${past.length === 1 ? '' : 's'} since ${seasonLabel(past[0].yr)}` : ''),
     ].join('');
     // Salary by season: the last ten paid, then the seasons still to come, faded
@@ -151,10 +167,12 @@ NBA.playerCard = id => {
   const bioHtml = bio.length ? `<div class="card"><div class="card-h"><h3>Bio</h3></div><dl class="pc-bio">${bio.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl></div>` : '';
 
   const games = log ? log.slice(0, 5) : null;
+  // No spoilers: a recent game's result and line stay hidden until it's opened (the row opens it)
+  const m = g => NBA.masked(g.id, g.date), cell = (g, v) => m(g) ? '·' : esc(v ?? '–');
   const logHtml = `<div class="card"><div class="card-h"><h3>Last 5 games</h3></div>${!games ? '<p class="loading" style="padding:var(--pad)">Loading games…</p>' : !games.length ? '<p class="empty" style="padding:var(--pad)">No games yet this season.</p>'
     : `<div class="tblwrap"><table class="tbl pc-log"><thead><tr><th class="l" scope="col">Game</th><th scope="col">MIN</th><th scope="col">PTS</th><th scope="col">REB</th><th scope="col">AST</th><th scope="col">FG</th><th scope="col">3PT</th></tr></thead>
-      <tbody>${games.map(g => `<tr class="click" data-act="game" data-id="${esc(g.id)}"><td class="l"><b>${esc(NBA.fmtDate(g.date, { month: 'short', day: 'numeric' }))}</b> ${g.home ? 'vs' : '@'} ${esc(g.oppAbbr || '')} <span class="${g.result === 'W' ? 'win' : g.result === 'L' ? 'loss' : ''}">${esc(g.result)}</span></td>
-        <td>${esc(g.min ?? '–')}</td><td><b>${esc(g.pts ?? '–')}</b></td><td>${esc(g.reb ?? '–')}</td><td>${esc(g.ast ?? '–')}</td><td>${esc(g.fg ?? '–')}</td><td>${esc(g.tp ?? '–')}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
+      <tbody>${games.map(g => `<tr class="click" data-act="game" data-id="${esc(g.id)}"><td class="l"><b>${esc(NBA.fmtDate(g.date, { month: 'short', day: 'numeric' }))}</b> ${g.home ? 'vs' : '@'} ${esc(g.oppAbbr || '')} <span class="${m(g) ? '' : g.result === 'W' ? 'win' : g.result === 'L' ? 'loss' : ''}">${m(g) ? '' : esc(g.result)}</span></td>
+        <td>${cell(g, g.min)}</td><td><b>${cell(g, g.pts)}</b></td><td>${cell(g, g.reb)}</td><td>${cell(g, g.ast)}</td><td>${cell(g, g.fg)}</td><td>${cell(g, g.tp)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
 
   return `${bar}<div class="pc dpad">${hero}<div class="pc-grid">
     <div class="card pc-wide"><div class="card-h"><h3>${NBA.SEASON_LABEL} season</h3><div class="end"><span class="eyebrow">${s && s.gp ? `Per game · ${s.gp} game${s.gp === 1 ? '' : 's'}` : 'Per game'}</span></div></div>${statsHtml}</div>

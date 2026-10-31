@@ -73,8 +73,9 @@ function drawChart(wrap, spec) {
   const q = narrow && spec.quadsShort ? spec.quadsShort : spec.quads;
   // On narrow charts the left and right corner labels sit on separate lines so they can't run into each other
   const dy = narrow ? 15 : 0;
-  if (q) guides += `<text class="quad" x="${W - m.r - 6}" y="${m.t + 16 + dy}" text-anchor="end">${esc(q[0])}</text><text class="quad" x="${m.l + 6}" y="${m.t + 16}">${esc(q[1])}</text>
-    <text class="quad" x="${W - m.r - 6}" y="${H - m.b - 8 - dy}" text-anchor="end">${esc(q[2])}</text><text class="quad" x="${m.l + 6}" y="${H - m.b - 8}">${esc(q[3])}</text>`;
+  // Corner labels draw after the dots so logos can't cover them, and let taps and hovers through to the logos below
+  const quads = q ? `<text class="quad" pointer-events="none" x="${W - m.r - 6}" y="${m.t + 16 + dy}" text-anchor="end">${esc(q[0])}</text><text class="quad" pointer-events="none" x="${m.l + 6}" y="${m.t + 16}">${esc(q[1])}</text>
+    <text class="quad" pointer-events="none" x="${W - m.r - 6}" y="${H - m.b - 8 - dy}" text-anchor="end">${esc(q[2])}</text><text class="quad" pointer-events="none" x="${m.l + 6}" y="${H - m.b - 8}">${esc(q[3])}</text>` : '';
   // Highlighted teams draw last so they sit on top
   const order = pts.slice().sort((a, b) => (a.on ? 1 : 0) - (b.on ? 1 : 0));
   const img = p => spec.face
@@ -85,7 +86,7 @@ function drawChart(wrap, spec) {
     ${spec.face ? `<defs><clipPath id="cl-${spec.id}"><circle r="${rad - 1.5}"/></clipPath></defs>` : ''}${grid}${guides}
     <text class="axt" x="${(m.l + W - m.r) / 2}" y="${H - 8}" text-anchor="middle">${esc(spec.xLabel)} →</text>
     <text class="axt" transform="translate(12 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle">${esc(spec.yUp === false ? '← ' + spec.yLabel : spec.yLabel + ' →')}</text>
-    ${dots}</svg><div class="tip" hidden></div>`;
+    ${dots}${quads}</svg><div class="tip" hidden></div>`;
   const tip = wrap.querySelector('.tip');
   const show = g => {
     const [name, line] = g.dataset.tip.split('|');
@@ -99,14 +100,46 @@ function drawChart(wrap, spec) {
   wrap.querySelectorAll('.pt').forEach(g => {
     g.addEventListener('pointerenter', () => show(g));
     g.addEventListener('focus', () => show(g));
-    g.addEventListener('pointerleave', () => { tip.hidden = true; });
-    g.addEventListener('blur', () => { tip.hidden = true; });
+    // A finger leaves the moment it lifts, so only a mouse hides the tip on leave; taps manage it below
+    g.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') tip.hidden = true; });
+    g.addEventListener('blur', () => { tip.hidden = true; if (wrap._armed === g) { wrap._armed = null; g.classList.remove('on-tip'); } });
   });
+  bindTapTips(wrap, show);
+}
+/* On touch, the first tap on a logo shows its tooltip and the second opens it. Each draw replaces the SVG,
+   so the listeners go on the wrap once and call whichever show() the latest draw left there. */
+function bindTapTips(wrap, show) {
+  wrap._show = show;
+  wrap._armed = null;
+  if (wrap._tap) return;
+  wrap._tap = true;
+  const reset = () => {
+    wrap._armed = null;
+    wrap.querySelectorAll('.pt.on-tip').forEach(x => x.classList.remove('on-tip'));
+    const t = wrap.querySelector('.tip'); if (t) t.hidden = true;
+  };
+  wrap.addEventListener('pointerdown', e => { wrap._ptype = e.pointerType; }, true);
+  // A touch that turns into a scroll or a deck swipe drops the tooltip
+  wrap.addEventListener('pointercancel', reset);
+  wrap.addEventListener('click', e => {
+    // Keyboard clicks have no pointerdown before them, so they open straight away like a mouse click
+    const pt = wrap._ptype; wrap._ptype = null;
+    if (!pt || pt === 'mouse') return;
+    const g = e.target.closest('.pt');
+    if (!g) { reset(); return; }
+    if (wrap._armed === g) return; // second tap opens it through the normal data-act handler
+    e.preventDefault(); e.stopPropagation();
+    wrap.querySelectorAll('.pt.on-tip').forEach(x => { if (x !== g) x.classList.remove('on-tip'); });
+    g.classList.add('on-tip');
+    wrap._show(g);
+    wrap._armed = g;
+  }, true);
 }
 
 /* ---------- the charts ---------- */
-const teamPt = (r, x, y, line) => { const t = NBA.T(r.id); return { id: r.id, act: 'team', x, y, img: NBA.lg(t.logo ? t : r), tip: `${r.full || t.full}|${line}`, on: NBA.S.favorites.includes(r.id) }; };
-const playerPt = (p, x, y, line) => ({ id: p.id, act: 'player', x, y, img: p.headshot, tip: `${p.name} · ${p.team}|${line}`, on: NBA.S.favorites.includes(p.teamId) });
+// Chart logos draw at up to 30 px and faces at up to 57 px wide, so these widths stay sharp on a 3x screen
+const teamPt = (r, x, y, line) => { const t = NBA.T(r.id); return { id: r.id, act: 'team', x, y, img: NBA.img(NBA.lg(t.logo ? t : r), 128), tip: `${r.full || t.full}|${line}`, on: NBA.S.favorites.includes(r.id) }; };
+const playerPt = (p, x, y, line) => ({ id: p.id, act: 'player', x, y, img: NBA.img(p.headshot, 192), tip: `${p.name} · ${p.team}|${line}`, on: NBA.S.favorites.includes(p.teamId) });
 const f1 = NBA.fix;
 const SPECS = new Map();
 function chartSpecs() {
@@ -154,7 +187,8 @@ function chartSpecs() {
       quads: ['Veterans winning now', 'Young and winning', 'Old and struggling', 'Young and growing'],
       pts: rows.filter(r => byTeam.get(r.id)).map(r => { const a = byTeam.get(r.id), age = a.am / a.m; return teamPt(r, age, winPct(r), `${rec2(r)} · average age ${f1(age)}`); }) });
   }
-  const power = NBA.powerRows();
+  // Last-7-days form gives away results, so it sits out spoiler mode
+  const power = NBA.S.spoilers ? null : NBA.powerRows();
   if (power) add({ id: 'trend', title: "Who's trending", sub: 'Last 7 days against the season', xLabel: 'Season scoring margin', yLabel: 'Margin over the last 7 days', diag: true, avg: false,
     note: 'Above the diagonal line, a team is playing better this week than its season average. Below it, cooling off.',
     pts: power.filter(t => t.f && t.f.gp && byId.has(t.id)).map(t => teamPt(byId.get(t.id), t.season, t.fm, `Season ${t.season > 0 ? '+' : ''}${f1(t.season)} · last 7 days ${t.fm > 0 ? '+' : ''}${f1(t.fm)} (${t.f.w}-${t.f.l})`)) });
@@ -225,7 +259,8 @@ const chartCard = (s, { chrome = 300, tag = '' } = {}) => `<article class="card 
     ${tag ? `<span class="tag-day">${esc(tag)}</span>` : ''}<h3 class="chart-title">${esc(s.title)}</h3>
     <p class="chart-what">${esc(axisName(s.xLabel))} <span class="vs">vs.</span> ${esc(axisName(s.yLabel))}<small>${esc(s.sub)}</small></p></header>
   <div class="scatter-wrap" data-chart="${s.id}" data-chrome="${chrome}"></div>
-  <p class="note chart-note">${esc(s.note ? s.note + ' ' : '')}Hover or tap a logo for details; click it to open ${s.face ? 'the player' : 'the team'}.</p></article>`;
+  <p class="note chart-note">${esc(s.note ? s.note + ' ' : '')}${matchMedia('(hover: none)').matches
+    ? `Tap a ${s.face ? 'face' : 'logo'} for details, tap it again to open` : `Hover a ${s.face ? 'face' : 'logo'} for details; click it to open`} ${s.face ? 'the player' : 'the team'}.</p></article>`;
 function loadChartData() {
   ['teamstats', 'players', 'futures'].forEach(k => NBA.use(k));
   NBA.loadRosters();
@@ -399,7 +434,9 @@ const TOP_SNAP = 'nba.top25.v1';
 function topMovement(ids) {
   let s = null;
   try { s = JSON.parse(localStorage.getItem(TOP_SNAP) || 'null'); } catch (e) { s = null; }
+  if (!s || !Array.isArray(s.ids)) s = null;
   if (!s || s.day !== NBA.today) s = { day: NBA.today, ids, prev: s ? { day: s.day, ids: s.ids } : null };
+  else if (s.ids.join() === ids.join()) return s.prev; // unchanged: no write on every render
   else s.ids = ids;
   try { localStorage.setItem(TOP_SNAP, JSON.stringify(s)); } catch (e) { /* storage blocked: no movement arrows */ }
   return s.prev;
@@ -407,7 +444,8 @@ function topMovement(ids) {
 /* The Home headline reacts to your team first, then the calendar, then the clock.
    Results stay out of it while spoiler mode is on. */
 const clockSecs = c => { const s = String(c || ''); if (s.includes(':')) { const [m, x] = s.split(':'); return +m * 60 + parseFloat(x); } return parseFloat(s); };
-const surname = n => String(n || '').trim().split(' ').slice(-1)[0];
+// 'Jaren Jackson Jr.' is Jackson, not Jr.
+const surname = n => { const w = String(n || '').trim().split(/\s+/); return w.length > 2 && /^(?:jr|sr|ii|iii|iv)\.?$/i.test(w[w.length - 1]) ? w[w.length - 2] : w[w.length - 1]; };
 const dayKeyOf = iso => iso === NBA.today ? 'day:' : 'day:' + NBA.paramOf(iso);
 function heroMessage({ now, games, live, myId, t, sch, mine, loaded }) {
   const name = t.name || 'your team', hide = NBA.S.spoilers;
@@ -425,7 +463,7 @@ function heroMessage({ now, games, live, myId, t, sch, mine, loaded }) {
     return { title: 'Game on', sub };
   }
   // 2. Your team's last game, if it finished in the last day
-  const last = sch && sch.events.filter(e => e.state === 'post').slice(-1)[0];
+  const last = sch && sch.events.filter(NBA.isFinal).slice(-1)[0];
   if (last && !hide && now - new Date(last.date) < 22 * 3600000) {
     const m = (+last.my) - (+last.their), opp = NBA.T(last.oppId).name || last.oppAbbr || 'opponent', fin = `${last.my}-${last.their}`;
     if (last.won && m <= 3) {
@@ -454,7 +492,8 @@ function heroMessage({ now, games, live, myId, t, sch, mine, loaded }) {
   }
   // 3. Your team plays today
   const next = sch && sch.events.find(e => e.state === 'pre');
-  if (next && NBA.etDay(next.date) === NBA.today) return { title: 'Game day', sub: `${t.name || ''} ${next.home ? 'vs.' : 'at'} the ${NBA.T(next.oppId).name || next.oppAbbr} · tip-off ${NBA.fmtTime(next.date)}${next.tv ? ' on ' + next.tv : ''}.` };
+  // The tip-off time and TV channel are in the next-game panel beside it
+  if (next && NBA.etDay(next.date) === NBA.today) return { title: 'Game day', sub: `${t.name || ''} ${next.home ? 'vs.' : 'at'} the ${NBA.T(next.oppId).name || next.oppAbbr} today.` };
   // 4. The calendar, only once there are games to count (not while they load, or on a playoff off-day)
   const md = NBA.today.slice(5);
   const cup = games.filter(x => /Cup|In-Season/i.test(x.note || '')).length;
@@ -464,15 +503,29 @@ function heroMessage({ now, games, live, myId, t, sch, mine, loaded }) {
   if (games.length && (md === '12-31' || md === '01-01')) return { title: 'New year hoops', sub: `${games.length} games to ring it in.` };
   if (games.length && md === '10-31') return { title: 'Halloween hoops', sub: `${games.length} games tonight. Nothing scarier than a 30-point quarter.` };
   // 5. Streaks
-  const sv = mine ? mine.strkV : 0;
-  if (mine && /^W/.test(mine.strk) && sv >= 4) return { title: `${sv} straight`, sub: `The ${name} have won ${sv} in a row.` };
-  if (mine && /^L/.test(mine.strk) && Math.abs(sv) >= 4) return { title: 'Bounce-back time', sub: `The ${name} have lost ${Math.abs(sv)} straight.` };
+  const sv = mine && !hide ? mine.strkV : 0;
+  if (!hide && mine && /^W/.test(mine.strk) && sv >= 4) return { title: `${sv} straight`, sub: `The ${name} have won ${sv} in a row.` };
+  if (!hide && mine && /^L/.test(mine.strk) && Math.abs(sv) >= 4) return { title: 'Bounce-back time', sub: `The ${name} have lost ${Math.abs(sv)} straight.` };
   // 6. The clock
   const hr = now.getHours();
   if (live.length >= 6) return { title: 'Full slate', sub: `${live.length} games on right now.` };
   if (hr < 5) return { title: 'Late-night hoops', sub: live.length ? `${live.length} game${live.length > 1 ? 's' : ''} still going.` : '' };
   if (loaded && !games.length) return { title: 'Off night', sub: 'No games today. Catch up on the standings and fun facts below.' };
   return { title: hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening', sub: '' };
+}
+/* Under the next-game panel, within 36 hours of tip-off: ESPN's win chance for your team, the betting line and
+   up to two of your players listed out or day-to-day (game-time calls first). Each part is left out until ESPN has it. */
+function previewLine(g, myId, t, now) {
+  if (new Date(g.date) - now > 36 * 3600000) return '';
+  const pv = NBA.use('preview:' + g.id);
+  if (!pv) return '';
+  const pct = pv.pred ? (g.home ? pv.pred.home : pv.pred.away) : NaN;
+  const inj = ((pv.injuries || []).find(x => x.teamId === myId) || { list: [] }).list
+    .filter(i => /^(?:out|day-to-day|doubtful|questionable)$/i.test(i.status))
+    .sort((a, b) => /^out$/i.test(a.status) - /^out$/i.test(b.status))
+    .slice(0, 2).map(i => `${surname(i.name)} ${i.status.toLowerCase()}`);
+  const parts = [Number.isFinite(pct) ? `ESPN: ${t.name || t.abbr} ${Math.round(pct)}%` : '', (pv.pick && pv.pick.details) || '', ...inj].filter(Boolean);
+  return parts.length ? `<span class="nx-pv">${esc(parts.join(' · '))}</span>` : '';
 }
 /* Niche, ESPN-style facts that change as games are played: season "clubs" only a few players belong to,
    and oddities from the most recent night of full box scores */
@@ -508,13 +561,13 @@ function nicheFacts() {
     const club = regs.filter(test).sort((a, b) => NBA.gameScore(b) - NBA.gameScore(a));
     if (!club.length || club.length > 6) return;
     card(title, `${club.length}<small>${club.length === 1 ? 'player' : 'players'}</small>`,
-      `${club.length === 1 ? 'The only player' : `Only ${club.length} players are`} ${desc}: ${club.slice(0, 4).map(p => `${esc(p.name)} (${esc(line(p))})`).join(', ')}.`, face(club[0].id, club[0].name, club[0].team));
+      `${club.length === 1 ? 'The only player' : `Only ${club.length} players are`} ${desc}: ${club.slice(0, 4).map(p => `${esc(p.name)} (${esc(line(p))})`).join(', ')}${club.length > 4 ? `, and ${club.length - 4} more` : ''}.`, face(club[0].id, club[0].name, club[0].team));
   });
   if (NBA.S.spoilers) return cards;
   // The latest night with finished games
   let slate = NBA.use('day:');
-  if (!slate || slate.games.filter(g => g.state === 'post').length < 3) slate = NBA.use('day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -1)));
-  const finals = slate ? slate.games.filter(g => g.state === 'post') : [];
+  if (!slate || slate.games.filter(NBA.isFinal).length < 3) slate = NBA.use('day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -1)));
+  const finals = slate ? slate.games.filter(NBA.isFinal) : [];
   const lines = [];
   finals.forEach(g => {
     const s = NBA.use('summary:' + g.id);
@@ -539,7 +592,7 @@ function nicheFacts() {
   const threes = top(lines, 'threePointFieldGoalsMade');
   if (threes && threes.threePointFieldGoalsMade >= 5) card('Splash of the night', `${threes.threePointFieldGoalsMade}<small>threes</small>`, `${esc(threes.p.full)} hit ${threes.threePointFieldGoalsMade} of ${threes.threePointFieldGoalsAttempted} from deep ${vs(threes)}.`, who(threes));
   const stocks = lines.map(o => Object.assign(o, { stk: o.steals + o.blocks })).sort((a, b) => b.stk - a.stk)[0];
-  if (stocks && stocks.stk >= 5) card('Defensive havoc', `${stocks.stk}<small>steals + blocks</small>`, `${esc(stocks.p.full)} had ${stocks.steals} steals and ${stocks.blocks} blocks ${vs(stocks)}.`, who(stocks));
+  if (stocks && stocks.stk >= 5) card('Defensive havoc', `${stocks.stk}<small>steals + blocks</small>`, `${esc(stocks.p.full)} had ${stocks.steals} steal${stocks.steals === 1 ? '' : 's'} and ${stocks.blocks} block${stocks.blocks === 1 ? '' : 's'} ${vs(stocks)}.`, who(stocks));
   const td = lines.filter(o => ['points', 'rebounds', 'assists', 'steals', 'blocks'].filter(k => o[k] >= 10).length >= 3);
   if (td.length) card('Triple-double watch', `${td.length}`, `Triple-double${td.length > 1 ? 's' : ''} ${esc(when)}: ${td.map(o => `${esc(o.p.full)} (${o.points}/${o.rebounds}/${o.assists})`).join(', ')}.`, who(td[0]));
   const clean = lines.filter(o => o.assists >= 8 && o.turnovers === 0).sort((a, b) => b.assists - a.assists)[0];
@@ -561,11 +614,15 @@ st.factSeed = st.factSeed || String(Math.random());
 const factKey = html => (/class="eyebrow">([^<]*)</.exec(html) || [])[1] || html.slice(0, 60);
 const shuffleFacts = list => list.map(h => [hashStr(st.factSeed + factKey(h)), h]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
 function gameTile(g) {
-  const hide = NBA.S.spoilers && g.state !== 'pre';
-  const sc = t => g.state === 'pre' || hide ? '' : `<b class="hg-sc">${esc(t.score)}</b>`;
-  const won = t => g.state === 'post' && !hide && t.winner ? ' won' : '';
-  const status = g.state === 'in' ? `<span class="hg-live"><i class="dot blink"></i>${esc(hide ? 'Live' : g.detail)}</span>` : g.state === 'post' ? `<span>${esc(hide ? 'Final' : g.detail)}</span>` : `<span>${esc(UI.tipTime(g))}</span>`;
-  const row = t => `<span class="hg-row${won(t)}">${UI.logo(t, 28)}<span class="hg-ab">${esc(t.abbr)}</span><small>${esc(t.record || '')}</small>${sc(t)}</span>`;
+  // Same rule as the game cards: a postponed game has no result to hide, and opening a game reveals it
+  const pp = g.state === 'post' && g.completed === false;
+  const hide = NBA.S.spoilers && g.state !== 'pre' && !pp && !st.revealed.has(g.id);
+  const sc = t => g.state === 'pre' || pp || hide ? '' : `<b class="hg-sc">${esc(t.score)}</b>`;
+  const won = t => g.state === 'post' && !pp && !hide && t.winner ? ' won' : '';
+  const status = g.state === 'in' ? `<span class="hg-live"><i class="dot blink"></i>${esc(hide ? 'Live' : NBA.detail(g))}</span>`
+    : pp ? `<span>${esc(g.detail || 'Postponed')}</span>` : g.state === 'post' ? `<span>${esc(hide ? 'Final' : g.detail)}</span>` : `<span>${esc(UI.tipTime(g))}</span>`;
+  // Records already count tonight's result, so they hide with the score
+  const row = t => `<span class="hg-row${won(t)}">${UI.logo(t, 28)}<span class="hg-ab">${esc(t.abbr)}</span><small>${hide ? '' : esc(t.record || '')}</small>${sc(t)}</span>`;
   return `<button class="hg${g.state === 'in' ? ' live' : ''}${UI.isMine(g) ? ' mine' : ''}" data-act="game" data-id="${g.id}"><span class="hg-st">${status}</span>${row(g.away)}${row(g.home)}</button>`;
 }
 // Charts that can be the chart of the day, in a fixed order, with the feeds each needs besides standings
@@ -589,30 +646,36 @@ V.home = () => {
     const g = dayById.get(e.id);
     if (!g || g.state === e.state) return e;
     const me = g.away.id === myId ? g.away : g.home, op = me === g.away ? g.home : g.away;
-    return Object.assign({}, e, { state: g.state, detail: g.detail, my: me.score, their: op.score, won: g.state === 'post' ? me.winner : e.won });
+    return Object.assign({}, e, { state: g.state, completed: g.completed, detail: g.detail, my: me.score, their: op.score, won: g.state === 'post' ? me.winner : e.won });
   }) });
+  // A card whose feed hasn't arrived says so, and says when ESPN failed instead of loading forever
+  const wait = (key, what, pad) => {
+    const err = NBA.status(key).err;
+    return `<p class="${err ? 'empty' : 'loading'}"${pad ? ' style="padding:var(--pad)"' : ''}>${err ? `Couldn't load ${esc(what)} from ESPN. It will try again shortly.` : `Loading ${esc(what)}…`}</p>`;
+  };
   const live = games.filter(g => g.state === 'in');
   const nextTip = games.filter(g => g.state === 'pre' && new Date(g.date) > now).sort((a, b) => new Date(a.date) - new Date(b.date))[0];
-  const until = d => { const m = Math.max(1, Math.round((new Date(d) - now) / 60000)); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
-  const myNext = sch && sch.events.find(e => e.state === 'pre');
-  const myLive = live.find(g => g.away.id === myId || g.home.id === myId);
-  const chips = [
-    day ? `<span class="hchip"><b>${games.length}</b> game${games.length === 1 ? '' : 's'} on ${esc(NBA.fmtDay(day.day, { weekday: 'long' }))}</span>` : '',
-    live.length ? `<span class="hchip live"><i class="dot blink"></i><b>${live.length}</b> live now</span>` : '',
-    nextTip ? `<span class="hchip">Next tip in <b>${until(nextTip.date)}</b></span>` : '',
-  ].filter(Boolean).join('');
-  // Your team's next game (or live score), front and centre: away team on the left, home on the right
-  const side = (team, rec, score) => `<span class="nx-tm">${UI.logo(team, 60)}<b>${esc(team.abbr || '')}</b><small>${esc(rec || '')}</small>${score != null ? `<span class="nx-sc">${esc(score)}</span>` : ''}</span>`;
-  const recOf = id => { const r = sm.get(id); return r ? `${r.w}-${r.l}` : ''; };
   const countdown = d => {
     const m = Math.max(1, Math.round((new Date(d) - now) / 60000)), days = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60);
     return days ? `${days} day${days > 1 ? 's' : ''}${h ? `, ${h} hr` : ''}` : h ? `${h} hr ${m % 60} min` : `${m} min`;
   };
+  const myNext = sch && sch.events.find(e => e.state === 'pre');
+  const myLive = live.find(g => g.away.id === myId || g.home.id === myId);
+  // Every chip is about today's games, so each lands on today's schedule even if Schedule was left on another day.
+  // The next-tip chip steps aside when the next tip is your team's: the panel already counts down to it.
+  const chips = [
+    day ? `<a class="hchip" href="#schedule" data-act="golive"><b>${games.length}</b> game${games.length === 1 ? '' : 's'} on ${esc(NBA.fmtDay(day.day, { weekday: 'long' }))}</a>` : '',
+    live.length ? `<a class="hchip live" href="#schedule" data-act="golive"><i class="dot blink"></i><b>${live.length}</b> live now</a>` : '',
+    nextTip && !(myNext && myNext.id === nextTip.id) ? `<a class="hchip" href="#schedule" data-act="golive">Next tip in <b>${esc(countdown(nextTip.date))}</b></a>` : '',
+  ].filter(Boolean).join('');
+  // Your team's next game (or live score), front and centre: away team on the left, home on the right
+  const side = (team, rec, score) => `<span class="nx-tm">${UI.logo(team, 60)}<b>${esc(team.abbr || '')}</b><small>${esc(rec || '')}</small>${score != null ? `<span class="nx-sc">${esc(score)}</span>` : ''}</span>`;
+  const recOf = id => { const r = sm.get(id); return r ? `${r.w}-${r.l}` : ''; };
   let nextPanel = '';
   if (myLive) {
     const hide = NBA.S.spoilers;
     nextPanel = `<button class="hh-next live" data-act="game" data-id="${myLive.id}"><span class="eyebrow"><i class="dot blink"></i>${esc(t.name)} are live</span>
-      <span class="nx-vs">${side(myLive.away, myLive.away.record, hide ? null : myLive.away.score)}<span class="nx-at">${esc(hide ? 'Live' : myLive.detail)}</span>${side(myLive.home, myLive.home.record, hide ? null : myLive.home.score)}</span>
+      <span class="nx-vs">${side(myLive.away, myLive.away.record, hide ? null : myLive.away.score)}<span class="nx-at">${esc(hide ? 'Live' : NBA.detail(myLive))}</span>${side(myLive.home, myLive.home.record, hide ? null : myLive.home.score)}</span>
       <span class="nx-when">Tap for the box score</span></button>`;
   } else if (myNext) {
     const opp = NBA.T(myNext.oppId);
@@ -620,17 +683,18 @@ V.home = () => {
     nextPanel = `<button class="hh-next" data-act="game" data-id="${myNext.id}"><span class="eyebrow">${esc(t.name)} next game</span>
       <span class="nx-vs">${side(L[0], L[1])}<span class="nx-at">@</span>${side(R[0], R[1])}</span>
       <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(/TBD/i.test(myNext.detail || '') ? 'Time TBD' : NBA.fmtTime(myNext.date))}${myNext.tv ? ' · ' + esc(myNext.tv) : ''}</span>
-      <span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span></button>`;
+      ${previewLine(myNext, myId, t, now)}<span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span></button>`;
   }
   const msg = heroMessage({ now, games, live, myId, t, sch, mine, loaded: !!day });
   const star = t.abbr ? marqueeOf(myId) : null;
+  // The star is hidden on phones, and a lazy image that's never shown is never downloaded
   const hero = `<section class="home-hero${nextPanel ? ' has-next' : ''}${star ? ' has-star' : ''}" style="--tc:${esc(t.color || '#444')}">
-    ${star && star.headshot ? `<img class="hh-star" src="${esc(star.headshot)}" alt="" aria-hidden="true">` : ''}
+    ${star && star.headshot ? `<img class="hh-star" src="${esc(star.headshot)}" alt="" aria-hidden="true" loading="lazy" decoding="async">` : ''}
     <div class="hh-txt"><div class="eyebrow">${esc(NBA.fmtDay(NBA.today, { weekday: 'long', month: 'long', day: 'numeric' }))} · ${esc(NBA.SEASON_LABEL)} season</div>
       <h2>${esc(msg.title)}</h2>${msg.sub ? `<p class="hh-sub">${esc(msg.sub)}</p>` : ''}<div class="hchips">${chips}</div></div>
-    ${t.logo ? `<img class="hh-logo" src="${esc(NBA.lg(t))}" alt="">` : ''}${nextPanel}</section>`;
+    ${t.logo ? `<img class="hh-logo" src="${esc(NBA.img(NBA.lg(t), 384))}" alt="">` : ''}${nextPanel}</section>`;
 
-  const strip = !day ? '<p class="loading">Loading games…</p>' : games.length
+  const strip = !day ? wait('day:', 'games') : games.length
     ? `<div class="hg-strip">${games.map(gameTile).join('')}</div>` : '<p class="empty">No games today.</p>';
   const gamesSec = `<div class="sec-h"><h2>${live.length ? 'Live and today' : 'Today'}</h2><span class="sub">Tap a game for the box score</span><div class="end"><a class="chip" href="#schedule">Full schedule</a></div></div>${strip}`;
 
@@ -638,20 +702,38 @@ V.home = () => {
   const fg = NBA.factGroups();
   const facts = fg ? shuffleFacts(fg.league.concat(fg.people, fg.week, nicheFacts())) : [];
   const factCard = `<div class="card hm hm-facts"><div class="card-h"><h3>Did you know?</h3><div class="end"><a class="chip" href="#facts">All fun facts</a></div></div>
-    <div class="card-b">${facts.length ? deckHtml('deck-home-facts', facts, { label: 'Fun facts', cls: 'deck-facts', keys: facts.map(factKey) }) : '<p class="loading">Dealing the cards…</p>'}</div></div>`;
+    <div class="card-b">${facts.length ? deckHtml('deck-home-facts', facts, { label: 'Fun facts', cls: 'deck-facts', keys: facts.map(factKey) }) : wait('standings', 'fun facts')}</div></div>`;
 
   // Your team
   let teamCard = '';
   if (t.abbr) {
-    const last = sch && sch.events.filter(e => e.state === 'post').slice(-1)[0];
+    const last = sch && sch.events.filter(NBA.isFinal).slice(-1)[0];
     const leaders = NBA.leaders ? NBA.leaders({ stat: 'pts', teamId: myId, limit: 3 }) : [];
+    // The last game's highlight video rides on its scoreboard entry
+    const lastDay = last && !NBA.S.spoilers ? NBA.use(dayKeyOf(NBA.etDay(last.date))) : null;
+    const lastHl = lastDay && ((lastDay.games.find(x => x.id === last.id) || {}).hl || null);
+    const b = (NBA.use('bpi') || new Map()).get(myId);
+    // Round the total too, so the projected record always adds up to the season's games
+    const pw = b && Math.round(b.projectedw), pl = b && Math.round(b.projectedw + b.projectedl) - pw;
+    const bpi = b && Number.isFinite(pw) && Number.isFinite(pl) ? `<div class="mut hm-bpi">ESPN projects ${pw}-${pl}${b.probmakeplayoffsD ? ` · ${esc(b.probmakeplayoffsD)} playoff odds` : ''}</div>` : '';
     teamCard = `<div class="card hm hm-team" style="--tc:${esc(t.color || '#444')}"><div class="hm-team-top">${UI.logo(t, 56)}<div><div class="eyebrow">Your team</div><h3>${esc(t.full)}</h3>
-      <div class="mut">${mine ? [`${mine.w}-${mine.l}`, mine.seed ? `${NBA.ord(mine.seed)} in the ${esc(mine.conf)}` : esc(mine.conf), esc(mine.strk || '')].filter(Boolean).join(' · ') : esc((sch && sch.record) || '')}</div></div></div>
+      <div class="mut">${mine ? [`${mine.w}-${mine.l}`, mine.seed ? `${NBA.ord(mine.seed)} in the ${esc(mine.conf)}` : esc(mine.conf), NBA.S.spoilers ? '' : esc(mine.strk || '')].filter(Boolean).join(' · ') : esc((sch && sch.record) || '')}</div>${bpi}</div></div>
       <div class="hm-team-games">${last ? `<button class="hm-g" data-act="game" data-id="${last.id}"><span class="eyebrow">Last game</span><b>${NBA.S.spoilers ? 'Final' : `<span class="${last.won ? 'w' : 'lo'}">${last.won ? 'W' : 'L'}</span> ${esc(last.my)}-${esc(last.their)}`}</b><small>${last.home ? 'vs' : '@'} ${esc(last.oppAbbr || '')} · ${esc(NBA.fmtDate(last.date, { month: 'short', day: 'numeric' }))}</small></button>` : ''}
         ${myNext ? `<button class="hm-g" data-act="game" data-id="${myNext.id}"><span class="eyebrow">Next game</span><b>${myNext.home ? 'vs' : '@'} ${esc(myNext.oppAbbr || '')}</b><small>${esc(NBA.fmtDate(myNext.date, { weekday: 'short', month: 'short', day: 'numeric' }))} · ${esc(NBA.fmtTime(myNext.date))}</small></button>` : ''}</div>
+      ${lastHl ? `<button class="chip hl-chip" ${NBA.hlAttrs(lastHl)}>▶ Highlights</button>` : ''}
       ${leaders.length ? `<ul class="hm-lead3">${leaders.map(p => `<li data-act="player" data-id="${p.id}">${UI.hs(p.headshot)}<span><b>${esc(p.name)}</b><small>${f1(p.pts)} pts · ${f1(p.reb)} reb · ${f1(p.ast)} ast</small></span></li>`).join('')}</ul>` : ''}
       <a class="chip" href="#myteam">Team page</a></div>`;
   }
+
+  // Highlights: today's finals once they're in, then last night's, with your team's game first. In spoiler mode
+  // only games you've opened, since a poster can give the result away.
+  const yday = NBA.use('day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -1)));
+  const hlGames = (list, today) => list.filter(g => g.hl && NBA.isFinal(g) && (!NBA.S.spoilers || st.revealed.has(g.id))).map(g => ({ g, today }));
+  const hls = hlGames(games, true).concat(hlGames(yday ? NBA.sortGames(yday.games) : [], false))
+    .sort((a, b) => (UI.isMine(b.g) ? 1 : 0) - (UI.isMine(a.g) ? 1 : 0));
+  const hlCard = hls.length ? `<div class="card hm hm-hl"><div class="card-h"><h3>${hls.some(x => x.today) ? 'Highlights' : 'Last night in 90 seconds'}</h3></div>
+    <div class="card-b">${deckHtml('deck-home-hl', hls.map(({ g }) => `<button class="hl-card" ${NBA.hlAttrs(g.hl)} aria-label="${esc(`Play highlights: ${g.away.abbr} @ ${g.home.abbr}`)}"><img src="${esc(NBA.img(g.hl.poster, 720))}" alt="" loading="lazy" decoding="async"><span class="hl-play" aria-hidden="true">▶</span><b>${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</b><small>${esc(NBA.fmtDur(g.hl.dur))}</small></button>`),
+      { label: 'Highlights', cls: 'deck-hl', keys: hls.map(x => x.g.id) })}</div></div>` : '';
 
   // Top 25 players
   const top = NBA.topPlayers(25);
@@ -665,13 +747,13 @@ V.home = () => {
   const topCard = `<div class="card hm hm-top"><div class="card-h"><h3>Top 25 players</h3><div class="end"><span class="eyebrow">Game Score per game</span></div></div>
     ${top.length ? `<ol class="top25">${top.map((x, i) => `<li data-act="player" data-id="${x.p.id}"><span class="rk">${i + 1}</span>${UI.hs(x.p.headshot)}<span class="nm"><b>${esc(x.p.name)}</b><small>${esc(x.p.team)} · ${f1(x.p.pts)} / ${f1(x.p.reb)} / ${f1(x.p.ast)}</small></span>${move(x.p.id, i)}<span class="v">${f1(x.v)}</span></li>`).join('')}</ol>
       <p class="note" style="padding:0 var(--pad) var(--pad)">Game Score rolls a player's whole box score into one number per game. Regulars only (20+ minutes, most of their team's games).${prev ? ` Arrows show moves since ${esc(NBA.fmtDay(prev.day, { month: 'short', day: 'numeric' }))}.` : ' Come back tomorrow to see who moved.'}</p>`
-      : '<p class="loading" style="padding:var(--pad)">Loading player stats…</p>'}</div>`;
+      : NBA.data('players') ? '<p class="empty" style="padding:var(--pad)">No one has played enough games to rank yet.</p>' : wait('players', 'player stats', true)}</div>`;
 
   // Standings: all 30 teams, East and West side by side
-  const standRow = r => `<li class="${r.id === myId ? 'me' : ''}${r.seed === 6 ? ' cut' : ''}${r.seed === 10 ? ' cut2' : ''}" data-act="team" data-id="${r.id}"><span class="sd">${r.seed || ''}</span>${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 20)}<span class="ab">${esc(r.abbr)}</span><span class="wl">${r.w}-${r.l}</span><span class="${/^W/.test(r.strk) ? 'w' : 'lo'} sk">${esc(r.strk || '')}</span></li>`;
+  const standRow = r => `<li class="${r.id === myId ? 'me' : ''}${r.seed === 6 ? ' cut' : ''}${r.seed === 10 ? ' cut2' : ''}" data-act="team" data-id="${r.id}"><span class="sd">${r.seed || ''}</span>${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 20)}<span class="ab">${esc(r.abbr)}</span><span class="wl">${r.w}-${r.l}</span><span class="${/^W/.test(r.strk) ? 'w' : 'lo'} sk">${NBA.S.spoilers ? '' : esc(r.strk || '')}</span></li>`;
   const standCard = `<div class="card hm hm-stand"><div class="card-h"><h3>Standings</h3><div class="end"><a class="chip" href="#standings">Full table</a></div></div>
     ${confs ? `<div class="hs-cols">${confs.map(c => `<div><div class="eyebrow">${esc(c.name || c.abbr)}</div><ol class="hs-list">${c.rows.slice().sort((a, b) => (a.seed || 99) - (b.seed || 99)).map(standRow).join('')}</ol></div>`).join('')}</div>
-      <p class="note" style="padding:0 var(--pad) var(--pad)">Top 6 make the playoffs; 7–10 play in.</p>` : '<p class="loading" style="padding:var(--pad)">Loading standings…</p>'}</div>`;
+      <p class="note" style="padding:0 var(--pad) var(--pad)">Top 6 make the playoffs; 7–10 play in.</p>` : wait('standings', 'standings', true)}</div>`;
 
   // Chart of the day, from the charts that don't need all 30 rosters. It's picked from a fixed list so it doesn't
   // swap as each feed arrives; only once today's pick has its data (or its feed failed) and still can't be drawn
@@ -693,11 +775,12 @@ V.home = () => {
     <div class="hl-grid">${LEAD.map(([k, l]) => { const list = NBA.leaders({ stat: k, mode: 'game', limit: 3 }); const p = list[0]; if (!p) return ''; return `<div class="hl-cell" data-act="player" data-id="${p.id}">${UI.hs(p.headshot)}<div><div class="eyebrow">${l}</div><b>${esc(NBA.statFmt(k, NBA.statValue(k, p, 'game'), 'game'))}</b><small>${esc(p.name)}</small><small class="mut">${list.slice(1).map(x => esc(x.name.split(' ').slice(-1)[0]) + ' ' + esc(NBA.statFmt(k, NBA.statValue(k, x, 'game'), 'game'))).join(' · ')}</small></div></div>`; }).join('')}</div></div>` : '';
 
   // News
-  const stories = (news || []).filter(a => a.links && a.links.web).slice(0, 5);
+  const stories = (news || []).filter(a => a.links && a.links.web && NBA.newsSafe(a)).slice(0, 5);
   // Fresh stories say "In the last hour" rather than "5m ago", so the cards don't repaint every minute
   const ago = iso => Date.now() - new Date(iso) < 3600000 ? 'In the last hour' : NBA.relTime(iso);
   const newsCard = `<div class="card hm hm-news"><div class="card-h"><h3>Latest news</h3><div class="end"><a class="chip" href="#news">More</a></div></div>
-    ${stories.length ? `<ul class="hn-list">${stories.map(a => { const img = a.images && a.images[0] && a.images[0].url; return `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : ''}<span><b>${esc(a.headline)}</b><small>${esc(ago(a.published))}</small></span></a></li>`; }).join('')}</ul>` : '<p class="loading" style="padding:var(--pad)">Loading news…</p>'}</div>`;
+    ${!news ? wait('news:', 'news', true) : stories.length ? `<ul class="hn-list">${stories.map(a => { const img = a.images && a.images[0] && a.images[0].url; return `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${img ? `<img src="${esc(NBA.img(img, 288))}" alt="" loading="lazy" decoding="async">` : ''}<span><b>${esc(a.headline)}</b><small>${esc(ago(a.published))}</small></span></a></li>`; }).join('')}</ul>`
+      : '<p class="empty" style="padding:var(--pad)">No headlines right now.</p>'}</div>`;
 
   // Today's games to play
   const menu = NBA.gamesMenu ? NBA.gamesMenu() : [];
@@ -706,7 +789,7 @@ V.home = () => {
 
   // The view itself is a fixed frame, so a poll only rebuilds the parts whose text changed: a score or clock tick
   // repaints the hero and games strip, and leaves the fact deck and chart of the day alone
-  homeParts = { hero, games: gamesSec, rest: `<div class="home-grid">${standCard}${factCard}${teamCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div>` };
+  homeParts = { hero, games: gamesSec, rest: `<div class="home-grid">${standCard}${factCard}${teamCard}${hlCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div>` };
   return '<div id="hm-hero"></div><section class="sec" id="hm-games"></section><section class="sec" id="hm-rest"></section>';
 };
 NBA.after.home = view => {

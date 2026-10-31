@@ -18,6 +18,9 @@ const statusPill = s => {
 const conferenceName = c => c === 'East' ? 'East' : c === 'West' ? 'West' : c;
 
 /* ================= Schedule ================= */
+// The view itself is a fixed frame; NBA.after.schedule paints the day's games and Upcoming into it separately,
+// so a live poll only rebuilds the part that changed
+let schParts = { main: '', up: '' };
 V.schedule = () => {
   const key = 'day:' + NBA.dayParam;
   const day = NBA.use(key);
@@ -36,11 +39,13 @@ V.schedule = () => {
       if (s && s.ended) return new Date(s.ended).getTime();
       return new Date(g.date).getTime() + (140 + 15 * Math.max(0, g.home.lines.length - 4)) * 60000;
     };
-    const done = games.filter(g => g.state === 'post').map(g => [g, endOf(g)]).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+    const done = games.filter(NBA.isFinal).map(g => [g, endOf(g)]).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+    const off = games.filter(g => g.state === 'post' && g.completed === false);
     const group = (label, list) => list.length ? `<div class="sub-h">${label} · ${list.length}</div><div class="games">${list.map(g => UI.gameCard(g, false)).join('')}</div>` : '';
     main = (live.length ? `<div class="sub-h live"><i class="dot blink"></i>Live now · ${live.length}</div><div class="games live-grid">${live.map(g => UI.gameCard(g, true)).join('')}</div>` : '')
       + group('Up next by tip-off', next)
-      + group('Final · most recent first', done);
+      + group('Final · most recent first', done)
+      + group('Postponed or canceled', off);
   }
   const head = `<div class="sec-h"><h2>${isToday ? 'Schedule' : 'Games'}</h2>
     <div class="datenav" role="group" aria-label="Choose a day">
@@ -54,7 +59,8 @@ V.schedule = () => {
   // The phone band lives in its own spot above the view (#pband), painted in NBA.after.schedule, so live refreshes
   // of the games below don't rebuild it in the middle of a swipe
   st.bandHtml = perfBand(slate);
-  return `<section class="sec"><div class="sched"><div class="sec" style="gap:12px">${head}${main}</div><aside class="sched-side">${side}</aside></div></section>${upcoming()}`;
+  schParts = { main: `<div class="sched"><div class="sec" style="gap:12px">${head}${main}</div><aside class="sched-side">${side}</aside></div>`, up: upcoming() };
+  return '<section class="sec" id="sch-main"></section><section class="sec" id="sch-up"></section>';
 };
 /* Top performers come from the day being viewed. On today's slate, last night's leaders stay up until the
    first game of the new day tips off; then they clear and fill in as tonight's games are played. */
@@ -184,7 +190,8 @@ NBA.teamEvents = id => {
     const g = by.get(e.id);
     if (!g) return e;
     const me = g.home.id === id ? g.home : g.away, op = me === g.home ? g.away : g.home;
-    return { ...e, state: g.state, detail: g.detail, my: me.score, their: op.score, won: me.winner };
+    // completed too: without it a game that just went final would look postponed
+    return { ...e, state: g.state, completed: g.completed, detail: g.detail, my: me.score, their: op.score, won: me.winner };
   });
 };
 function myTeamCard() {
@@ -195,7 +202,7 @@ function myTeamCard() {
   if (live) return `<div class="card"><div class="card-h"><h3>${esc(t.name)} live</h3></div><div class="card-b">${UI.gameCard(live, false)}</div></div>`;
   const evs = NBA.teamEvents(id) || [];
   const next = evs.find(e => e.state === 'pre');
-  const last = evs.filter(e => e.state === 'post').slice(-1)[0];
+  const last = evs.filter(NBA.isFinal).slice(-1)[0];
   return `<div class="card"><div class="card-h"><h3>${esc(t.name || 'Your team')}</h3><div class="end"><a class="chip" href="#myteam">Team page</a></div></div>
     <ul class="glist">${last ? glistItem(last) : ''}${next ? glistItem(next) : ''}</ul>${!next && !last ? '<p class="empty">No games scheduled.</p>' : ''}</div>`;
 }
@@ -208,7 +215,7 @@ function upcoming() {
     if (!d) return `<div class="card day"><div class="card-h"><h3>${esc(NBA.fmtDay(iso))}</h3></div>${stateOf('day:' + NBA.paramOf(iso), 'games')}</div>`;
     return d.games.length ? dayCard(iso, NBA.sortGames(d.games)) : '';
   }).join('');
-  return `<section class="sec"><div class="sec-h"><h2>Upcoming</h2><span class="sub">Next 7 days · times in ${esc(NBA.tzLabel())} · away team on the left, home team on the right</span></div><div class="days">${cards}</div></section>`;
+  return `<div class="sec-h"><h2>Upcoming</h2><span class="sub">Next 7 days · times in ${esc(NBA.tzLabel())} · away team on the left, home team on the right</span></div><div class="days">${cards}</div>`;
 }
 
 /* ================= Rest of the season =================
@@ -317,7 +324,16 @@ function ruleRows(grid) {
 // Window resizes are also caught directly, as a backstop for browsers that report grid widths late
 let ruleTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(ruleTimer); ruleTimer = setTimeout(() => document.querySelectorAll('.days').forEach(ruleRows), 150); });
-NBA.after.schedule = (view, changed) => { if (changed) view.querySelectorAll('.days').forEach(ruleRows); paintBand(); paintSeason(); };
+NBA.after.schedule = (view, changed) => {
+  // iPhone Safari doesn't hold the scroll when the games above change height. renderView keeps it when the frame
+  // itself was repainted (changed); otherwise only the parts below change, so measure here
+  const season = document.getElementById('season'), t0 = !changed && season ? season.getBoundingClientRect().top : 0;
+  UI.paint(view.querySelector('#sch-main'), schParts.main);
+  const up = view.querySelector('#sch-up');
+  if (UI.paint(up, schParts.up) || changed) up.querySelectorAll('.days').forEach(ruleRows);
+  paintBand(); paintSeason();
+  if (t0 < 0) { const dy = season.getBoundingClientRect().top - t0; if (dy) window.scrollBy(0, dy); }
+};
 NBA.actions.seasonmine = a => {
   st.seasonMine = !!a.dataset.v;
   paintSeason();
@@ -356,31 +372,48 @@ V.standings = () => {
     <div class="end">${seg('standmode', st.standMode, [['conf', 'Conference'], ['league', 'League']], 'View')}</div></div>`;
   if (!confs) return `<section class="sec">${head}${stateOf('standings', 'standings')}</section>`;
   const fav = new Set(NBA.S.favorites);
+  // ESPN BPI projections, as extra columns once they load
+  const bpi = NBA.use('bpi'), hasBpi = !!(bpi && bpi.size);
+  const bpiCells = r => {
+    const b = bpi.get(r.id);
+    return `<td class="x1">${b ? projRec(b) : '–'}</td><td class="x1">${b ? esc(b.probmakeplayoffsD || '–') : '–'}</td><td class="x2">${b ? esc(b.probwintitleD || '–') : '–'}</td>`;
+  };
   const table = (caption, rows, opts = {}) => `<div class="card"><div class="card-b st-wrap"><div class="tblwrap"><table class="tbl"><caption>${esc(caption)}</caption>
     <thead><tr><th class="n" scope="col">#</th><th class="tm" scope="col">Team</th><th scope="col">W</th><th scope="col">L</th><th scope="col">Pct</th><th scope="col">GB</th>
       ${opts.conf ? '<th scope="col">Conf</th>' : ''}<th class="x1" scope="col">Home</th><th class="x1" scope="col">Road</th><th scope="col">L10</th><th scope="col">Strk</th>
-      <th class="x2" scope="col">PPG</th><th class="x2" scope="col">Opp</th><th class="x2" scope="col">Diff</th></tr></thead>
+      <th class="x2" scope="col">PPG</th><th class="x2" scope="col">Opp</th><th class="x2" scope="col">Diff</th>
+      ${hasBpi ? '<th class="x1" scope="col" title="ESPN BPI projected record">Proj</th><th class="x1" scope="col">Playoffs</th><th class="x2" scope="col">Title</th>' : ''}</tr></thead>
     <tbody>${rows.map((r, i) => `<tr class="click${fav.has(r.id) ? ' fav' : ''}${!opts.conf && r.seed === 6 ? ' cut' : ''}${!opts.conf && r.seed === 10 ? ' cut2' : ''}" data-act="team" data-id="${r.id}">
       <td class="n">${opts.conf ? i + 1 : r.seed ?? ''}</td><td class="tm"><span>${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 22)}${esc(r.name)}</span></td>
-      <td>${r.w}</td><td>${r.l}</td><td>${esc(r.pct)}</td><td>${esc(r.gb)}</td>${opts.conf ? `<td>${esc(r.conf)} ${r.seed ?? ''}</td>` : ''}
+      <td>${r.w}</td><td>${r.l}</td><td>${esc(r.pct)}</td><td>${esc(opts.gb ? opts.gb(r) : r.gb)}</td>${opts.conf ? `<td>${esc(r.conf)} ${r.seed ?? ''}</td>` : ''}
       <td class="x1">${esc(r.home)}</td><td class="x1">${esc(r.road)}</td><td>${esc(r.l10)}</td>
-      <td class="${/^W/.test(r.strk) ? 'w' : /^L/.test(r.strk) ? 'lo' : ''}">${esc(r.strk)}</td>
-      <td class="x2">${NBA.fix(r.ppg)}</td><td class="x2">${NBA.fix(r.opp)}</td><td class="x2">${r.diff > 0 ? '+' : ''}${NBA.fix(r.diff)}</td></tr>`).join('')}</tbody></table></div></div></div>`;
+      ${NBA.S.spoilers ? '<td>–</td>' : `<td class="${/^W/.test(r.strk) ? 'w' : /^L/.test(r.strk) ? 'lo' : ''}">${esc(r.strk)}</td>`}
+      <td class="x2">${NBA.fix(r.ppg)}</td><td class="x2">${NBA.fix(r.opp)}</td><td class="x2">${r.diff > 0 ? '+' : ''}${NBA.fix(r.diff)}</td>${hasBpi ? bpiCells(r) : ''}</tr>`).join('')}</tbody></table></div></div></div>`;
+  const bpiNote = hasBpi ? '<span>Proj, Playoffs and Title are ESPN BPI projections</span>' : '';
   let body;
   if (st.standMode === 'league') {
     const all = confs.flatMap(c => c.rows).sort((a, b) => b.pctV - a.pctV || b.diff - a.diff);
-    body = table('League', all, { conf: true });
+    // ESPN's gamesBehind is per conference, so measure league GB from the league leader. The leader is the best
+    // wins-minus-losses, not the top pct, so an early 4-0 above a 5-0 can't put anyone at a negative GB.
+    const L = all.reduce((a, b) => b.w - b.l > a.w - a.l ? b : a, all[0]);
+    const gb = r => { const g = ((L.w - r.w) + (r.l - L.l)) / 2; return g ? String(g) : '-'; };
+    body = table('League', all, { conf: true, gb }) + (bpiNote ? `<div class="legend">${bpiNote}</div>` : '');
   } else {
     // On phones the two conferences sit side by side in a swipe track; it opens on your team's conference.
     // The selected tab is set after each paint (after.standings), so swiping doesn't change this HTML and force a rebuild.
     if (st.confIdx == null) st.confIdx = Math.max(0, confs.findIndex(c => c.rows.some(r => r.id === NBA.S.myTeam)));
     body = `<div class="conf-tabs" role="tablist" aria-label="Conference">${confs.map((c, i) => `<button role="tab" data-act="confgo" data-i="${i}" aria-selected="false">${esc(conferenceName(c.abbr))}</button>`).join('')}</div>
       <div class="st-pair" id="st-pair">${confs.map(c => table(c.name, c.rows)).join('')}</div>
-      <div class="legend"><span><i class="l1"></i>Top 6 make the playoffs</span><span><i class="l2"></i>7–10 go to the play-in</span>${fav.size ? '<span>Your highlighted teams are shaded</span>' : ''}<span class="ph-only">Swipe sideways to switch conferences</span><span>Click a team for its page</span></div>`;
+      <div class="legend"><span><i class="l1"></i>Top 6 make the playoffs</span><span><i class="l2"></i>7–10 go to the play-in</span>${fav.size ? '<span>Your highlighted teams are shaded</span>' : ''}${bpiNote}<span class="ph-only">Swipe sideways to switch conferences</span><span>Click a team for its page</span></div>`;
   }
   return `<section class="sec">${head}${body}</section>`;
 };
 NBA.actions.standmode = a => { st.standMode = a.dataset.v; NBA.changed(); };
+// BPI's projected record, rounded so the two halves still add up to the full season
+function projRec(b) {
+  const w = Math.round(b.projectedw), l = Math.round(b.projectedw + b.projectedl) - w;
+  return Number.isFinite(w) && Number.isFinite(l) ? `${w}-${l}` : '–';
+}
 const confSlides = track => [...track.children];
 const markConf = (view, i) => view.querySelectorAll('.conf-tabs [role=tab]').forEach((b, k) => b.setAttribute('aria-selected', String(k === i)));
 NBA.actions.confgo = a => {
@@ -423,10 +456,10 @@ V.stats = () => {
   const heroes = HERO[mode].map(k => leadCard(k, mode)).join('');
   let minis = pmCard(NBA.use('pmlead'), mode) + MINI[mode].map(k => miniCard(k, mode)).join('');
   if (mode === 'game' && per && per.length) {
-    minis = `<div class="card mini"><div class="card-h"><h3>Player efficiency</h3><div class="end">PER</div></div><ol class="rank">${per.slice(0, 5).map((p, i) => {
-      const pl = NBA.playerById(p.id);
-      return `<li data-act="player" data-id="${esc(p.id)}" style="cursor:pointer"><span class="rk">${i + 1}</span><span class="nm">${esc(p.name)}<small>${esc(pl ? pl.team : '')}</small></span><span class="v">${esc(p.display)}</span></li>`;
-    }).join('')}</ol></div>` + minis;
+    // ESPN's PER list isn't qualified (a 2-minute cameo can top it), so keep rotation players, as plus-minus does
+    const sm = NBA.standingsMap();
+    const rows = per.map(p => [p, NBA.playerById(p.id)]).filter(([, pl]) => pl && pl.min >= 20 && NBA.qualifies(pl, null, sm)).slice(0, 5);
+    if (rows.length >= 3) minis = `<div class="card mini"><div class="card-h"><h3>Player efficiency</h3><div class="end">PER</div></div><ol class="rank">${rows.map(([p, pl], i) => `<li data-act="player" data-id="${esc(p.id)}" style="cursor:pointer"><span class="rk">${i + 1}</span><span class="nm">${esc(pl.name)}<small>${esc(pl.team)}</small></span><span class="v">${esc(p.display)}</span></li>`).join('')}</ol></div>` + minis;
   }
   return `<section class="sec">${head}<div class="lead-grid">${heroes}</div></section>
     <section class="sec"><div class="sec-h"><h3>More leaders</h3><span class="sub">Shooting and efficiency leaders use the NBA's minimum-attempt rules, scaled to games played so far</span></div><div class="mini-grid">${minis}</div></section>
@@ -451,7 +484,7 @@ function leadCard(k, mode) {
   if (!list.length) return '';
   const top = list[0], v = p => NBA.statFmt(k, NBA.statValue(k, p, mode), mode);
   return `<div class="card lead-card"><div class="card-h"><h3>${esc(d.label)}</h3><div class="end"><span class="eyebrow">${mode === 'total' ? 'Total' : 'Per game'}</span></div></div>
-    <div class="top1" data-act="player" data-id="${top.id}">${UI.hs(top.headshot, '')}<div><div class="nm">${esc(top.name)}</div><div class="tm">${esc(top.team)} · ${esc(top.pos)} · ${top.gp} GP</div></div><div class="val">${v(top)}</div></div>
+    <div class="top1" data-act="player" data-id="${top.id}">${UI.hs(top.headshot, '', 264)}<div><div class="nm">${esc(top.name)}</div><div class="tm">${esc(top.team)} · ${esc(top.pos)} · ${top.gp} GP</div></div><div class="val">${v(top)}</div></div>
     <ol class="rank">${list.slice(1).map((p, i) => `<li data-act="player" data-id="${p.id}" style="cursor:pointer"><span class="rk">${i + 2}</span><span class="nm">${esc(p.name)}<small>${esc(p.team)}</small></span><span class="v">${v(p)}</span></li>`).join('')}</ol></div>`;
 }
 function miniCard(k, mode) {
@@ -483,7 +516,8 @@ function playerTable(players, mode) {
   list.sort((a, b) => (s.desc ? 1 : -1) * ((Number.isFinite(val(b)) ? val(b) : -1e9) - (Number.isFinite(val(a)) ? val(a) : -1e9)));
   const total = list.length;
   list = list.slice(0, st.plimit);
-  const teams = [...NBA.teams.values()].filter(t => t.abbr).sort((a, b) => a.full.localeCompare(b.full));
+  // Only the 30 real teams carry a conference (from standings); NBA Cup placeholders and All-Star teams don't
+  const teams = [...NBA.teams.values()].filter(t => t.abbr && t.conf).sort((a, b) => (a.full || '').localeCompare(b.full || ''));
   return `<div class="sec-h"><h3>All players</h3><span class="sub">${total} players · ${mode === 'total' ? 'season totals' : 'per game'}</span>
       <div class="end tools"><label class="sr" for="pq">Find a player</label><input class="field" id="pq" data-in="pq" type="search" placeholder="Find a player" value="${esc(st.pq)}">
       <label class="sr" for="pteam">Team</label><select id="pteam" data-ch="pteam"><option value="">All teams</option>${teams.map(t => `<option value="${t.id}" ${st.pteam === t.id ? 'selected' : ''}>${esc(t.full)}</option>`).join('')}</select></div></div>
@@ -559,7 +593,7 @@ function oddsList(m, { limit = 10, cols = 1 } = {}) {
       const t = a.teamId ? NBA.T(a.teamId) : null; isFav = !!(t && fav.has(t.id));
       // Coaches get their team's logo rather than a photo
       img = (a.coach || coachMarket) ? (t ? UI.logo(t, 30) : '<span></span>')
-        : a.headshot ? `<img class="hs" src="${esc(a.headshot)}" alt="" loading="lazy">` : (t ? UI.logo(t, 30) : '<span></span>');
+        : a.headshot ? `<img class="hs" src="${esc(NBA.img(a.headshot, 132))}" alt="" loading="lazy" decoding="async">` : (t ? UI.logo(t, 30) : '<span></span>');
       name = a.name || 'Loading…'; sub = [t && t.abbr, a.coach ? 'Coach' : ''].filter(Boolean).join(' · ');
     }
     const pct = e.implied * 100;
@@ -591,11 +625,11 @@ V.news = () => {
   let newsHtml;
   if (!news) newsHtml = stateOf('news:', 'headlines');
   else {
-    const items = news.filter(a => a.links && a.links.web && a.links.web.href).slice(0, 25);
-    newsHtml = `<div class="news-grid">${items.map((a, i) => storyCard(a, i === 0)).join('')}</div>`;
+    const items = news.filter(a => a.links && a.links.web && a.links.web.href && NBA.newsSafe(a)).slice(0, 25);
+    newsHtml = items.length ? `<div class="news-grid">${items.map((a, i) => storyCard(a, i === 0)).join('')}</div>` : '<p class="empty">No headlines right now.</p>';
   }
   return `<div class="news-layout"><section class="sec inj-top">${injuryStars(inj)}</section>
-    <section class="sec news-sec"><div class="sec-h"><h2>News</h2><span class="sub">ESPN · updates every few minutes</span></div>${newsHtml}</section>
+    <section class="sec news-sec"><div class="sec-h"><h2>News</h2><span class="sub">ESPN · updates every few minutes${NBA.S.spoilers ? ' · recaps and result headlines hidden' : ''}</span></div>${newsHtml}</section>
     <section class="sec inj-sec">${injuryPanel(inj)}</section></div>`;
 };
 /* The 20 biggest names on the injury report and how long they're expected to be out. Star power is this season's
@@ -629,20 +663,28 @@ function injuryStars(inj) {
   }).join('')}</ol></div>`;
 }
 const NEWS_TYPE = { HeadlineNews: 'News', Media: 'Video', Recap: 'Recap', Story: 'Story', Preview: 'Preview' };
+function storyImg(im, w) {
+  const url = im.url;
+  // Story photos sent as PNG stay 0.5-2 MB even resized, so have the resizer send them as JPEG (32 KB at 640 px)
+  if (/\.png$/i.test(url)) { const s = NBA.img(url, Math.min(w, im.width || w)); return s === url ? url : s + '&format=jpg'; }
+  // Otherwise only ever ask for a smaller copy: many story photos are 600 px wide already, and it would scale those up
+  return NBA.img(url, im.width && im.width <= w ? 0 : w);
+}
 function storyCard(a, lead) {
-  const img = a.images && a.images[0] && a.images[0].url;
+  const im = a.images && a.images[0], img = im && im.url;
   return `<a class="card story${lead ? ' lead-story' : ''}" href="${esc(a.links.web.href)}" target="_blank" rel="noopener">
-    ${img ? `<img class="th" src="${esc(img)}" alt="" loading="lazy">` : '<span class="th"></span>'}
+    ${img ? `<img class="th" src="${esc(storyImg(im, lead ? 1200 : 640))}" alt="" loading="lazy" decoding="async">` : '<span class="th"></span>'}
     <span class="tx"><span class="eyebrow">${esc(NEWS_TYPE[a.type] || a.type || 'Story')} · ${esc(NBA.relTime(a.published))}</span><h3>${esc(a.headline)}</h3>${a.description ? `<p>${esc(a.description)}</p>` : ''}</span></a>`;
 }
 function injuryPanel(inj) {
   const head = `<div class="sec-h"><h2>Injuries</h2><span class="sub">Full report from ESPN · refreshes every 10 minutes</span></div>`;
   if (!inj) return head + stateOf('injuries', 'the injury report');
   const fav = new Set(NBA.S.favorites);
-  const teams = [...NBA.teams.values()].filter(t => t.abbr).sort((a, b) => a.full.localeCompare(b.full));
+  const teams = [...NBA.teams.values()].filter(t => t.abbr && t.conf).sort((a, b) => (a.full || '').localeCompare(b.full || ''));
   const match = i => st.injStatus === 'all' || (st.injStatus === 'out' ? /out/i.test(i.status) : !/out/i.test(i.status));
   let groups = inj.map(g => ({ ...g, list: g.list.filter(match) })).filter(g => g.list.length && (!st.injTeam || g.teamId === st.injTeam));
-  groups.sort((a, b) => (fav.has(b.teamId) - fav.has(a.teamId)) || NBA.T(a.teamId).full.localeCompare(NBA.T(b.teamId).full));
+  // On a cold load the injuries can beat standings, and a team known only from saved colors has no full name yet
+  groups.sort((a, b) => (fav.has(b.teamId) - fav.has(a.teamId)) || (NBA.T(a.teamId).full || a.teamName || '').localeCompare(NBA.T(b.teamId).full || b.teamName || ''));
   const total = groups.reduce((n, g) => n + g.list.length, 0);
   const tools = `<div class="tools">${seg('injstatus', st.injStatus, [['all', 'All'], ['out', 'Out'], ['dtd', 'Day-to-day & other']], 'Status')}
     <label class="sr" for="injteam">Team</label><select id="injteam" data-ch="injteam"><option value="">All teams</option>${teams.map(t => `<option value="${t.id}" ${st.injTeam === t.id ? 'selected' : ''}>${esc(t.full)}</option>`).join('')}</select>
@@ -663,9 +705,12 @@ NBA.changes.injteam = t => { st.injTeam = t.value; NBA.changed(); };
 function glistItem(e, tags = '') {
   const op = NBA.T(e.oppId);
   let rs;
-  if (e.state === 'post') rs = NBA.S.spoilers ? '<span class="mut">Final</span>' : `<span class="${e.won ? 'W' : 'L'}">${e.won ? 'W' : 'L'}</span> ${esc(e.my)}–${esc(e.their)}`;
+  // Postponed and canceled games are 'post' too, but were never played
+  if (e.state === 'post' && e.completed === false) rs = `<span class="mut">${esc(e.detail || 'Postponed')}</span>`;
+  else if (e.state === 'post') rs = NBA.S.spoilers ? '<span class="mut">Final</span>' : `<span class="${e.won ? 'W' : 'L'}">${e.won ? 'W' : 'L'}</span> ${esc(e.my)}–${esc(e.their)}`;
   else if (e.state === 'in') rs = `<span class="st-live"><i class="dot blink"></i>Live</span>`;
-  else rs = `<span class="mut">${esc(/TBD/i.test(e.detail || '') ? 'TBD' : NBA.fmtTime(e.date))}</span>`;
+  // The TV network sits under the time: inside the opponent's name it was cut off with the name on phones
+  else rs = `<span class="mut">${esc(/TBD/i.test(e.detail || '') ? 'TBD' : NBA.fmtTime(e.date))}</span>${e.tv ? ` <small class="g-tv">${esc(e.tv)}</small>` : ''}`;
   return `<li data-act="game" data-id="${e.id}" role="button" tabindex="0"><span class="dt">${esc(NBA.fmtDate(e.date, { weekday: 'short', month: 'numeric', day: 'numeric' }))}</span>
     <span class="ha">${e.home ? 'vs' : '@'}</span>${UI.logo(op.abbr ? op : { logo: '' }, 26)}<span class="op">${esc(op.name || e.oppName || e.oppAbbr || '')}${tags}</span><span class="rs">${rs}</span></li>`;
 }
@@ -674,10 +719,10 @@ function teamSeason(t, evs) {
   const all = evs.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
   const left = all.filter(e => e.state === 'pre');
   if (!left.length) return '';
-  // Second night of a back-to-back: the team also played the day before
-  const days = new Set(all.map(e => NBA.etDay(e.date)));
+  // Second night of a back-to-back: the team also played the day before (a postponed date doesn't count)
+  const days = new Set(all.filter(e => !(e.state === 'post' && e.completed === false)).map(e => NBA.etDay(e.date)));
   const b2b = e => days.has(NBA.shiftIso(NBA.etDay(e.date), -1));
-  const tags = e => (b2b(e) ? '<span class="tag b2b" title="Second night of a back-to-back">B2B</span>' : '') + (e.tv ? `<span class="tag">${esc(e.tv)}</span>` : '');
+  const tags = e => b2b(e) ? '<span class="tag b2b" title="Second night of a back-to-back">B2B</span>' : '';
   const months = [];
   left.forEach(e => { const ym = NBA.etDay(e.date).slice(0, 7).replace('-', ''); const m = months[months.length - 1]; if (m && m[0] === ym) m[1].push(e); else months.push([ym, [e]]); });
   const home = left.filter(e => e.home).length, backs = left.filter(b2b).length, tv = left.filter(e => e.tv).length;
@@ -704,14 +749,17 @@ function teamView(id) {
   const stat = (v, l, extra = '') => `<div><b>${v}</b><span>${l}</span>${extra}</div>`;
   // The team's star, faded into the banner the same way as on Home
   const star = NBA.marqueeOf ? NBA.marqueeOf(id) : null;
+  const b = (NBA.use('bpi') || new Map()).get(id);
   const hero = `<section class="team-hero${star && star.headshot ? ' has-star' : ''}" style="--tc:${esc(t.color || '#444')};--logo:url('${esc(t.logo || '')}')">
-    ${star && star.headshot ? `<img class="hh-star team-star" src="${esc(star.headshot)}" alt="" aria-hidden="true">` : ''}
-    <img class="big-logo" src="${esc(t.logoDark || t.logo || '')}" alt="">
+    ${star && star.headshot ? `<img class="hh-star team-star" src="${esc(star.headshot)}" alt="" aria-hidden="true" loading="lazy" decoding="async">` : ''}
+    <img class="big-logo" src="${esc(NBA.img(t.logoDark || t.logo || '', 384))}" alt="">
     <div><h2>${esc(t.full)}</h2><div class="sub2">${esc([sch && sch.standing, roster && roster.coach ? 'Coach ' + roster.coach : ''].filter(Boolean).join(' · '))}</div>
       <div class="hero-stats">${r ? [
         stat(r.seed ? NBA.ord(r.seed) : '–', `In the ${conferenceName(r.conf)}`),
-        stat(esc(r.strk || '–'), 'Streak'), stat(esc(r.l10 || '–'), 'Last 10'), stat(esc(r.home || '–'), 'Home'), stat(esc(r.road || '–'), 'Road'),
+        stat(NBA.S.spoilers ? '–' : esc(r.strk || '–'), 'Streak'), stat(esc(r.l10 || '–'), 'Last 10'), stat(esc(r.home || '–'), 'Home'), stat(esc(r.road || '–'), 'Road'),
         stat(NBA.fix(r.ppg), 'Points', rank('ppg')), stat(NBA.fix(r.opp), 'Allowed', rank('oppg')), stat((r.diff > 0 ? '+' : '') + NBA.fix(r.diff), 'Margin', rank('diff')),
+      ].join('') : ''}${b ? [
+        stat(projRec(b), 'Projected'), stat(esc(b.probmakeplayoffsD || '–'), 'Playoff odds'), stat(esc(b.sosremainingrankD || '–'), 'Toughest schedule left'),
       ].join('') : ''}</div></div>
     <div class="hero-side"><div class="hero-rec">${r ? `${r.w}-${r.l}` : esc((sch && sch.record) || '')}</div>
       ${isFav ? '<span class="btn hero-btn" aria-disabled="true">★ Favorite team</span>' : ''}</div></section>`;
@@ -740,7 +788,7 @@ function teamView(id) {
   }).join('')}</div>` : stateOf('players', 'player stats');
 
   const upcomingList = evs.filter(e => e.state !== 'post').slice(0, 10);
-  const recent = evs.filter(e => e.state === 'post').slice(-10).reverse();
+  const recent = evs.filter(NBA.isFinal).slice(-10).reverse();
   const listCard = (title, list) => `<div class="card"><div class="card-h"><h3>${title}</h3></div>${sch ? (list.length ? `<ul class="glist">${list.map(e => glistItem(e)).join('')}</ul>` : '<p class="empty" style="padding:var(--pad)">None yet.</p>') : stateOf('tsched:' + id, 'schedule')}</div>`;
 
   const RANKS = [['ppg', 'Points', v => NBA.fix(v)], ['oppg', 'Points allowed', v => NBA.fix(v)], ['fgp', 'Field goal %', v => NBA.fix(v) + '%'], ['tpp', '3-point %', v => NBA.fix(v) + '%'], ['ftp', 'Free throw %', v => NBA.fix(v) + '%'],
@@ -764,7 +812,9 @@ function teamView(id) {
   const teamInj = inj ? (inj.find(g => g.teamId === id) || { list: [] }).list : null;
   const injHtml = teamInj == null ? stateOf('injuries', 'injuries') : teamInj.length ? `<ul class="inj" style="padding-top:12px">${teamInj.map(i => `<li><span class="who2">${esc(i.name)}<small>${esc(i.pos || '')}</small></span>${statusPill(i.status)}
     <span class="what">${esc([i.side, i.type, i.detail].filter(Boolean).join(' '))}${i.ret ? ` · est. return ${esc(NBA.fmtDay(i.ret, { month: 'short', day: 'numeric' }))}` : ''}</span>${i.short ? `<span class="cm" title="${esc(i.long || i.short)}">${esc(i.short)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="empty" style="padding:var(--pad)">No one on the injury report.</p>';
-  const newsHtml = news ? `<div class="news-grid" style="padding:var(--pad)">${news.filter(a => a.links && a.links.web).slice(0, 6).map(a => storyCard(a, false)).join('')}</div>` : stateOf('news:' + t.abbr.toLowerCase(), 'news');
+  const stories = news ? news.filter(a => a.links && a.links.web && NBA.newsSafe(a)).slice(0, 6) : [];
+  const newsHtml = !news ? stateOf('news:' + t.abbr.toLowerCase(), 'news') : stories.length ? `<div class="news-grid" style="padding:var(--pad)">${stories.map(a => storyCard(a, false)).join('')}</div>`
+    : '<p class="empty" style="padding:var(--pad)">No headlines right now.</p>';
 
   return `${hero}<div class="team-grid">
     ${nextCard}
@@ -814,7 +864,7 @@ function teamsOverview() {
       <td class="tm sticky"><span>${UI.logo(NBA.T(t.id), 22)}${esc(NBA.T(t.id).name || t.name)}</span></td><td>${t.w ?? '–'}-${t.l ?? '–'}</td>
       <td><b>${t.net > 0 ? '+' : ''}${NBA.fix(t.net)}</b>${rk(t, 'net')}</td><td>${NBA.fix(t.ortg)}${rk(t, 'ortg')}</td><td>${NBA.fix(t.drtg)}${rk(t, 'drtg')}</td><td>${NBA.fix(t.pace)}${rk(t, 'pace')}</td>
       <td>${NBA.S.spoilers || !t.f ? '–' : `${t.f.w}-${t.f.l} <small class="mut">${t.fm > 0 ? '+' : ''}${NBA.fix(t.fm)}</small>`}</td><td>${trendCell(t)}</td>
-      <td class="${/^W/.test(t.strk || '') ? 'w' : /^L/.test(t.strk || '') ? 'lo' : ''}">${esc(t.strk || '')}</td></tr>`).join('')}</tbody></table></div></div></div>
+      ${NBA.S.spoilers ? '<td>–</td>' : `<td class="${/^W/.test(t.strk || '') ? 'w' : /^L/.test(t.strk || '') ? 'lo' : ''}">${esc(t.strk || '')}</td>`}</tr>`).join('')}</tbody></table></div></div></div>
     <p class="note">Offensive and defensive ratings are points scored and allowed per 100 possessions, so fast and slow teams compare fairly. Net rating is the difference. Pace is possessions per game. Trend compares the last 7 days' scoring margin with the season margin.</p>`;
 
   const formRows = rows.filter(t => t.f && t.f.gp >= 2);
@@ -864,9 +914,10 @@ NBA.factGroups = () => {
   league.push(`<div class="card fact"><div class="eyebrow">Season progress</div><div class="big">${Math.round(gamesPlayed)}<small>of ${totalGames} games</small></div>
     <div class="progress"><i style="width:${Math.min(100, gamesPlayed / totalGames * 100).toFixed(1)}%"></i></div><p>${(gamesPlayed / totalGames * 100).toFixed(1)}% of the regular season is in the books.</p></div>`);
   const hot = rows.filter(r => r.strkV > 0 && /^W/.test(r.strk)).sort((a, b) => b.strkV - a.strkV)[0];
-  if (hot) fact('Hottest team', esc(hot.strk), `${esc(hot.name)} have won ${hot.strkV} straight and sit ${NBA.ord(hot.seed)} in the ${esc(hot.conf)}.`, teamWho(hot));
+  // A streak changes the moment a game ends, so it's a result
+  if (hot && !NBA.S.spoilers) fact('Hottest team', esc(hot.strk), `${esc(hot.name)} have won ${hot.strkV} straight and sit ${NBA.ord(hot.seed)} in the ${esc(hot.conf)}.`, teamWho(hot));
   const cold = rows.filter(r => /^L/.test(r.strk)).sort((a, b) => Math.abs(b.strkV) - Math.abs(a.strkV))[0];
-  if (cold) fact('Coldest team', esc(cold.strk), `${esc(cold.name)} have lost ${Math.abs(cold.strkV)} in a row.`, teamWho(cold));
+  if (cold && !NBA.S.spoilers) fact('Coldest team', esc(cold.strk), `${esc(cold.name)} have lost ${Math.abs(cold.strkV)} in a row.`, teamWho(cold));
   const perfect = rows.filter(r => r.l === 0 && r.w > 0);
   if (perfect.length) fact('Still perfect', perfect.map(r => esc(r.abbr)).join(' · '), `${perfect.length === 1 ? 'The only team' : 'The teams'} without a loss so far: ${perfect.map(r => `${esc(r.name)} (${r.w}-0)`).join(', ')}.`);
   const winless = rows.filter(r => r.w === 0 && r.l > 0);
@@ -957,7 +1008,8 @@ NBA.factGroups = () => {
     }
   }
   into = week;
-  const finals = past.flatMap(d => d.games).filter(g => g.state === 'post' && g.away.score !== '' && g.home.score !== '');
+  // Played games between two real teams: no postponed 0-0s, no All-Star exhibitions
+  const finals = past.flatMap(d => d.games).filter(g => NBA.isFinal(g) && g.away.score !== '' && g.home.score !== '' && rowOf(g.away.id) && rowOf(g.home.id));
   if (finals.length && !NBA.S.spoilers) {
     const total = g => (+g.away.score) + (+g.home.score), margin = g => Math.abs((+g.away.score) - (+g.home.score));
     const label = g => `${esc(g.away.abbr)} ${esc(g.away.score)}, ${esc(g.home.abbr)} ${esc(g.home.score)} on ${esc(NBA.fmtDate(g.date, { weekday: 'short', month: 'short', day: 'numeric' }))}`;

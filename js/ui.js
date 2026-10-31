@@ -6,6 +6,12 @@ const NBA = window.NBA;
 const { esc } = NBA;
 const $ = (s, r = document) => r.querySelector(s);
 const UI = NBA.ui = { st: { revealed: new Set(), perfCat: 'points' } };
+// A reload for a new build (checkBuild) leaves what was only in memory in sessionStorage; pick it back up once
+try {
+  const k = JSON.parse(sessionStorage.getItem('nba.keep') || 'null');
+  sessionStorage.removeItem('nba.keep');
+  if (k) { const { revealed, day, ...rest } = k; (revealed || []).forEach(id => UI.st.revealed.add(String(id))); if (day) NBA.dayParam = day; Object.keys(rest).forEach(key => { if (rest[key] != null) UI.st[key] = rest[key]; }); }
+} catch (e) { /* storage blocked: start fresh */ }
 NBA.views = {};
 NBA.actions = {};
 NBA.changes = {};
@@ -21,8 +27,12 @@ UI.I = {
 };
 
 /* ---------- small components ---------- */
-UI.logo = (t, size = 28, cls = '') => `<img class="${cls}" src="${esc(NBA.lg(t))}" alt="" width="${size}" height="${size}" loading="lazy">`;
-UI.hs = (url, cls = 'hs') => url ? `<img class="${cls}" src="${esc(url)}" alt="" loading="lazy">` : `<span class="${cls}"></span>`;
+// Logos are asked for at about 3x their CSS size, in three widths so the browser cache is shared
+UI.logo = (t, size = 28, cls = '') => { const px = size * 3, w = px <= 96 ? 96 : px <= 192 ? 192 : 384; return `<img class="${cls}" src="${esc(NBA.img(NBA.lg(t), w))}" alt="" width="${size}" height="${size}" loading="lazy" decoding="async">`; };
+// Headshots are 600x436; w is the pixel width to request (the default suits the 44x33 thumbnails)
+UI.hs = (url, cls = 'hs', w = 132) => url ? `<img class="${cls}" src="${esc(NBA.img(url, w))}" alt="" loading="lazy" decoding="async">` : `<span class="${cls}"></span>`;
+// The ▶ Highlights chip on finished games; the hl action plays it in the #vid dialog
+UI.hlChip = h => h && (h.hls || h.mp4) ? `<button class="chip hl-chip" ${NBA.hlAttrs(h)}>▶ Highlights${h.dur ? ' · ' + NBA.fmtDur(h.dur) : ''}</button>` : '';
 UI.teamLink = id => `#teams/${id}`;
 UI.isFav = g => NBA.S.favorites.includes(g.away.id) || NBA.S.favorites.includes(g.home.id);
 UI.isMine = g => g.away.id === NBA.S.myTeam || g.home.id === NBA.S.myTeam;
@@ -37,30 +47,33 @@ UI.moved = (m, prefix = '') => m && m.open !== '' && m.now !== '' && String(m.op
 
 UI.gameCard = (g, big) => {
   const S = NBA.S, perLabel = NBA.perLabel;
-  const hide = S.spoilers && g.state !== 'pre' && !UI.st.revealed.has(g.id);
-  const showQ = S.card.quarters && g.state !== 'pre';
+  // A postponed or canceled game is 'post' without being completed: no score, nothing to hide
+  const pp = g.state === 'post' && g.completed === false;
+  const hide = S.spoilers && g.state !== 'pre' && !pp && !UI.st.revealed.has(g.id);
+  const showQ = S.card.quarters && g.state !== 'pre' && !pp;
   const nq = showQ ? Math.max(4, g.away.lines.length, g.home.lines.length) : 0;
   const cols = `minmax(0,1fr)${nq ? ` repeat(${nq},minmax(1.8em,auto))` : ''} auto`;
   const head = nq ? `<span></span>${Array.from({ length: nq }, (_, i) => `<span class="hd">${i < 4 ? i + 1 : perLabel(i + 1)}</span>`).join('')}<span class="hd" style="text-align:right">T</span>` : '';
+  // A hidden game hides the records too: after the final they already count tonight's result
   const row = t => {
-    const lost = g.state === 'post' && !hide && t.winner === false;
+    const lost = g.state === 'post' && !pp && !hide && t.winner === false;
     const qs = nq ? Array.from({ length: nq }, (_, i) => `<span class="q">${hide ? '·' : esc(t.lines[i] ?? '')}</span>`).join('') : '';
     const bump = !hide && NBA.bumps.has(g.id + ':' + t.id) ? ' bump' : '';
-    const score = g.state === 'pre' ? '' : hide ? '–' : esc(t.score);
+    const score = g.state === 'pre' || pp ? '' : hide ? '–' : esc(t.score);
     const fav = S.favorites.includes(t.id) ? `<span class="star" title="Your team">${UI.I.star}</span>` : '';
     const l = t.leaders.find(x => x.cat === 'points');
-    const ldr = g.state !== 'pre' && S.card.leaders && l && !hide ? `<span class="ldr-row" title="${esc(t.abbr)} top scorer">${esc(l.full || l.short)} <b>${esc(l.value)}</b> pts</span>` : '';
+    const ldr = g.state !== 'pre' && !pp && S.card.leaders && l && !hide ?`<span class="ldr-row" title="${esc(t.abbr)} top scorer">${esc(l.full || l.short)} <b>${esc(l.value)}</b> pts</span>` : '';
     return `<div class="team${lost ? ' lost' : ''}">${UI.logo(t, big ? 40 : 30)}
-      <span class="tn"><span class="ab">${esc(t.abbr)}${fav}<span class="rec">${esc(t.record)}</span></span></span></div>${qs}<span class="sc${lost ? ' lostsc' : ''}${bump}">${score}</span>${ldr}`;
+      <span class="tn"><span class="ab">${esc(t.abbr)}${fav}<span class="rec">${hide ? '' : esc(t.record)}</span></span></span></div>${qs}<span class="sc${lost ? ' lostsc' : ''}${bump}">${score}</span>${ldr}`;
   };
   let status;
-  if (g.state === 'in') status = `<span class="st-live"><i class="dot blink"></i>${esc(g.detail)}</span>`;
+  if (g.state === 'in') status = `<span class="st-live"><i class="dot blink"></i>${esc(NBA.detail(g))}</span>`;
   else if (g.state === 'pre') status = `<span>${esc(UI.tipTime(g))}</span>`;
   else {
     const sum = NBA.data('summary:' + g.id);
     status = `<span>${esc(g.detail)}${sum && sum.ended ? ' · ended ' + esc(NBA.fmtTime(sum.ended)) : ''}</span>`;
   }
-  const started = g.state !== 'pre' && !/TBD/i.test(g.detail) ? 'Started ' + NBA.fmtTime(g.date) : '';
+  const started = !pp && g.state !== 'pre' && !/TBD/i.test(g.detail) ? 'Started ' + NBA.fmtTime(g.date) : '';
   const right = [started, g.note, g.tv].filter(Boolean).join(' · ');
   let extra = '';
   if (hide) extra = `<button class="chip reveal" data-act="reveal" data-id="${g.id}">Show score</button>`;
@@ -79,25 +92,30 @@ UI.gameCard = (g, big) => {
       if (g.state === 'in' && g.lastPlay) extra += `<div class="last"><span class="lbl">Last play</span><span title="${esc(g.lastPlay)}">${esc(g.lastPlay)}</span></div>`;
       else if (g.state === 'post' && g.recap) extra += `<div class="last"><span class="lbl">Recap</span><span title="${esc(g.recap)}">${esc(g.recap)}</span></div>`;
     }
+    const chip = g.state === 'post' && !pp ? UI.hlChip(g.hl) : '';
+    if (chip) extra += `<div class="g-hl">${chip}</div>`;
   }
-  const label = `${g.away.full} at ${g.home.full}, ${g.state === 'pre' ? UI.tipTime(g) : g.detail}`;
+  const label = `${g.away.full} at ${g.home.full}, ${g.state === 'pre' ? UI.tipTime(g) : NBA.detail(g)}`;
   return `<div class="game${big ? ' big' : ''}${UI.isFav(g) ? ' fav' : ''}${UI.isMine(g) ? ' mine' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(label)}">
     <div class="g-top">${status}<span>${esc(right)}</span></div>
     <div class="ls" style="grid-template-columns:${cols}">${head}${row(g.away)}${row(g.home)}</div>${extra}</div>`;
 };
 
 UI.line = g => {
-  const hide = NBA.S.spoilers && g.state !== 'pre' && !UI.st.revealed.has(g.id);
+  const pp = g.state === 'post' && g.completed === false;
+  const hide = NBA.S.spoilers && g.state !== 'pre' && !pp && !UI.st.revealed.has(g.id);
   let time;
   if (g.state === 'pre') time = `${esc(/TBD/i.test(g.detail) ? 'TBD' : NBA.fmtTime(g.date))}<small>${esc(g.tv || '')}</small>`;
-  else if (g.state === 'in') time = `<span class="st-live"><i class="dot blink"></i>Live</span><small>${esc(g.detail)}</small>`;
+  else if (g.state === 'in') time = `<span class="st-live"><i class="dot blink"></i>Live</span><small>${esc(NBA.detail(g))}</small>`;
+  else if (pp) time = esc(g.detail || 'Postponed');
   else time = `${esc(g.detail || 'Final')}<small>Started ${esc(NBA.fmtTime(g.date))}</small>`;
   const side = (t, home) => {
-    const sc = g.state !== 'pre' && !hide ? `<span class="ln-score">${esc(t.score)}</span>` : '';
+    const sc = g.state !== 'pre' && !pp && !hide ? `<span class="ln-score">${esc(t.score)}</span>` : '';
     const name = `<b><span class="full">${esc(t.name || t.abbr)}</span><span class="abbr">${esc(t.abbr)}</span></b>`;
+    const rec = `<small>${hide ? '' : esc(t.record)}</small>`;
     return home
-      ? `<span class="ln-team home">${sc}<small>${esc(t.record)}</small>${name}${UI.logo(t, 26)}</span>`
-      : `<span class="ln-team away">${UI.logo(t, 26)}${name}<small>${esc(t.record)}</small>${sc}</span>`;
+      ? `<span class="ln-team home">${sc}${rec}${name}${UI.logo(t, 26)}</span>`
+      : `<span class="ln-team away">${UI.logo(t, 26)}${name}${rec}${sc}</span>`;
   };
   return `<li class="line${UI.isFav(g) ? ' fav' : ''}${UI.isMine(g) ? ' mine' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(g.away.full)} at ${esc(g.home.full)}">
     <span class="ln-time">${time}</span>${side(g.away, false)}<span class="ln-at">@</span>${side(g.home, true)}<span class="ln-odds">${esc(UI.oddsText(g.odds))}</span></li>`;
@@ -147,6 +165,7 @@ UI.route = () => {
   const [tab, arg] = h.split('/');
   return { tab: TABS.some(t => t.id === tab) ? tab : 'home', arg: arg || '' };
 };
+let tabShown = null;
 function renderTabs() {
   const { tab } = UI.route();
   const today = NBA.data('day:');
@@ -160,6 +179,27 @@ function renderTabs() {
     return `<a class="tab" role="tab" href="#${t.id}" aria-selected="${tab === t.id}">${inner}</a>`;
   }).join('');
   UI.paint($('#tabbar'), html);
+  // On phones most tabs are off-screen: bring a newly selected one to the middle of the bar
+  const tb = $('#tabbar');
+  if (tab !== tabShown) {
+    const a = tb.querySelector('[aria-selected="true"]');
+    if (a) {
+      const r = a.getBoundingClientRect(), R = tb.getBoundingClientRect();
+      tb.scrollTo({ left: Math.max(0, tb.scrollLeft + r.left - R.left - (R.width - r.width) / 2), behavior: tabShown && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto' });
+    }
+    tabShown = tab;
+  }
+  // .more fades the right edge while tabs are still hidden past it
+  const more = () => tb.classList.toggle('more', tb.scrollLeft + tb.clientWidth < tb.scrollWidth - 4);
+  if (!tb._moreBound) { tb._moreBound = true; tb.addEventListener('scroll', more, { passive: true }); window.addEventListener('resize', more); }
+  more();
+}
+function renderTitle() {
+  const { tab } = UI.route();
+  // The favorite team's tab has no fixed label; its name arrives with the data, so this runs on every render
+  const name = tab === 'myteam' ? (NBA.T(NBA.S.myTeam).name || 'My team') : ((TABS.find(t => t.id === tab) || {}).label || 'NBA');
+  const title = tab === 'home' ? 'NBA' : `${name} · NBA`;
+  if (document.title !== title) document.title = title;
 }
 function renderHeader() {
   const today = NBA.data('day:');
@@ -168,21 +208,31 @@ function renderHeader() {
   pill.className = 'livepill' + (live ? ' on' : '');
   // While games are live the header shows only a red live button with the count; it opens the schedule.
   // Painted only when it changes, so the blinking dot isn't recreated (and restarted) on every refresh.
-  UI.paint(pill, live == null ? '' : live ? `<a class="live-btn" href="#schedule" data-act="golive" aria-label="${live} game${live > 1 ? 's' : ''} live now, open the schedule"><i class="dot blink"></i>${live} live</a>` : 'No games live');
+  // On the narrowest phones the stylesheet hides the word "live", leaving the count
+  UI.paint(pill, live == null ? '' : live ? `<a class="live-btn" href="#schedule" data-act="golive" aria-label="${live} game${live > 1 ? 's' : ''} live now, open the schedule"><i class="dot blink"></i>${live}<span class="lv-word"> live</span></a>` : 'No games live');
   const mt = NBA.T(NBA.S.myTeam);
   if (NBA.S.teamTheme && hasColors(mt) && UI.lookKey !== mt.id + mt.color + mt.alt + NBA.S.theme) applyLook();
-  const teams = [...NBA.teams.values()].filter(t => t.abbr && t.full).sort((a, b) => a.full.localeCompare(b.full));
+  // Only the standings give a team its conference, which keeps out NBA Cup 'TBD' slots and All-Star teams
+  const teams = [...NBA.teams.values()].filter(t => t.abbr && t.full && t.conf).sort((a, b) => (a.name || a.full).localeCompare(b.name || b.full));
   UI.paint($('#teampick'), `${mt.logo ? UI.logo(mt, 22) : ''}<span class="ht-col"><label class="ht-lbl" for="team-pick">Favorite team</label>
     <select id="team-pick" data-ch="myTeam" title="Favorite team">${teams.length
-      ? teams.map(t => `<option value="${t.id}" ${t.id === NBA.S.myTeam ? 'selected' : ''}>${esc(t.full)}</option>`).join('')
-      : `<option value="${esc(NBA.S.myTeam)}">${esc(mt.full || 'Golden State Warriors')}</option>`}</select></span>`);
+      ? teams.map(t => `<option value="${t.id}" ${t.id === NBA.S.myTeam ? 'selected' : ''}>${esc(t.name || t.full)}</option>`).join('')
+      : `<option value="${esc(NBA.S.myTeam)}">${esc(mt.name || 'Warriors')}</option>`}</select></span>`);
   renderUpdated();
 }
-// The header only speaks up when ESPN can't be reached; data refreshes quietly in the background otherwise
+/* The header speaks up when ESPN can't be reached, or when the scores haven't refreshed for a while (after a resume,
+   or a poll that stalls). Runs every second, so it touches the DOM only when something changed */
 function renderUpdated() {
-  const el = $('#upd');
-  el.className = NBA.failing ? 'upd err' : 'upd';
-  el.textContent = NBA.failing ? "Can't reach ESPN · retrying" : '';
+  const el = $('#upd'), last = NBA.lastUpdate, age = Date.now() - last;
+  // Measured against the delay the poll timer was actually set with, not today's nextDelay(), which can drop between polls
+  const stale = !!last && !document.hidden && age > Math.max(30000, 3 * (NBA.pollDelay || (NBA.nextDelay ? NBA.nextDelay() : 120000)));
+  const at = last ? NBA.fmtTime(new Date(last).toISOString()) : '';
+  const txt = NBA.failing ? (at ? `Offline · scores as of ${at}` : "Can't reach ESPN · retrying") : stale ? `Updated ${at} · refreshing` : '';
+  const cls = 'upd' + (NBA.failing ? ' err' : stale ? ' stale' : '');
+  if (el.className !== cls) el.className = cls;
+  if (el.textContent !== txt) el.textContent = txt;
+  // Stops the live dots blinking while the scores on screen may be old
+  document.documentElement.classList.toggle('stale', stale || (NBA.failing && age > 30000));
 }
 let lastTab = null, lastRoute = null;
 function renderView() {
@@ -206,19 +256,21 @@ function renderView() {
   if (NBA.after[tab]) NBA.after[tab](view, changed);
   if (t0 < 0) { const dy = season.getBoundingClientRect().top - t0; if (dy) window.scrollBy(0, dy); }
 }
+// Each part renders on its own, so one that throws on odd ESPN data can't leave the page frozen or stop an open game updating
+const safe = (name, f) => { try { f(); return false; } catch (e) { console.error(name, e); return true; } };
 NBA.render = () => {
-  renderHeader();
-  renderTabs();
-  renderView();
-  if (UI.drawer) renderDrawer();
-  if (UI.settingsOpen) renderSettings();
-  if (NBA.ask && NBA.ask.render) NBA.ask.render();
+  safe('header', () => { renderHeader(); renderTabs(); renderTitle(); });
+  if (safe('view', renderView)) {
+    UI.paint($('#view'), `<section class="sec"><p class="empty">Something in ESPN's data broke this page. It will try again on the next refresh.</p></section>`);
+    UI.paint($('#season'), ''); UI.paint($('#pband'), '');
+  }
+  if (UI.drawer) safe('drawer', renderDrawer);
+  if (UI.settingsOpen) safe('settings', renderSettings);
+  if (NBA.ask && NBA.ask.render) safe('ask', NBA.ask.render);
   // Repaints recreate live dots and card glows; tying their pulse to the page clock lets a new one carry on mid-beat instead of restarting
   if (document.getAnimations) document.getAnimations().forEach(a => { if (a.animationName === 'blink' || a.animationName === 'glow') a.startTime = 0; });
 };
 window.addEventListener('hashchange', () => {
-  const { tab } = UI.route();
-  document.title = tab === 'home' ? 'NBA' : `${(TABS.find(t => t.id === tab) || {}).label || NBA.T(NBA.S.myTeam).name || 'NBA'} · NBA`;
   window.scrollTo(0, 0);
   NBA.render();
 });
@@ -233,7 +285,7 @@ function lock(on) {
 }
 UI.closeAll = fromHistory => {
   const had = UI.drawer || UI.settingsOpen;
-  UI.drawer = null; UI.settingsOpen = false; UI.resetArmed = false;
+  UI.drawer = null; UI.drawerBack = null; UI.settingsOpen = false; UI.resetArmed = false;
   $('#drawer').hidden = true; $('#settings').hidden = true;
   lock(false);
   if (UI.histPushed) { UI.histPushed = false; if (fromHistory !== true) history.back(); }
@@ -269,10 +321,17 @@ function findGame(id) {
   for (const k of ['day:', 'day:' + NBA.dayParam]) { const d = NBA.data(k); const g = d && d.games.find(x => x.id === id); if (g) return g; }
   return null;
 }
+// Focus returns to what opened the window; a control inside the window (a box-score name, a game-log row) is about to be replaced
+function noteOpener(opener) {
+  const n = opener || document.activeElement;
+  if (!(UI.drawer && $('#drawer').contains(n))) UI.lastFocus = n;
+}
 UI.openGame = (id, opener) => {
-  UI.lastFocus = opener || document.activeElement;
+  noteOpener(opener);
   UI.st.revealed.add(id);
-  UI.drawer = { id, tab: 'box', sort: null, scoringOnly: false, showAll: false, game: findGame(id) };
+  // The first tab is picked once the game's state is known: Matchup before tip-off, else Box score
+  UI.drawer = { id, tab: null, sort: null, scoringOnly: false, showAll: false, game: findGame(id) };
+  UI.drawerBack = null;
   UI.settingsOpen = false; $('#settings').hidden = true;
   if (!UI.histPushed) { history.pushState({ nbaGame: id }, ''); UI.histPushed = true; }
   $('#drawer').hidden = false; lock(true);
@@ -280,12 +339,19 @@ UI.openGame = (id, opener) => {
   renderDrawer();
   $('#drawer').scrollTop = 0;
   const c = $('#drawer [data-act="close"]'); if (c) c.focus();
-  NBA.need('summary:' + id, true).catch(() => {});
+  // A finished game's cached box score can't change, so only an unfinished one is refetched on open
+  const cached = NBA.data('summary:' + id);
+  NBA.need('summary:' + id, !(cached && cached.state === 'post')).catch(() => {});
   NBA.changed();
 };
-/* A player's card opens in the same window as a game, so closing, the back button and swipes all work the same way */
+/* A player's card opens in the same window as a game, so closing, the back button and swipes all work the same way.
+   Opened from a game, the game is kept in UI.drawerBack for the card's '← Back' button */
 UI.openPlayer = (id, opener) => {
-  UI.lastFocus = opener || document.activeElement;
+  if (UI.drawer && UI.drawer.kind !== 'player') {
+    const s = NBA.data('summary:' + UI.drawer.id) || findGame(UI.drawer.id) || UI.drawer.game;
+    UI.drawerBack = Object.assign({}, UI.drawer, { scroll: $('#drawer').scrollTop, title: s && s.away && s.home ? `${s.away.abbr} @ ${s.home.abbr}` : 'game' });
+  } else if (!UI.drawer) UI.drawerBack = null;
+  noteOpener(opener);
   UI.drawer = { kind: 'player', id: String(id) };
   UI.settingsOpen = false; $('#settings').hidden = true;
   if (!UI.histPushed) { history.pushState({ nbaPlayer: id }, ''); UI.histPushed = true; }
@@ -295,11 +361,14 @@ UI.openPlayer = (id, opener) => {
   $('#drawer').scrollTop = 0;
   const c = $('#drawer [data-act="close"]'); if (c) c.focus();
 };
+// The open game, including one waiting under a player card, so it keeps refreshing there
+const openGameId = () => !UI.drawer ? null : UI.drawer.kind === 'player' ? (UI.drawerBack && UI.drawerBack.id) || null : UI.drawer.id;
 NBA.pollHooks.push({
-  live: () => { const d = UI.drawer && NBA.data('summary:' + UI.drawer.id); return !!(d && d.state === 'in'); },
+  live: () => { const gid = openGameId(), d = gid && NBA.data('summary:' + gid); return !!(d && d.state === 'in'); },
   run: () => {
-    if (!UI.drawer || UI.drawer.kind === 'player') return null;
-    const k = 'summary:' + UI.drawer.id, d = NBA.data(k), g = findGame(UI.drawer.id);
+    const gid = openGameId();
+    if (!gid) return null;
+    const k = 'summary:' + gid, d = NBA.data(k), g = findGame(gid);
     // A game opened before tip-off is refetched once tip is near (or the scoreboard says it started), so it turns live on its own
     const tipping = d && d.state === 'pre' && ((g && g.state !== 'pre') || new Date(d.date) - Date.now() < 15 * 60000);
     return (!d || d.state === 'in' || tipping) ? NBA.need(k, true) : null;
@@ -314,7 +383,11 @@ function renderDrawer() {
   const g = findGame(d.id) || d.game;
   const away = data ? data.away : g && g.away, home = data ? data.home : g && g.home;
   const state = data ? data.state : g && g.state;
-  const detail = data ? (data.state === 'pre' && data.date ? UI.tipTime({ date: data.date, detail: data.detail }) : data.detail) : g ? (g.state === 'pre' ? UI.tipTime(g) : g.detail) : '';
+  // Postponed: 'post' without being completed, from the scoreboard game or the summary's own status
+  const pp = state === 'post' && ((!!g && g.completed === false) || (!!data && data.completed === false));
+  // A cached summary can be hours old: if the scoreboard says the game has started, open on the box score
+  if (!d.tab && state) d.tab = state === 'pre' && !(g && g.state !== 'pre') ? 'preview' : 'box';
+  const detail = data ? (data.state === 'pre' && data.date ? UI.tipTime({ date: data.date, detail: data.detail }) : NBA.detail(data)) : g ? (g.state === 'pre' ? UI.tipTime(g) : NBA.detail(g)) : '';
   const link = data ? data.link : g ? g.link : `https://www.espn.com/nba/game/_/gameId/${d.id}`;
   const title = away && home ? `${away.full || away.abbr} at ${home.full || home.abbr}` : 'Game';
   let html = `<div class="dr-bar dpad"><button class="ib" data-act="close" aria-label="Close game">${UI.I.close}</button>
@@ -322,23 +395,37 @@ function renderDrawer() {
   if (away && home) {
     const side = (t, isHome) => `<div class="dr-team${isHome ? ' home' : ''}">${UI.logo(Object.assign({}, t, NBA.T(t.id).logo ? { logo: NBA.T(t.id).logo, logoDark: NBA.T(t.id).logoDark } : {}), 56)}
       <div><div class="ab">${esc(t.abbr)}</div><div class="rec">${esc(t.record || '')}</div></div>
-      <div class="sc${state === 'post' && t.winner === false ? ' lostsc' : ''}">${state === 'pre' ? '' : esc(t.score)}</div></div>`;
+      <div class="sc${state === 'post' && !pp && t.winner === false ? ' lostsc' : ''}">${state === 'pre' || pp ? '' : esc(t.score)}</div></div>`;
     html += `<div class="dr-score dpad">${side(away, false)}<div class="dr-status${state === 'in' ? ' live' : ''}">${state === 'in' ? '<i class="dot blink"></i>' : ''}${esc(detail)}</div>${side(home, true)}</div>`;
     const nq = Math.max(away.lines.length, home.lines.length);
-    if (nq && state !== 'pre') {
+    if (nq && state !== 'pre' && !pp) {
       const cells = t => Array.from({ length: nq }, (_, i) => `<td>${esc(t.lines[i] ?? '')}</td>`).join('');
       html += `<div class="tblwrap dpad"><table class="lsx"><thead><tr><th></th>${Array.from({ length: nq }, (_, i) => `<th scope="col">${NBA.perLabel(i + 1)}</th>`).join('')}<th scope="col">T</th></tr></thead>
         <tbody><tr><td>${esc(away.abbr)}</td>${cells(away)}<td>${esc(away.score)}</td></tr><tr><td>${esc(home.abbr)}</td>${cells(home)}<td>${esc(home.score)}</td></tr></tbody></table></div>`;
+    }
+    // Highlight video and the recap story; opening a game reveals it, so there's no spoiler check here.
+    // The scoreboard's video is the full game highlights; the summary's first video can be a 15 s clip
+    if (state === 'post' && !pp) {
+      const v = (g && g.hl) || (data && data.video), rc = data && data.recap;
+      if (v || rc) {
+        html += `<div class="dpad dr-recap">${v ? `<button class="dr-vid" ${NBA.hlAttrs(v)}>${v.poster ? `<img src="${esc(NBA.img(v.poster, 660))}" alt="" loading="lazy" decoding="async">` : ''}<span>▶ ${esc(v.title || 'Highlights')}${v.dur ? ' · ' + NBA.fmtDur(v.dur) : ''}</span></button>` : ''}${rc ? `<div><b>${esc(rc.headline)}</b><p class="note">${esc(rc.description)}</p></div>` : ''}</div>`;
+      }
     }
     if (state === 'pre' && g && (g.odds || g.tv || g.venue)) {
       const o = g.odds, sm = o && UI.moved(o.spreadHome, g.home.abbr + ' '), tm = o && UI.moved(o.total);
       html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${g.tv ? `<span>TV <b>${esc(g.tv)}</b></span>` : ''}${o && o.details ? `<span>Line <b>${esc(o.details)}</b>${sm ? ` (${esc(sm)})` : ''}</span>` : ''}${o && o.ou ? `<span>O/U <b>${esc(o.ou)}</b>${tm ? ` (${esc(tm)})` : ''}</span>` : ''}${o && o.awayML ? `<span>Moneyline <b>${esc(g.away.abbr)} ${esc(o.awayML)} · ${esc(g.home.abbr)} ${esc(o.homeML)}</b></span>` : ''}${g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
     }
   }
-  const tabs = [['box', 'Box score'], ['team', 'Team stats'], ['plays', 'Plays'], ['wp', 'Win chance']];
+  // Matchup is there before tip-off, and stays for a game that tips off while it's open on that tab
+  const tabs = [...(state === 'pre' || d.tab === 'preview' ? [['preview', 'Matchup']] : []), ['box', 'Box score'], ['team', 'Team stats'], ['plays', 'Plays'], ['wp', 'Win chance']];
   html += `<div class="dtabs dpad" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-act="dtab" data-v="${k}" aria-selected="${d.tab === k}">${l}</button>`).join('')}</div>`;
+  // The win chance chart is drawn at the pane's real width, so its labels keep their size on a phone. The width
+  // ends up in the HTML, so a rotation redraws it on the next render
+  WP.W = Math.max(280, Math.min(1100, Math.round(el.clientWidth - (innerWidth <= 640 ? 28 : 44))));
+  WP.H = WP.W < 500 ? 210 : 230;
   let pane;
   if (!data) pane = `<p class="empty">${err ? "Couldn't load this game from ESPN. It will retry on the next refresh." : 'Loading game…'}</p>`;
+  else if (d.tab === 'preview') pane = paneMatchup(data, g);
   else if (d.tab === 'box') pane = paneBox(d, data);
   else if (d.tab === 'team') pane = paneTeam(data);
   else if (d.tab === 'plays') pane = panePlays(d, data);
@@ -353,6 +440,55 @@ function renderDrawer() {
     if (el.scrollTop !== top) el.scrollTop = top;
     if (data && d.tab === 'wp') bindWp(data);
   }
+}
+/* Before tip-off: ESPN's predictor, each side's last 5, the season series, team leaders, injuries, the line and
+   the preview story, all from the game's summary. A part ESPN hasn't posted is left out */
+function paneMatchup(data, g) {
+  const p = data.preview || {}, sides = [data.away, data.home].filter(Boolean);
+  // Each per-team list in away, home order, paired with that side's team
+  const per = list => sides.map(t => [t, (list || []).find(x => x.teamId === t.id)]).filter(([, x]) => x);
+  const tag = t => `${UI.logo(Object.assign({}, t, NBA.T(t.id).logo ? { logo: NBA.T(t.id).logo, logoDark: NBA.T(t.id).logoDark } : {}), 22)}<b>${esc(t.abbr)}</b>`;
+  const teamHd = t => `<div class="mx-row">${tag(t)}</div>`;
+  const out = [];
+  if (p.pred && Number.isFinite(p.pred.home) && Number.isFinite(p.pred.away)) {
+    const hw = Math.round(p.pred.home), aw = Math.round(p.pred.away);
+    const [ca, ch] = NBA.tones(data.away, data.home);
+    out.push(`<div class="mx-sec wp" aria-label="ESPN matchup predictor: ${esc(data.away.abbr)} ${aw}%, ${esc(data.home.abbr)} ${hw}%">
+      <div class="wpbar"><span style="flex:${aw};background:${ca}"></span><span style="flex:${hw};background:${ch}"></span></div>
+      <div class="wplab"><span>${esc(data.away.abbr)} ${aw}%</span><span class="mut">ESPN matchup predictor</span><span>${esc(data.home.abbr)} ${hw}%</span></div></div>`);
+  }
+  const l5 = per(p.last5).filter(([, x]) => x.games.length);
+  if (l5.length) {
+    // Results from the last 2 days stay hidden in spoiler mode until that game is opened
+    const pill = x => {
+      const m = NBA.masked(x.id, x.date);
+      return `<button class="mx-g ${m ? '' : x.res === 'W' ? 'w' : x.res === 'L' ? 'lo' : ''}" data-act="game" data-id="${esc(x.id)}"${m || x.my == null ? '' : ` title="${esc(`${x.res} ${x.my}-${x.their}`)}"`}><b>${m ? '•' : esc(x.res)}</b><small>${x.at === '@' ? '@' : 'vs'} ${esc(x.opp)}</small></button>`;
+    };
+    out.push(`<div class="mx-sec"><h3 class="bx-team">Last 5 games</h3>${l5.map(([t, x]) => `<div class="mx-row">${tag(t)}<div class="mx-pills">${x.games.map(pill).join('')}</div></div>`).join('')}</div>`);
+  }
+  const s = p.series;
+  if (s && (s.summary || s.total)) {
+    // Before the first meeting the summary ('Series starts 11/1') gives nothing away
+    const txt = NBA.S.spoilers && s.done ? `${s.done} of ${s.total} meetings played` : s.summary || `${s.done} of ${s.total} meetings played`;
+    out.push(`<div class="mx-sec"><h3 class="bx-team">Season series</h3><p class="note">${esc(txt)}</p></div>`);
+  }
+  const ld = per(p.leaders).filter(([, x]) => x.list.length);
+  if (ld.length) {
+    const unit = { points: 'PPG', rebounds: 'RPG', assists: 'APG' };
+    out.push(`<div class="mx-sec"><h3 class="bx-team">Team leaders</h3><div class="mx-lead">${ld.map(([t, x]) => `<div>${teamHd(t)}<ul class="inj2">${x.list.map(l => `<li>${l.id ? `<button class="plink" data-act="player" data-id="${esc(l.id)}">${UI.hs(l.headshot)}<b>${esc(l.name)}</b></button>` : `<b>${esc(l.name)}</b>`} <span class="mut">${esc(l.value)} ${unit[l.cat] || ''}</span></li>`).join('')}</ul></div>`).join('')}</div></div>`);
+  }
+  const inj = per(data.injuries);
+  if (inj.length) {
+    out.push(`<div class="mx-sec"><h3 class="bx-team">Injury report</h3><div class="mx-lead">${inj.map(([t, x]) => `<div>${teamHd(t)}<ul class="inj2">${x.list.map(i => `<li><b>${esc(i.name)}</b> <span class="mut">${esc(i.status)}${i.type ? ' · ' + esc(i.type) : ''}</span></li>`).join('')}</ul></div>`).join('')}</div></div>`);
+  }
+  // The line, unless the odds strip above the tabs already shows it
+  const pk = p.pick, ml = v => v === '' || v == null ? '' : (+v > 0 ? '+' : '') + v;
+  if (pk && pk.details && !(g && g.odds && g.odds.details)) {
+    const parts = [`Line ${pk.details}`, pk.ou !== '' ? `O/U ${pk.ou}` : '', pk.awayML !== '' && pk.homeML !== '' ? `ML ${data.away.abbr} ${ml(pk.awayML)} / ${data.home.abbr} ${ml(pk.homeML)}` : ''];
+    out.push(`<div class="mx-sec"><p class="note">${esc(parts.filter(Boolean).join(' · '))}</p></div>`);
+  }
+  if (p.article) out.push(`<div class="mx-sec"><a class="ext" href="${esc(p.article.href)}" target="_blank" rel="noopener">Preview: ${esc(p.article.headline)} ↗</a></div>`);
+  return out.length ? `<div class="mx">${out.join('')}</div>` : `<p class="empty">ESPN hasn't posted a preview for this game yet.</p>`;
 }
 function paneBox(d, data) {
   const S = NBA.S;
@@ -378,7 +514,8 @@ function boxTeam(b, d) {
     const on = d.sort && d.sort.k === b.keys[i];
     return `<th scope="col"><button class="sortb${on ? ' on' : ''}" data-act="sort" data-k="${esc(b.keys[i])}" aria-label="Sort by ${esc(b.labels[i])}">${esc(b.labels[i])}${on ? (d.sort.desc ? ' ↓' : ' ↑') : ''}</button></th>`;
   }).join('');
-  const prow = p => `<tr><th class="pl" scope="row">${esc(p.name)}<span class="pp">${esc(p.pos || '')}</span></th>${idx.map(i => `<td class="${b.keys[i] === 'points' ? 'pts' : ''}">${esc(p.stats[i] ?? '')}</td>`).join('')}</tr>`;
+  // A name opens the player's card, which has a button back to this game
+  const prow = p => `<tr><th class="pl" scope="row"><button class="plink" data-act="player" data-id="${esc(p.id)}">${esc(p.name)}</button><span class="pp">${esc(p.pos || '')}</span></th>${idx.map(i => `<td class="${b.keys[i] === 'points' ? 'pts' : ''}">${esc(p.stats[i] ?? '')}</td>`).join('')}</tr>`;
   const sub = l => `<tr class="sub"><th scope="rowgroup">${l}</th><th colspan="${idx.length}"></th></tr>`;
   let rows;
   if (d.sort) {
@@ -498,7 +635,7 @@ function bindWp(data) {
 /* ---------- settings ---------- */
 UI.openSettings = opener => {
   UI.lastFocus = opener || document.activeElement;
-  UI.drawer = null; $('#drawer').hidden = true;
+  UI.drawer = null; UI.drawerBack = null; $('#drawer').hidden = true;
   UI.settingsOpen = true; UI.resetArmed = false;
   $('#settings').hidden = false; lock(true);
   $('#settings')._html = null;
@@ -516,7 +653,9 @@ function renderSettings() {
   const el = $('#settings');
   if (!UI.settingsOpen) return;
   const S = NBA.S, t = NBA.T(S.myTeam);
-  const seg = (k, opts, label) => `<div class="seg big" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" aria-pressed="${(S[k] || '') === v}">${l}</button>`).join('')}</div>`;
+  // With no saved choice the theme follows the phone, so the button for what's showing is the pressed one
+  const cur = k => k === 'theme' && S.theme === 'system' ? (NBA.isDark() ? 'dark' : 'light') : (S[k] || '');
+  const seg = (k, opts, label) => `<div class="seg big" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button data-act="set" data-k="${k}" data-v="${v}" aria-pressed="${cur(k) === v}">${l}</button>`).join('')}</div>`;
   const sw = c => c ? `<i class="swatch" style="background:${esc(c)}"></i>` : '';
   const html = `
     <div class="dr-bar dpad"><button class="ib" data-act="close" aria-label="Close settings">${UI.I.close}</button><span class="dr-title" id="st-title">Settings</span><span class="note">Saves automatically</span></div>
@@ -534,7 +673,8 @@ function renderSettings() {
 const TEAM_VARS = ['--accent', '--accent-soft', '--accent-ink', '--chrome'];
 // A team known only from standings has no colors yet, and ESPN's stand-in is gray
 function hasColors(t) { return !!t.abbr && /^#[0-9a-f]{6}$/i.test(t.color || '') && t.color !== '#888888'; }
-function applyLook() {
+function applyLook() { applyLookInner(); syncThemeColor(); }
+function applyLookInner() {
   const r = document.documentElement;
   if (NBA.S.theme === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', NBA.S.theme);
   r.setAttribute('data-density', NBA.S.density);
@@ -555,7 +695,20 @@ function applyLook() {
   // Remembered so the next visit paints in team colors straight away
   try { if (look) localStorage.setItem('nba.look', JSON.stringify(look)); else localStorage.removeItem('nba.look'); } catch (e) { /* storage blocked */ }
 }
+/* The browser's toolbar takes the header's actual color: the chosen theme, tinted when team colors are on.
+   One meta tag without a media query, so it no longer follows only the phone's own setting */
+function syncThemeColor() {
+  const top = $('#top'); if (!top) return;
+  let c = getComputedStyle(top).backgroundColor; // resolves the color-mix team tint
+  // color-mix() comes back as color(srgb r g b), which a theme-color may not accept
+  const m = /^color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)/.exec(c);
+  if (m) c = `rgb(${[m[1], m[2], m[3]].map(v => Math.round(Math.min(1, Math.max(0, +v)) * 255)).join(', ')})`;
+  document.querySelectorAll('meta[name="theme-color"]').forEach((n, i) => { if (i) n.remove(); else { n.removeAttribute('media'); if (n.getAttribute('content') !== c) n.setAttribute('content', c); } });
+}
 UI.applyLook = applyLook;
+// A theme that follows the phone changes with it (older Safari has no addEventListener here)
+const darkMq = matchMedia('(prefers-color-scheme: dark)');
+if (darkMq.addEventListener) darkMq.addEventListener('change', () => { if (NBA.S.theme === 'system') { applyLook(); NBA.changed(); } });
 function repaintAll() {
   document.querySelectorAll('#view, #tabbar, #drawer, #settings').forEach(el => { el._html = null; });
   NBA.render();
@@ -581,6 +734,24 @@ Object.assign(NBA.actions, {
     renderDrawer();
   },
   allplays: () => { if (UI.drawer) { UI.drawer.showAll = true; renderDrawer(); } },
+  // From a player card back to the game it was opened from, on the same tab, sort and scroll
+  drawerback: () => {
+    const b = UI.drawerBack;
+    if (!b) return;
+    UI.drawerBack = null; UI.drawer = b;
+    const el = $('#drawer'); el._html = null;
+    renderDrawer();
+    el.scrollTop = b.scroll || 0;
+    const c = $('#drawer [data-act="close"]'); if (c) c.focus({ preventScroll: true });
+  },
+  // Highlights play in the #vid dialog, outside the view and the game window, so live repaints can't cut a video off
+  hl: a => {
+    const d = $('#vid');
+    if (!d || !d.showModal) { window.open(a.dataset.mp4 || a.dataset.hls, '_blank', 'noopener'); return; }
+    d.innerHTML = `<div class="vid-bar"><b>${esc(a.dataset.title)}</b><button class="ib" data-act="hlclose" aria-label="Close video">${UI.I.close}</button></div><video controls playsinline autoplay preload="metadata" poster="${esc(a.dataset.poster)}">${a.dataset.hls ? `<source src="${esc(a.dataset.hls)}" type="application/vnd.apple.mpegurl">` : ''}${a.dataset.mp4 ? `<source src="${esc(a.dataset.mp4)}" type="video/mp4">` : ''}</video>`;
+    d.showModal();
+  },
+  hlclose: () => stopVid($('#vid')),
   // Only the theme and team colors can be set here; everything else is fixed
   set: a => {
     const k = a.dataset.k;
@@ -592,8 +763,8 @@ Object.assign(NBA.actions, {
 });
 Object.assign(NBA.changes, {
   spoilers: t => { NBA.S.spoilers = t.checked; UI.st.revealed.clear(); NBA.save(); NBA.changed(); },
-  // The favorite team is also the highlighted team, and drives the team-colors theme
-  myTeam: t => { if (!t.value) return; NBA.S.myTeam = t.value; NBA.S.favorites = [t.value]; NBA.save(); applyLook(); repaintAll(); },
+  // The favorite team is also the highlighted team, and drives the team-colors theme. Standings on a phone reopens on its conference
+  myTeam: t => { if (!t.value) return; NBA.S.myTeam = t.value; NBA.S.favorites = [t.value]; NBA.save(); UI.st.confIdx = null; applyLook(); repaintAll(); },
   scoring: t => { if (UI.drawer) { UI.drawer.scoringOnly = t.checked; renderDrawer(); } },
 });
 document.addEventListener('click', e => {
@@ -611,19 +782,62 @@ document.addEventListener('input', e => {
   if (ch && NBA.changes[ch]) NBA.changes[ch](t, e);
 });
 document.addEventListener('keydown', e => {
+  // The video dialog closes itself on Esc; the game under it stays open
+  const vid = $('#vid');
+  if (e.key === 'Escape' && vid && vid.open) return;
   if (e.key === 'Escape') {
     if (NBA.ask && NBA.ask.isOpen()) { NBA.ask.close(); return; }
     if (UI.drawer || UI.settingsOpen) { UI.closeAll(); return; }
   }
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"][data-act]')) { e.preventDefault(); e.target.click(); }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"][data-act]')) { e.preventDefault(); e.target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
   if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#ask-input').focus(); }
 });
+// Emptying the video dialog stops the video and its sound
+function stopVid(d) { if (!d) return; if (d.open) d.close(); d.innerHTML = ''; }
+(() => {
+  const vid = $('#vid');
+  if (!vid) return;
+  // Esc closes the dialog natively; its close event comes a moment later, so check it wasn't reopened since
+  vid.addEventListener('close', e => { if (!e.target.open) e.target.innerHTML = ''; });
+  // A tap on the backdrop closes it. A press that starts inside (dragging the seek bar) and ends over the backdrop
+  // also fires its click on the dialog, so only a press that started on the backdrop counts
+  let downOnBackdrop = false;
+  vid.addEventListener('pointerdown', e => { downOnBackdrop = e.target === vid; });
+  vid.addEventListener('click', e => { if (e.target === vid && downOnBackdrop) stopVid(vid); downOnBackdrop = false; });
+})();
+
+/* ---------- new deploys ---------- */
+/* A Home Screen app can run for days without reloading. index.html carries a build stamp (and the same ?v= on every
+   asset): after a long time hidden, or half an hour idle, fetch it fresh and reload if the stamp changed, unless a
+   window is open or something is being typed */
+const BUILD = (document.querySelector('meta[name="build"]') || {}).content || '';
+let hiddenAt = 0, lastCheck = Date.now(), lastInput = Date.now();
+['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(t => addEventListener(t, () => { lastInput = Date.now(); }, { passive: true, capture: true }));
+NBA.checkBuild = async () => {
+  lastCheck = Date.now();
+  if (!BUILD) return;
+  try {
+    const html = await (await fetch('./?build=' + Date.now(), { cache: 'no-store' })).text();
+    const m = /<meta name="build" content="([^"]+)"/.exec(html);
+    const vid = $('#vid');
+    const busy = UI.drawer || UI.settingsOpen || (vid && vid.open) || (NBA.ask && (NBA.ask.busy || (NBA.ask.isOpen && NBA.ask.isOpen()))) || /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
+    if (m && m[1] !== BUILD && !busy) {
+      // Keep what lives only in memory across the reload: spoiler reveals, the selected day, the games' current rounds and streaks
+      const s = UI.st;
+      try { sessionStorage.setItem('nba.keep', JSON.stringify({ revealed: [...s.revealed], day: NBA.dayParam, hl: s.hl, hlStreak: s.hlStreak, quiz: s.quiz, quizStreak: s.quizStreak, slMode: s.slMode, slPractice: s.slPractice })); } catch (e) {}
+      location.reload();
+    }
+  } catch (e) { /* offline: check again later */ }
+};
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (hiddenAt && Date.now() - hiddenAt > 10 * 60000) NBA.checkBuild();
+});
+setInterval(() => { if (!document.hidden && Date.now() - lastCheck > 30 * 60000 && Date.now() - lastInput > 2 * 60000) NBA.checkBuild(); }, 60000);
 
 /* ---------- boot ---------- */
 NBA.boot = () => {
   applyLook();
-  const { tab } = UI.route();
-  if (tab !== 'home') document.title = `${(TABS.find(t => t.id === tab) || {}).label || 'NBA'} · NBA`;
   NBA.need('standings').catch(() => {});
   // The favorite team's schedule also supplies its colors on days it isn't on today's scoreboard
   NBA.need('tsched:' + NBA.S.myTeam).catch(() => {});

@@ -73,7 +73,8 @@ NBA.paramOf = iso => iso.replace(/-/g, '');
 NBA.isoFromParam = p => p ? `${p.slice(0, 4)}-${p.slice(4, 6)}-${p.slice(6, 8)}` : null;
 NBA.dateOfIso = iso => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
 NBA.shiftIso = (iso, n) => { const dt = NBA.dateOfIso(iso); dt.setDate(dt.getDate() + n); return NBA.isoOf(dt); };
-NBA.today = NBA.isoOf(started);
+NBA.etDay = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+NBA.today = NBA.etDay(started.getTime() - 3 * 3600000); // ESPN's day runs until 3 AM Eastern
 // Date formatters are cached: building one is slow, and schedule lists format hundreds of dates per render
 const DTF = new Map();
 const dtf = o => { const k = JSON.stringify(o); let f = DTF.get(k); if (!f) DTF.set(k, f = new Intl.DateTimeFormat([], o)); return f; };
@@ -150,6 +151,17 @@ const EXTRA_ALIASES = {
 };
 NBA.T = id => NBA.teams.get(String(id)) || { id: String(id), abbr: '', name: '', full: '', logo: '', color: '#888888', alt: '#BBBBBB' };
 NBA.lg = t => (NBA.isDark() && t.logoDark) ? t.logoDark : (t.logo || '');
+/* ESPN's image resizer. Width only: it keeps the aspect ratio. Callers ask for about 3x the CSS size, in a few
+   buckets so the cache is shared */
+// ESPN's own paths go in as a path; highlight posters live on ESPN's media CDN and go in as the full URL
+const CDN_IMG = /^https:\/\/a\.espncdn\.com(\/(?:i|photo)\/[^?#]+)$|^https:\/\/espnmedia-cdn\.akamaized\.net\/[^?#]+$/;
+NBA.img = (url, w) => { const m = CDN_IMG.exec(url || ''); return m && w ? `https://a.espncdn.com/combiner/i?img=${encodeURIComponent(m[1] || m[0])}&w=${w}` : (url || ''); };
+// If the resizer ever fails, fall back to the original file once
+document.addEventListener('error', e => {
+  const n = e.target, attr = n && n.tagName === 'IMG' ? 'src' : n && n.tagName === 'image' ? 'href' : '';
+  const v = attr ? n.getAttribute(attr) || '' : '', m = /\/combiner\/i\?img=([^&]+)/.exec(v);
+  if (m) { const src = decodeURIComponent(m[1]); n.setAttribute(attr, /^https?:/.test(src) ? src : 'https://a.espncdn.com' + src); }
+}, true);
 // "WAS" is the NBA's own code for the Wizards (ESPN uses WSH). It counts only as an exact code, since in free text it is the word "was"
 NBA.teamByAbbr = abbr => { const a = String(abbr).toLowerCase() === 'was' ? 'wsh' : String(abbr).toLowerCase(); return [...NBA.teams.values()].find(t => t.abbr && t.abbr.toLowerCase() === a); };
 /* Team colors are remembered between visits, so the team-colors theme has them even on days a team
@@ -158,7 +170,8 @@ const COLORS_KEY = 'nba.colors.v1';
 const savedColors = readJSON(COLORS_KEY) || {};
 Object.entries(savedColors).forEach(([id, c]) => { if (Array.isArray(c)) NBA.teams.set(id, Object.assign(NBA.teams.get(id) || { id }, { color: c[0], alt: c[1] })); });
 function mergeTeam(t) {
-  if (!t || !t.id || t.id === 'undefined') return;
+  // NBA Cup 'TBD' placeholders come with ids -1 and -2 and aren't teams
+  if (!t || !t.id || t.id === 'undefined' || !(+t.id > 0)) return;
   const cur = NBA.teams.get(t.id) || {};
   NBA.teams.set(t.id, Object.assign(cur, {
     id: t.id, abbr: t.abbr || cur.abbr, name: t.name || cur.name, full: t.full || cur.full, location: t.location || cur.location,
@@ -198,11 +211,30 @@ NBA.findTeams = text => {
   return found;
 };
 
+/* ---------- spoilers, game status text and highlights ---------- */
+// Scores in the 60s-190s, or result verbs, mark a story as giving away a result. Previews always stay
+const SPOIL_RE = /\b(?:[6-9]\d|1\d\d)-(?:[6-9]\d|1\d\d)\b|\b(?:beat|beats|beaten|win|wins|won|victory|defeats?|defeated|routs?|routed|edges?|edged|tops|topped|snaps?|snapped|loses|lost|rall(?:y|ies|ied)|holds? (?:on|off)|triple-double)\b/i;
+NBA.newsSafe = a => !NBA.S.spoilers || a.type === 'Preview' || (a.type !== 'Recap' && a.type !== 'Media' && !SPOIL_RE.test(`${a.headline} ${a.description || ''}`));
+// A result stays hidden in spoiler mode for 2 days unless that game was opened. UI.st.revealed empties on every
+// reload, so without the window old results would stay hidden forever
+NBA.masked = (id, date) => !!NBA.S.spoilers && !(NBA.ui && NBA.ui.st.revealed.has(String(id))) && Date.now() - new Date(date).getTime() < 2 * 864e5;
+// ESPN sends '0.0 - 2nd' at the end of a period
+NBA.detail = g => String((g && g.detail) || '').replace(/^0\.0 - (\S+)/i, 'End of $1');
+NBA.fmtDur = s => { const t = Math.round(s) || 0; return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+// The data-act="hl" attributes that open a highlight in the video dialog
+NBA.hlAttrs = h => `data-act="hl" data-hls="${NBA.esc(h.hls)}" data-mp4="${NBA.esc(h.mp4)}" data-poster="${NBA.esc(h.poster)}" data-title="${NBA.esc(h.title)}"`;
+
 /* ---------- fetching with a small resource cache ---------- */
-async function getJSON(url) {
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+// Every request gives up after 15 s, so one that never settles (a network handoff, the phone locking) can't stall polling.
+// The two big feeds (players, month) get 60 s so they can still finish on a slow link.
+// AbortController rather than AbortSignal.timeout, which older iOS lacks
+async function getJSON(url, ms = 15000) {
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), ms);
+  try {
+    const r = await fetch(url, { cache: 'no-store', signal: ac.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json(); // awaited inside try, so a body that stalls mid-download is covered too
+  } finally { clearTimeout(t); }
 }
 NBA.getJSON = getJSON;
 const RES = new Map();
@@ -242,13 +274,18 @@ NBA.changed = () => {
 
 /* ---------- parsing ---------- */
 const headshotOf = h => typeof h === 'string' ? h : (h && h.href) || '';
+// ESPN sometimes leaves a live score blank (score: []); the quarter scores still add up to it
+const lineSum = ls => { const v = (ls || []).map(l => parseFloat(l.value ?? l.displayValue)); return v.length && v.every(Number.isFinite) ? String(v.reduce((a, b) => a + b, 0)) : ''; };
+const scoreOf = c => { const s = c.score; if (typeof s === 'number' || (typeof s === 'string' && s !== '')) return String(s); if (s && typeof s === 'object' && !Array.isArray(s) && s.displayValue != null) return String(s.displayValue); return lineSum(c.linescores); };
+// A highlight video: HLS for Safari, mp4 for everything else
+const hlOf = h => { const s = (h && h.links && h.links.source) || {}; return h && (s.href || (s.HLS && s.HLS.href)) ? { title: h.headline || '', dur: h.duration || 0, poster: h.thumbnail || '', hls: (s.HLS && s.HLS.href) || '', mp4: s.href || '' } : null; };
 function parseTeam(c) {
   const t = c.team || {};
   return {
     id: String(t.id), abbr: t.abbreviation || '', name: t.shortDisplayName || t.name || '', full: t.displayName || '', location: t.location || '',
     color: '#' + (t.color || '888888'), alt: '#' + (t.alternateColor || 'BBBBBB'),
     logo: t.logo || (t.logos && t.logos[0] && t.logos[0].href) || '', logoDark: t.logoDark || '',
-    score: c.score ?? '', home: c.homeAway === 'home', winner: c.winner,
+    score: scoreOf(c), home: c.homeAway === 'home', winner: c.winner,
     record: ((c.records || []).find(r => r.type === 'total') || {}).summary || '',
     lines: (c.linescores || []).map(l => l.displayValue ?? l.value),
     leaders: (c.leaders || []).filter(l => ['points', 'rebounds', 'assists'].includes(l.name)).map(l => {
@@ -292,6 +329,7 @@ function parseGame(ev) {
     venue: c.venue ? [c.venue.fullName, c.venue.address && c.venue.address.city].filter(Boolean).join(', ') : '',
     lastPlay: c.situation && c.situation.lastPlay ? c.situation.lastPlay.text : '',
     recap: (c.headlines && c.headlines[0] && c.headlines[0].shortLinkText) || '',
+    hl: st.type.state === 'post' ? hlOf((c.highlights || [])[0]) : null,
     homeWin: prob && typeof prob.homeWinPercentage === 'number' ? prob.homeWinPercentage : null,
     odds: parseOdds(c),
     link: summaryLink ? summaryLink.href : `https://www.espn.com/nba/game/_/gameId/${ev.id}`,
@@ -332,6 +370,8 @@ function parseSchedule(j, id) {
     const nat = (c.broadcasts || []).filter(b => b.market && (b.market.type === 'National' || b.market === 'national')).map(b => b.media && b.media.shortName).filter(Boolean);
     return {
       id: String(ev.id), date: ev.date, state: c.status && c.status.type ? c.status.type.state : 'pre',
+      // A postponed game is 'post' but not completed
+      completed: !!(c.status && c.status.type && c.status.type.completed),
       detail: c.status && c.status.type ? c.status.type.shortDetail : '',
       home: me.homeAway === 'home', oppId: String(op.team && op.team.id), oppAbbr: op.team && op.team.abbreviation,
       oppName: op.team && (op.team.shortDisplayName || op.team.displayName),
@@ -339,6 +379,8 @@ function parseSchedule(j, id) {
     };
   });
 }
+// A game that was played to the end: postponed and canceled games are 'post' too. Works on scoreboard games and schedule events
+NBA.isFinal = g => g.state === 'post' && g.completed !== false;
 function parseSummary(j, id) {
   const comp = (j.header && j.header.competitions && j.header.competitions[0]) || {};
   const teams = (comp.competitors || []).map(c => {
@@ -348,7 +390,7 @@ function parseSummary(j, id) {
       id: String(t.id), abbr: t.abbreviation || reg.abbr, name: t.name || reg.name, full: t.displayName || reg.full,
       logo: reg.logo || (t.logos && t.logos[0] && t.logos[0].href) || '', logoDark: reg.logoDark,
       color: reg.color || ('#' + (t.color || '888888')), alt: reg.alt || ('#' + (t.alternateColor || 'BBBBBB')),
-      score: c.score ?? '', home: c.homeAway === 'home', winner: c.winner,
+      score: scoreOf(c), home: c.homeAway === 'home', winner: c.winner,
       record: ((c.record || []).find(r => r.type === 'total') || (c.record || [])[0] || {}).summary || '',
       lines: (c.linescores || []).map(l => l.displayValue ?? l.value),
     };
@@ -369,22 +411,61 @@ function parseSummary(j, id) {
     const m = {}; (t.statistics || []).forEach(x => { m[x.name] = x.displayValue; });
     return { teamId: String(t.team.id), m };
   });
+  const st = comp.status || { type: {} };
   const plays = (j.plays || []).map(p => ({
     id: String(p.id), text: p.text || '', clock: p.clock ? p.clock.displayValue : '', period: p.period ? p.period.number : 0,
     away: p.awayScore, home: p.homeScore, scoring: !!p.scoringPlay, teamId: p.team ? String(p.team.id) : '', wall: p.wallclock || '',
   }));
+  // A score still blank after the quarter scores is read from the latest play
+  const lp = plays[plays.length - 1];
+  if (lp && st.type.state !== 'pre') {
+    if (away && away.score === '' && lp.away != null) away.score = String(lp.away);
+    if (home && home.score === '' && lp.home != null) home.score = String(lp.home);
+  }
   const lastWall = plays.map(p => p.wall).filter(Boolean).pop();
   const injuries = (j.injuries || []).map(t => ({
     teamId: String(t.team && t.team.id),
     list: (t.injuries || []).map(i => ({ name: i.athlete ? i.athlete.displayName : '', status: i.status || '', type: i.details ? i.details.type : '' })),
   })).filter(t => t.list.length);
-  const st = comp.status || { type: {} };
   const link = ((j.header && j.header.links) || []).find(l => (l.rel || []).includes('summary'));
+  const art = j.article;
   return {
-    id, date: comp.date, away, home, state: st.type.state, detail: st.type.shortDetail || st.type.detail || '',
+    id, date: comp.date, away, home, state: st.type.state, completed: st.type.completed, detail: st.type.shortDetail || st.type.detail || '',
     ended: st.type.state === 'post' ? lastWall || '' : '',
     box, tstats, plays, wp: j.winprobability || [], injuries,
     link: link ? link.href : `https://www.espn.com/nba/game/_/gameId/${id}`,
+    video: hlOf((j.videos || []).find(v => v.links && v.links.source)),
+    recap: art && art.type === 'Recap' ? { headline: art.headline || '', description: art.description || '' } : null,
+    preview: parsePreview(j),
+  };
+}
+/* The pre-game matchup from the same summary: ESPN's predictor, each team's last five games, the season series,
+   team leaders, the line and the preview article. Any part ESPN hasn't posted is null or empty */
+function parsePreview(j) {
+  const art = j.article, pr = j.predictor;
+  const ss = j.seasonseries || [], s = ss.find(x => x.type === 'season') || ss[0];
+  const p = (j.pickcenter || [])[0];
+  return {
+    pred: pr && pr.homeTeam ? { home: parseFloat(pr.homeTeam.gameProjection), away: parseFloat((pr.awayTeam || {}).gameProjection) } : null,
+    // The feed's 'score' string puts the winner first, so each side's points come from the home and away scores
+    last5: (j.lastFiveGames || []).map(t => {
+      const tid = String(t.team && t.team.id);
+      return { teamId: tid, games: (t.events || []).map(e => {
+        const home = String(e.homeTeamId) === tid;
+        return { id: String(e.id), date: e.gameDate, res: e.gameResult || '', at: e.atVs || '', opp: (e.opponent && e.opponent.abbreviation) || '', my: home ? e.homeTeamScore : e.awayTeamScore, their: home ? e.awayTeamScore : e.homeTeamScore };
+      }) };
+    }),
+    series: s ? { summary: s.summary || '', total: s.totalCompetitions || 0, done: (s.events || []).filter(e => e.statusType && e.statusType.completed).length } : null,
+    leaders: (j.leaders || []).map(t => ({
+      teamId: String(t.team && t.team.id),
+      list: (t.leaders || []).filter(c => /^(points|rebounds|assists)PerGame$/.test(c.name)).map(c => {
+        const l = (c.leaders || [])[0] || {}, a = l.athlete || {};
+        return { cat: c.name.replace('PerGame', ''), value: l.displayValue || '', id: String(a.id || ''), name: a.displayName || '', headshot: headshotOf(a.headshot) };
+      }),
+    })),
+    // pickcenter stays empty until a line is posted
+    pick: p ? { details: p.details || '', ou: p.overUnder ?? '', awayML: (p.awayTeamOdds || {}).moneyLine ?? '', homeML: (p.homeTeamOdds || {}).moneyLine ?? '' } : null,
+    article: art && art.type !== 'Recap' && art.links && art.links.web ? { headline: art.headline || '', href: art.links.web.href } : null,
   };
 }
 function parseGameLog(j) {
@@ -445,7 +526,8 @@ function catValues(defs, cats) {
   const v = {};
   (cats || []).forEach((c, i) => {
     const names = (defs.find(x => x.name === c.name) || defs[i] || {}).names || [];
-    const vals = c.totals || c.values || [];
+    // values are full precision; totals are ESPN's rounded display strings
+    const vals = c.values || c.totals || [];
     names.forEach((n, k) => { v[n] = f(vals[k]); });
   });
   return v;
@@ -576,7 +658,8 @@ function parseRoster(j, extras) {
 /* ---------- resources ---------- */
 NBA.bumps = new Set();
 const prevScores = new Map();
-def('day', p => (p ? 30 * 60000 : 60000), async p => {
+// A past day whose games are all over can't change, so it keeps for 12 hours
+def('day', (p, d) => !p ? 60000 : d && NBA.isoFromParam(p) < NBA.today && d.games.every(g => g.state === 'post') ? 12 * 3600000 : 30 * 60000, async p => {
   let j = await getJSON(API + '/scoreboard' + (p ? '?dates=' + p : ''));
   if (!p) {
     // ESPN keeps showing last night's games until mid-morning. From 3 AM Eastern, "today" is the new day's slate.
@@ -594,7 +677,11 @@ def('day', p => (p ? 30 * 60000 : 60000), async p => {
   const season = j.leagues && j.leagues[0] && j.leagues[0].season;
   if (season && season.type && (season.type.type === 2 || season.type.type === 3)) NBA.seasonType = season.type.type;
   if (!p) {
-    if (j.day && j.day.date) NBA.today = j.day.date;
+    if (j.day && j.day.date) {
+      NBA.today = j.day.date;
+      // A later day picked on the Schedule that has since become today goes back to the live board, which polls every 10 s
+      if (NBA.dayParam === NBA.paramOf(NBA.today)) NBA.dayParam = '';
+    }
     // Every date with games this season (ET), used to lay out the rest-of-season list
     const cal = j.leagues && j.leagues[0] && j.leagues[0].calendar;
     if (Array.isArray(cal) && cal.length) NBA.calendar = cal.map(c => String((c && c.date) || c).slice(0, 10));
@@ -609,9 +696,8 @@ def('day', p => (p ? 30 * 60000 : 60000), async p => {
   return { day: (j.day && j.day.date) || NBA.isoFromParam(p), games };
 });
 /* A whole month of games in one request (about 230 KB compressed), grouped by ESPN's ET game day */
-NBA.etDay = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 def('month', 2 * 3600000, async ym => {
-  const j = await getJSON(`${API}/scoreboard?dates=${ym}&limit=500`);
+  const j = await getJSON(`${API}/scoreboard?dates=${ym}&limit=500`, 60000);
   const days = {};
   (j.events || []).map(parseGame).forEach(g => { const d = NBA.etDay(g.date); (days[d] = days[d] || []).push(g); });
   return { ym, days };
@@ -623,11 +709,13 @@ def('standings', 10 * 60000, async () => {
 });
 def('news', 5 * 60000, async team => (await getJSON(`${API}/news?limit=${team ? 12 : 40}${team ? '&team=' + team : ''}`)).articles || []);
 def('injuries', 10 * 60000, async () => parseInjuries(await getJSON(`${API}/injuries`)));
-def('players', 30 * 60000, async () => parsePlayers(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byathlete?region=us&lang=en&contentorigin=espn&isqualified=false&page=1&limit=1000&sort=offensive.avgPoints%3Adesc&season=${NBA.SEASON}&seasontype=${NBA.seasonType}`)));
+def('players', 30 * 60000, async () => parsePlayers(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byathlete?region=us&lang=en&contentorigin=espn&isqualified=false&page=1&limit=1000&sort=offensive.avgPoints%3Adesc&season=${NBA.SEASON}&seasontype=${NBA.seasonType}`, 60000)));
+/* The core leaders feed: 100 PER rows, deep enough for the view to keep only rotation players.
+   Rows carry the player id only; names and headshots come from NBA.playerById */
 def('per', 30 * 60000, async () => {
-  const j = await getJSON(`${WEB}/site/v3/sports/basketball/nba/leaders?season=${NBA.SEASON}&seasontype=${NBA.seasonType}`);
-  const cat = ((j.leaders && j.leaders.categories) || []).find(c => c.name === 'PER');
-  return cat ? cat.leaders.map(l => ({ id: String(l.athlete && l.athlete.id), name: l.athlete && l.athlete.displayName, value: l.value, display: l.displayValue, headshot: l.athlete && headshotOf(l.athlete.headshot) })) : [];
+  const j = await getJSON(`${CORE}/seasons/${NBA.SEASON}/types/${NBA.seasonType}/leaders?limit=100`);
+  const cat = (j.categories || []).find(c => c.name === 'PER');
+  return cat ? (cat.leaders || []).map(l => ({ id: (/athletes\/(\d+)/.exec((l.athlete && l.athlete.$ref) || '') || [])[1] || '', value: l.value, display: l.displayValue })).filter(r => r.id) : [];
 });
 def('teamstats', 30 * 60000, async () => parseTeamStats(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byteam?region=us&lang=en&season=${NBA.SEASON}&seasontype=${NBA.seasonType}`)));
 def('futures', 15 * 60000, async () => parseFutures(await getJSON(`${CORE}/seasons/${NBA.SEASON}/futures?limit=100`)));
@@ -639,9 +727,12 @@ def('athlete', 24 * 3600000, async id => {
   const name = a.displayName || a.fullName || [a.firstName, a.lastName].filter(Boolean).join(' ');
   return { id, name, short: a.shortName || name, headshot: headshotOf(a.headshot), teamId: tm ? tm[1] : '', coach: !!a.coach };
 });
-// Refreshed every minute while one of the team's games is under way, so the result shows soon after the final
-def('tsched', (id, d) => d && d.events.some(e => e.state !== 'post' && Date.now() - new Date(e.date) > 0 && Date.now() - new Date(e.date) < 6 * 3600000) ? 60000 : 15 * 60000, async id => {
+// The feed is about 820 KB, so it isn't sped up during games: Home, Schedule and team pages lay the live state
+// from the 10 s scoreboard over it
+def('tsched', 15 * 60000, async id => {
   const j = await getJSON(`${API}/teams/${id}/schedule?season=${NBA.SEASON}`);
+  // Names and logo too, so a team page renders even when no scoreboard or standings have it
+  if (j.team) mergeTeam({ id: String(id), abbr: j.team.abbreviation, name: j.team.shortDisplayName || j.team.name, full: j.team.displayName, location: j.team.location, logo: j.team.logo });
   // The schedule feed carries the team's main color, a fallback for the team-colors theme
   const reg = NBA.teams.get(String(id));
   if (j.team && j.team.color && !(reg && reg.color && reg.color !== '#888888')) mergeTeam({ id: String(id), color: '#' + j.team.color });
@@ -650,6 +741,7 @@ def('tsched', (id, d) => d && d.events.some(e => e.state !== 'post' && Date.now(
 // A roster built without data/extras.json is rebuilt after 5 minutes instead of an hour, in case it has turned up
 def('roster', (id, d) => d && d.noExtras ? 5 * 60000 : 60 * 60000, async id => {
   const [j, extras] = await Promise.all([getJSON(`${API}/teams/${id}/roster`), need('extras').catch(() => NBA.data('extras') || null)]);
+  if (j.team) mergeTeam({ id: String(id), abbr: j.team.abbreviation, name: j.team.shortDisplayName || j.team.name, full: j.team.displayName, location: j.team.location, logo: j.team.logo });
   return Object.assign(parseRoster(j, extras), { noExtras: !(extras && extras.updated) });
 });
 /* Built once a day by .github/workflows/extras.yml. Before its first run the file doesn't exist (404), which means
@@ -657,6 +749,21 @@ def('roster', (id, d) => d && d.noExtras ? 5 * 60000 : 60 * 60000, async id => {
 def('extras', (a, d) => d && d.updated ? 3 * 3600000 : 5 * 60000,
   () => getJSON('data/extras.json').catch(e => { if (e.message === 'HTTP 404') return { players: {} }; throw e; }));
 def('summary', (id, d) => (d && d.state === 'post' ? 6 * 3600000 : 15000), async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
+// The matchup preview and injuries, on a 10-minute cache so Home never pulls the 15-second live summary
+def('preview', 10 * 60000, async id => { const s = parseSummary(await getJSON(`${API}/summary?event=${id}`), id); return Object.assign({}, s.preview, { injuries: s.injuries }); });
+/* ESPN BPI projections for all 30 teams, by team id. Each stat comes as value and, with a D suffix, display text:
+   projectedw 42.706, probmakeplayoffsD '68.3%', probwintitleD '1.1%', sosremainingrankD '7th' */
+def('bpi', 3600000, async () => {
+  const j = await getJSON(`${CORE}/seasons/${NBA.SEASON}/powerindex?limit=30`);
+  const m = new Map();
+  (j.items || []).forEach(it => {
+    const id = /teams\/(\d+)/.exec((it.team && it.team.$ref) || '');
+    if (!id) return;
+    const s = {}; (it.stats || []).forEach(x => { s[x.name] = x.value; s[x.name + 'D'] = x.displayValue; });
+    m.set(id[1], s);
+  });
+  return m;
+});
 def('gamelog', 15 * 60000, async id => parseGameLog(await getJSON(`${WEB}/common/v3/sports/basketball/nba/athletes/${id}/gamelog?season=${NBA.SEASON}`)));
 // 'career:<id>.2' is the regular season, 'career:<id>.3' the playoffs
 def('career', 30 * 60000, async arg => {
@@ -667,11 +774,21 @@ def('career', 30 * 60000, async arg => {
   const got = ((j.filters || []).find(f => f.name === 'seasontype') || {}).value;
   return type === '3' && got != null && String(got) !== '3' ? parseCareer({}) : parseCareer(j);
 });
-// Awards a player has won, by season: ESPN lists links, one request per award
+// Awards a player has won, by season: ESPN lists links, one request per award. The list changes a few times a year,
+// so it's kept in this browser for a week (the 40 most recent players)
 def('awards', 24 * 3600000, async id => {
-  const j = await getJSON(`https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/athletes/${id}/awards?lang=en&limit=200`);
+  const KEY = 'nba.awards.v1', all = readJSON(KEY) || {}, hit = all[id];
+  if (hit && Array.isArray(hit.list) && Date.now() - hit.t < 7 * 864e5) return hit.list;
+  const j = await getJSON(`${CORE}/athletes/${id}/awards?lang=en&limit=200`);
   const items = await Promise.all((j.items || []).map(i => getJSON(String(i.$ref).replace(/^http:/, 'https:')).catch(() => null)));
-  return items.filter(Boolean).map(a => ({ yr: +((/seasons\/(\d{4})/.exec((a.season && a.season.$ref) || '') || [])[1] || 0), name: a.name || '' })).filter(a => a.yr && a.name);
+  const list = items.filter(Boolean).map(a => ({ yr: +((/seasons\/(\d{4})/.exec((a.season && a.season.$ref) || '') || [])[1] || 0), name: a.name || '' })).filter(a => a.yr && a.name);
+  // A partial list (some award lookups failed) isn't saved, so the next visit tries again
+  if (items.every(Boolean)) {
+    all[id] = { t: Date.now(), list };
+    const keep = Object.entries(all).sort((a, b) => b[1].t - a[1].t).slice(0, 40);
+    try { localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(keep))); } catch (e) { /* storage full or blocked */ }
+  }
+  return list;
 });
 /* Season plus-minus per player (ESPN keeps it only in per-player season stats) */
 def('pm', 6 * 3600000, async id => {
@@ -795,7 +912,7 @@ NBA.leaders = ({ stat = 'pts', mode = 'game', limit = 10, teamId, conf, pos, low
 NBA.recentForm = (days = 7, get = NBA.data) => {
   const keys = Array.from({ length: days }, (_, i) => i === 0 ? 'day:' : 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -i)));
   const seen = new Set(), map = new Map();
-  keys.map(k => get(k)).filter(Boolean).flatMap(d => d.games).filter(g => g.state === 'post' && !seen.has(g.id) && seen.add(g.id))
+  keys.map(k => get(k)).filter(Boolean).flatMap(d => d.games).filter(g => NBA.isFinal(g) && !seen.has(g.id) && seen.add(g.id))
     .forEach(g => [[g.away, g.home], [g.home, g.away]].forEach(([t, o]) => {
       const a = map.get(t.id) || { w: 0, l: 0, pf: 0, pa: 0, gp: 0 };
       a.gp++; a.pf += +t.score; a.pa += +o.score;
@@ -881,21 +998,39 @@ function nextDelay() {
   const hookLive = NBA.pollHooks.some(h => h.live && h.live());
   return (live || soon || hookLive) ? NBA.S.refresh * 1000 : 120000;
 }
+NBA.nextDelay = nextDelay;
 NBA.lastUpdate = 0;
 NBA.failing = false;
+// After a failed poll, try again in 3, 6, 12, 24 then 48 s (never later than the normal delay)
+let fails = 0;
+const BACKOFF = [3000, 6000, 12000, 24000, 48000];
+// Lift every resource's 30 s retry lock, after a reconnect or resume
+NBA.retryNow = () => RES.forEach(r => { r.retry = 0; });
 NBA.poll = async () => {
   clearTimeout(pollTimer);
   if (!document.hidden) {
-    const jobs = [need('day:', true).then(() => { NBA.lastUpdate = Date.now(); NBA.failing = false; }, () => { NBA.failing = true; })];
+    const jobs = [need('day:', true).then(() => { NBA.lastUpdate = Date.now(); NBA.failing = false; fails = 0; }, () => { NBA.failing = true; fails++; })];
     if (NBA.dayParam) jobs.push(need('day:' + NBA.dayParam).catch(() => {}));
     NBA.pollHooks.forEach(h => { const p = h.run && h.run(); if (p) jobs.push(p.catch(() => {})); });
     await Promise.allSettled(jobs);
     NBA.changed();
   }
-  pollTimer = setTimeout(NBA.poll, nextDelay());
+  // A poll started while this one waited (online, resume) also schedules one; keep only the last
+  clearTimeout(pollTimer);
+  const d = nextDelay();
+  // The delay actually set, so the stale indicator in ui.js measures against the poll that's really coming
+  NBA.pollDelay = fails ? Math.min(d, BACKOFF[Math.min(fails, BACKOFF.length) - 1]) : d;
+  pollTimer = setTimeout(NBA.poll, NBA.pollDelay);
 };
-NBA.reschedule = () => { clearTimeout(pollTimer); pollTimer = setTimeout(NBA.poll, nextDelay()); };
+NBA.reschedule = () => { clearTimeout(pollTimer); NBA.pollDelay = nextDelay(); pollTimer = setTimeout(NBA.poll, NBA.pollDelay); };
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && Date.now() - NBA.lastUpdate > NBA.S.refresh * 1000) NBA.poll();
+  if (document.hidden) return;
+  if (NBA.failing) NBA.retryNow();
+  // Repaint first, so the open tab's stale feeds load alongside the scoreboard
+  NBA.changed();
+  if (Date.now() - NBA.lastUpdate > NBA.S.refresh * 1000) NBA.poll();
 });
+window.addEventListener('online', () => { NBA.retryNow(); NBA.poll(); });
+// Coming back from the back-forward cache (iOS Home Screen apps resume this way)
+window.addEventListener('pageshow', e => { if (e.persisted) { NBA.retryNow(); NBA.poll(); } });
 })();

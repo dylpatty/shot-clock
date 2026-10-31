@@ -56,6 +56,8 @@ const ROUND_STATS = ['pts', 'reb', 'ast', 'tpm', 'stl', 'blk', 'min'];
 const card = (title, end, body, cls = '') => `<div class="card gm ${cls}"><div class="card-h"><h3>${title}</h3>${end ? `<div class="end">${end}</div>` : ''}</div><div class="card-b gm-b">${body}</div></div>`;
 const who = p => `${esc(p.team)} · ${esc(POS[p.pos] || p.pos || '')}`;
 const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '–';
+// No spoilers: a graded pick or call on a game from the last 2 days stays out of records and points until the game is opened
+const masked = (gid, date) => NBA.masked(gid, date);
 // Pressing Enter in a name box picks the first suggestion under it
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter' || !e.target.matches('.gm-find input')) return;
@@ -161,7 +163,7 @@ function sleuthView() {
   if (!g.done) {
     top = `<div class="gm-find"><label class="sr" for="sl-q">Guess a player</label><input class="field big" id="sl-q" data-in="slq" type="search" autocomplete="off" spellcheck="false" placeholder="Type a player's name · ${left} guess${left === 1 ? '' : 'es'} left" value="${esc(st.slQ || '')}">${suggestions(st.slQ, 'slguess', g.guesses)}</div>`;
   } else {
-    top = `<div class="gm-reveal ${g.won ? 'won' : 'lost'}">${UI.hs(ans.headshot)}<div class="rv-txt"><div class="eyebrow">${g.won ? `Solved in ${guesses.length} of ${MAXG}` : 'Out of guesses. It was'}</div><div class="nm">${esc(ans.name)}</div>
+    top = `<div class="gm-reveal ${g.won ? 'won' : 'lost'}">${UI.hs(ans.headshot, 'hs', 330)}<div class="rv-txt"><div class="eyebrow">${g.won ? `Solved in ${guesses.length} of ${MAXG}` : 'Out of guesses. It was'}</div><div class="nm">${esc(ans.name)}</div>
       <div class="mut">${who(ans)} · ${ans.age ? ans.age + ' years old · ' : ''}${NBA.fix(ans.pts)} pts, ${NBA.fix(ans.reb)} reb, ${NBA.fix(ans.ast)} ast</div></div>
       <div class="rv-acts">${practice ? '<button class="btn primary" data-act="slpractice">Another round</button>' : `<button class="btn" data-act="slshare">${st.slCopied ? 'Copied' : 'Copy result'}</button><button class="btn primary" data-act="slpractice">Practice round</button>`}</div></div>`;
   }
@@ -211,7 +213,7 @@ function hlView() {
   const end = `<span class="gm-score">Streak <b>${st.hlStreak}</b> · Best <b>${G.hl.best}</b></span>`;
   if (!a || !b) return card('Higher or Lower', end, '<p class="empty">Not enough player data yet.</p>');
   const s = STAT[r.k], done = r.pick != null, right = done && (r.pick === 'more') === (b[r.k] > a[r.k]);
-  const side = (p, show) => `<div class="hl-p${done && p === b ? (right ? ' ok' : ' no') : ''}">${UI.hs(p.headshot)}<div class="nm">${esc(p.name)}</div><div class="mut">${who(p)}</div>
+  const side = (p, show) => `<div class="hl-p${done && p === b ? (right ? ' ok' : ' no') : ''}">${UI.hs(p.headshot, 'hs', 330)}<div class="nm">${esc(p.name)}</div><div class="mut">${who(p)}</div>
     <div class="val">${show ? NBA.fix(p[r.k]) : '?'}</div><div class="eyebrow">${s.unit} per game</div></div>`;
   const ask = !done
     ? `<div class="hl-ask"><p>Does <b>${esc(b.name)}</b> average more or fewer ${s.unit} than ${esc(a.name)}?</p>
@@ -262,7 +264,7 @@ function quizView() {
     `${p.tpa >= .5 ? `${NBA.fix(p.tpp)}% from three on ${NBA.fix(p.tpa)} attempts` : 'Almost never shoots threes'} · ${NBA.fix(p.min)} minutes a game`,
     [p.age ? `Age ${p.age}` : '', POS[p.pos] || p.pos, conf ? `${conf}ern Conference` : ''].filter(Boolean).join(' · '),
   ];
-  return card('Guess the Player', end, `<div class="q-mystery">${done ? `<button class="q-face" data-act="player" data-id="${p.id}" aria-label="Open ${esc(p.name)}'s player card">${UI.hs(p.headshot, '')}</button>` : '<div class="q-face" aria-hidden="true">?</div>'}
+  return card('Guess the Player', end, `<div class="q-mystery">${done ? `<button class="q-face" data-act="player" data-id="${p.id}" aria-label="Open ${esc(p.name)}'s player card">${UI.hs(p.headshot, '', 330)}</button>` : '<div class="q-face" aria-hidden="true">?</div>'}
       <ul class="q-clues">${clues.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>
     <div class="q-opts">${q.opts.map(id => {
       const o = byId(id) || {};
@@ -301,7 +303,7 @@ function rankView() {
   let body;
   if (!r.done) {
     body = `<p class="gm-how">Tap the players from <b>most ${s.unit} per game</b> to fewest. Tap a numbered player again to take it back.</p>
-      <div class="rk-grid">${ps.map(p => { const n = r.order.indexOf(p.id); return `<button class="rk-p${n >= 0 ? ' on' : ''}" data-act="rkpick" data-id="${p.id}">${n >= 0 ? `<span class="rk-n">${n + 1}</span>` : ''}${UI.hs(p.headshot)}<span class="rk-t"><b>${esc(p.name)}</b><small>${who(p)}</small></span></button>`; }).join('')}</div>
+      <div class="rk-grid">${ps.map(p => { const n = r.order.indexOf(p.id); return `<button class="rk-p${n >= 0 ? ' on' : ''}" data-act="rkpick" data-id="${p.id}">${n >= 0 ? `<span class="rk-n">${n + 1}</span>` : ''}${UI.hs(p.headshot, 'hs', 330)}<span class="rk-t"><b>${esc(p.name)}</b><small>${who(p)}</small></span></button>`; }).join('')}</div>
       ${r.order.length ? '<div class="gm-actions"><button class="btn" data-act="rkclear">Start over</button></div>' : ''}`;
   } else {
     const score = truth.filter((id, i) => r.order[i] === id).length;
@@ -392,8 +394,15 @@ function resolvePicks() {
   });
   if (dirty) save();
 }
-const pickRecord = () => { const all = Object.values(G.picks); return { w: all.filter(p => p.result === 'W').length, l: all.filter(p => p.result === 'L').length, open: all.filter(p => !p.result).length }; };
-function pickStatus() { const r = pickRecord(); return r.w + r.l ? `Record ${r.w}-${r.l}${r.open ? ` · ${r.open} open` : ''}` : r.open ? `${r.open} picks waiting on results` : 'No picks yet'; }
+// 'Record 3-2' turning into '4-2' gives the winner away, so hidden results stay out of it
+const pickRecord = () => {
+  const all = Object.entries(G.picks), vis = all.filter(([gid, p]) => p.result && !masked(gid, p.date)).map(([, p]) => p);
+  return { w: vis.filter(p => p.result === 'W').length, l: vis.filter(p => p.result === 'L').length, hidden: all.filter(([, p]) => p.result).length - vis.length, open: all.filter(([, p]) => !p.result).length };
+};
+function pickStatus() {
+  const r = pickRecord(), more = `${r.hidden ? ` · ${r.hidden} hidden` : ''}${r.open ? ` · ${r.open} open` : ''}`;
+  return r.w + r.l ? `Record ${r.w}-${r.l}${more}` : r.hidden ? `${r.hidden} result${r.hidden === 1 ? '' : 's'} hidden${r.open ? ` · ${r.open} open` : ''}` : r.open ? `${r.open} picks waiting on results` : 'No picks yet';
+}
 function pickView() {
   const tmIso = NBA.shiftIso(NBA.today, 1);
   // Labelled by date: just after midnight ESPN's "today" is still last night's games
@@ -403,7 +412,7 @@ function pickView() {
     { label: label(tmIso), param: NBA.paramOf(tmIso), day: NBA.use('day:' + NBA.paramOf(tmIso)) },
   ];
   const rec = pickRecord();
-  const end = `<span class="gm-score">Record <b>${rec.w}-${rec.l}</b>${rec.w + rec.l ? ` · ${pct(rec.w, rec.w + rec.l)}` : ''}</span>`;
+  const end = `<span class="gm-score">Record <b>${rec.w}-${rec.l}</b>${rec.w + rec.l ? ` · ${pct(rec.w, rec.w + rec.l)}` : ''}${rec.hidden ? ` · ${rec.hidden} hidden` : ''}</span>`;
   const gameRow = (g, param) => {
     const p = G.picks[g.id], locked = started(g);
     // No-spoiler mode: the ✓/✗ on your pick gives the winner away as surely as the score does
@@ -411,7 +420,8 @@ function pickView() {
     const btn = t => {
       const on = p && p.team === t.id;
       const mark = on && p.result && !hide ? `<span class="pk-res ${p.result === 'W' ? 'w' : 'lo'}">${p.result === 'W' ? '✓' : '✗'}</span>` : '';
-      return `<button class="pk-team${on ? ' on' : ''}" data-act="pick" data-g="${g.id}" data-t="${t.id}" data-p="${param}"${locked ? ' disabled' : ''} aria-pressed="${!!on}">${UI.logo(t, 32)}<span><b>${esc(t.name)}</b><small>${esc(t.record || '')}</small></span>${mark}</button>`;
+      // Records update at the final whistle, so a hidden game shows none
+      return `<button class="pk-team${on ? ' on' : ''}" data-act="pick" data-g="${g.id}" data-t="${t.id}" data-p="${param}"${locked ? ' disabled' : ''} aria-pressed="${!!on}">${UI.logo(t, 32)}<span><b>${esc(t.name)}</b><small>${hide ? '' : esc(t.record || '')}</small></span>${mark}</button>`;
     };
     const mid = g.state === 'post' && g.completed === false ? `<b>${esc(g.detail || 'Postponed')}</b>`
       : g.state === 'post' ? `<b>Final</b><small>${hide ? '' : `${esc(g.away.score)}-${esc(g.home.score)}`}</small>`
@@ -431,9 +441,10 @@ function pickView() {
   // Keyed by game id so no-spoiler mode can check which results you have already seen
   const past = Object.entries(G.picks).filter(([, p]) => p.result).sort(([, a], [, b]) => new Date(b.date) - new Date(a.date)).slice(0, 12);
   const history = past.length ? `<div class="pk-hist"><h4>Recent results</h4><ul>${past.map(([gid, p]) => {
-    const hide = NBA.S.spoilers && !UI.st.revealed.has(gid);
+    // A hidden row opens its game, which reveals it
+    const hide = masked(gid, p.date);
     const res = hide ? '<span class="pp-st wait">•</span>' : `<span class="pk-res ${p.result === 'W' ? 'w' : 'lo'}">${p.result === 'W' ? '✓' : '✗'}</span>`;
-    return `<li>${res}<span>Picked <b>${esc(p.pickAbbr)}</b> · ${hide ? 'Final' : esc(p.final)}</span><small>${esc(NBA.fmtDate(p.date, { month: 'short', day: 'numeric' }))}</small></li>`;
+    return `<li${hide ? ` data-act="game" data-id="${esc(gid)}"` : ''}>${res}<span>Picked <b>${esc(p.pickAbbr)}</b> · ${hide ? 'Final · open the game to see' : esc(p.final)}</span><small>${esc(NBA.fmtDate(p.date, { month: 'short', day: 'numeric' }))}</small></li>`;
   }).join('')}</ul></div>` : '';
   return card("Pick'em", end, `<p class="gm-how">Tap the team you think wins. Home teams are on the right. Picks lock at tip-off, and your record updates when games go final. The line shown is DraftKings' spread.</p>${sections}${history}`);
 }
@@ -466,6 +477,7 @@ function resolveProps() {
     const over = actual > pr.line;
     pr.result = (pr.side === 'under' ? !over : over) ? 'W' : 'L';
     pr.actual = actual;
+    pr.gid = game.id;
     pr.gameDate = game.date;
     pr.opp = (game.home ? 'vs ' : '@ ') + (game.oppAbbr || '');
     dirty = true;
@@ -473,9 +485,15 @@ function resolveProps() {
   if (dirty) save();
 }
 const propPoints = pr => pr.result === 'W' ? (pr.tier === 'breakout' ? 3 : 1) : 0;
+// A graded call says how he played, so it stays out of the list and the points until his game is opened.
+// Calls graded before gid was saved were already seen, so they stay shown.
+const shownProp = p => p.result && (!p.gid || !masked(p.gid, p.gameDate));
 function propStatus() {
-  const done = G.props.filter(p => p.result), w = done.filter(p => p.result === 'W').length, open = G.props.length - done.length;
-  return done.length ? `${done.reduce((n, p) => n + propPoints(p), 0)} points · ${w}-${done.length - w}${open ? ` · ${open} open` : ''}` : open ? `${open} calls waiting on games` : 'No calls yet';
+  const done = G.props.filter(shownProp), w = done.filter(p => p.result === 'W').length;
+  const open = G.props.filter(p => !p.result).length, hidden = G.props.filter(p => p.result).length - done.length;
+  const more = `${hidden ? ` · ${hidden} hidden` : ''}${open ? ` · ${open} open` : ''}`;
+  return done.length ? `${done.reduce((n, p) => n + propPoints(p), 0)} points · ${w}-${done.length - w}${more}`
+    : hidden ? `${hidden} graded, hidden${open ? ` · ${open} open` : ''}` : open ? `${open} calls waiting on games` : 'No calls yet';
 }
 // Who plays next: teams with a game today that hasn't started, otherwise tomorrow's teams
 function nextGames() {
@@ -488,15 +506,15 @@ function nextGames() {
 }
 function propView() {
   const next = nextGames();
-  const done = G.props.filter(p => p.result), open = G.props.filter(p => !p.result);
+  const done = G.props.filter(shownProp), open = G.props.filter(p => !p.result), hid = G.props.filter(p => p.result && !shownProp(p));
   const pts = done.reduce((n, p) => n + propPoints(p), 0), w = done.filter(p => p.result === 'W').length;
-  const end = `<span class="gm-score"><b>${pts}</b> points · ${w}-${done.length - w}</span>`;
+  const end = `<span class="gm-score"><b>${pts}</b> points · ${w}-${done.length - w}${hid.length ? ` · ${hid.length} hidden` : ''}</span>`;
   const young = !!st.ppYoung;
   const cands = known(220).filter(p => next.has(p.teamId) && (!young || (p.age && p.age <= 23))).sort((a, b) => young ? b.pts - a.pts : b.min - a.min).slice(0, 10);
   const sel = st.ppSel && byId(st.ppSel);
   const nextLine = p => { const n = next.get(p.teamId); return n ? `${n.at} ${esc(n.opp.abbr)} · ${esc(NBA.fmtDate(n.g.date, { weekday: 'short' }))} ${esc(NBA.fmtTime(n.g.date))}` : 'Next game not on the schedule yet'; };
   const full = open.length >= 15;
-  const builder = sel ? `<div class="pp-sel">${UI.hs(sel.headshot)}<div><div class="nm">${esc(sel.name)}</div><div class="mut">${who(sel)} · Next: ${nextLine(sel)}</div></div><button class="btn" data-act="ppsel" data-id="">Change</button></div>
+  const builder = sel ? `<div class="pp-sel">${UI.hs(sel.headshot, 'hs', 330)}<div><div class="nm">${esc(sel.name)}</div><div class="mut">${who(sel)} · Next: ${nextLine(sel)}</div></div><button class="btn" data-act="ppsel" data-id="">Change</button></div>
       ${full ? '<p class="note">You have 15 open calls. Cancel one under Your calls, or wait for them to be graded.</p>' : ''}
       <div class="pp-lines">${PROP_STATS.filter(k => sel[k] >= .5).map(k => {
         const avg = sel[k], line = lineOf(avg), bo = breakoutOf(avg), s = STAT[k];
@@ -511,9 +529,11 @@ function propView() {
         ${cands.length ? `<div class="pp-cgrid">${cands.map(p => `<button class="pp-cand" data-act="ppsel" data-id="${p.id}">${UI.hs(p.headshot)}<span><b>${esc(p.name)}</b><small>${esc(p.team)} · ${NBA.fix(p.pts)} / ${NBA.fix(p.reb)} / ${NBA.fix(p.ast)}${p.age ? ` · age ${p.age}` : ''}</small></span></button>`).join('')}</div>` : '<p class="empty">No upcoming games found. Search for any player above.</p>'}</div>`;
   const callTxt = p => `${p.tier === 'breakout' ? 'Breakout' : p.side === 'over' ? 'Over' : 'Under'} ${p.line}${p.tier === 'breakout' ? '+' : ''} ${STAT[p.stat].unit}`;
   const openList = open.length ? `<ul class="pp-list">${open.map(p => `<li><span class="pp-st wait">•</span><span><b>${esc(p.name)}</b> ${callTxt(p)}<small>Waiting for their next game</small></span><button class="pp-x" data-act="ppcancel" data-id="${p.id}" aria-label="Cancel this call">×</button></li>`).join('')}</ul>` : '<p class="empty">No open calls. Pick a player to make one.</p>';
+  // Graded but hidden: opening the game reveals it (only calls with a gid can be hidden)
+  const hidList = hid.length ? `<ul class="pp-list">${hid.map(p => `<li data-act="game" data-id="${esc(p.gid)}"><span class="pp-st wait">•</span><span><b>${esc(p.name)}</b> ${callTxt(p)}<small>Graded · open the game to see</small></span></li>`).join('')}</ul>` : '';
   const doneList = done.length ? `<h4>Graded</h4><ul class="pp-list">${done.slice().sort((a, b) => new Date(b.gameDate) - new Date(a.gameDate)).slice(0, 15).map(p => `<li><span class="pp-st ${p.result === 'W' ? 'w' : 'lo'}">${p.result === 'W' ? '✓' : '✗'}</span><span><b>${esc(p.name)}</b> ${callTxt(p)}<small>Had ${p.actual} ${p.opp} on ${esc(NBA.fmtDate(p.gameDate, { month: 'short', day: 'numeric' }))}${p.result === 'W' ? ` · +${propPoints(p)}` : ''}</small></span></li>`).join('')}</ul>` : '';
   return card('Breakout Calls', end, `<p class="gm-how">Pick a player, then call over or under on their next game, or go for a breakout night for 3 points. Lines come from their season averages. Each call is graded on the first game they play after you make it.</p>
-    <div class="pp"><div class="pp-build">${builder}</div><div class="pp-mine"><h4>Your calls</h4>${openList}${doneList}</div></div>`);
+    <div class="pp"><div class="pp-build">${builder}</div><div class="pp-mine"><h4>Your calls</h4>${openList}${hidList}${doneList}</div></div>`);
 }
 NBA.changes.ppq = t => { st.ppQ = t.value; NBA.render(); };
 NBA.actions.ppsel = a => { st.ppSel = a.dataset.id || null; st.ppQ = ''; NBA.changed(); };
