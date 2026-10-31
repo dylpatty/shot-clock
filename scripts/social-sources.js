@@ -248,8 +248,8 @@ export async function readX({ get, prev = [], now, log = () => {} }) {
 
 /* ---------- Instagram ---------- */
 // Big NBA accounts; each profile page carries its 12 newest posts
-export const IG_ACCOUNTS = ['nba', 'houseofhighlights', 'bleacherreport', 'espn', 'nbaonprime', 'slamonline', 'overtime', 'ballislife', 'nbatv', 'warriors'];
-const IG_NAMES = { nba: 'NBA', houseofhighlights: 'House of Highlights', bleacherreport: 'Bleacher Report', espn: 'ESPN', nbaonprime: 'NBA on Prime', slamonline: 'SLAM', overtime: 'Overtime', ballislife: 'Ballislife', nbatv: 'NBA TV', warriors: 'Golden State Warriors' };
+export const IG_ACCOUNTS = ['nba', 'houseofhighlights', 'bleacherreport', 'espn', 'nbaonprime', 'slam', 'overtime', 'ballislife', 'nbatv', 'warriors'];
+const IG_NAMES = { nba: 'NBA', houseofhighlights: 'House of Highlights', bleacherreport: 'Bleacher Report', espn: 'ESPN', nbaonprime: 'NBA on Prime', slam: 'SLAM', overtime: 'Overtime', ballislife: 'Ballislife', nbatv: 'NBA TV', warriors: 'Golden State Warriors' };
 // Instagram ids count up from 2011: the creation time is in the high bits
 export const igTime = pk => Math.floor(Number(BigInt(pk) >> 23n)) + 1314220021721;
 

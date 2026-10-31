@@ -45,7 +45,22 @@ const run = async (src, label, f) => {
 };
 
 await run('reddit', 'Reddit', async () => { const r = await readReddit({ get, prev: mine('reddit'), state: state.reddit, now, log }); state.reddit = r.state; return r.items; });
-await run('ig', 'Instagram', () => readInstagram({ get, prev: mine('ig'), now, log }));
+/* Instagram shows GitHub's servers a login wall, so its profile embeds are fetched from the owner's PC
+   (tools/ig-fetch.ps1) and land on the ig-raw branch; the workflow unpacks them into $IGRAW. Without them it asks
+   Instagram directly, which works from a home connection */
+const IGRAW = process.env.IGRAW;
+let igGet = get, igAt = null;
+try {
+  igAt = Date.parse((await readFile(`${IGRAW}/fetched.txt`, 'utf8')).trim()) || null;
+  igGet = async (url, o) => {
+    const m = /instagram\.com\/([a-z0-9_.]+)\/embed\/$/.exec(url);
+    if (m) { try { return await readFile(`${IGRAW}/${m[1]}.html`, 'utf8'); } catch { throw new Error('not in the PC upload'); } }
+    return get(url, o);
+  };
+  console.log(`Instagram pages from the PC upload, fetched ${Math.round((now - igAt) / 60000)} min ago.`);
+} catch { /* no upload: read Instagram directly */ }
+await run('ig', 'Instagram', () => readInstagram({ get: igGet, prev: mine('ig'), now, maxEmbeds: igAt ? 0 : 14, log }));
+if (igAt && status.ig && status.ig.ok) status.ig.at = new Date(igAt).toISOString();
 await run('x', 'X', () => readX({ get, prev: mine('x'), now, log }));
 
 let items = mergeFeed(prev.items, fresh, now);

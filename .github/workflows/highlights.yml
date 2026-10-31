@@ -69,7 +69,13 @@ jobs:
           OUT: ${{ runner.temp }}/out/social.json
           OUT_ARCH: ${{ runner.temp }}/out/social-archive.json
           CHECK: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '37 14 * * *' }}
-        run: node scripts/social-job.js
+          IGRAW: ${{ runner.temp }}/igraw
+        # Instagram's pages come from the owner's PC (tools/ig-fetch.ps1), on the ig-raw branch
+        run: |
+          if git fetch -q --depth=1 origin ig-raw 2>/dev/null; then
+            mkdir -p "$IGRAW" && git archive FETCH_HEAD raw | tar -x -C "$IGRAW" --strip-components=1
+          fi
+          node scripts/social-job.js
 
       # Runs even when a step above failed the daily check, so the other lists still go out
       - name: Publish
