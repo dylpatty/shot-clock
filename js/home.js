@@ -709,9 +709,9 @@ V.home = () => {
   if (t.abbr) {
     const last = sch && sch.events.filter(NBA.isFinal).slice(-1)[0];
     const leaders = NBA.leaders ? NBA.leaders({ stat: 'pts', teamId: myId, limit: 3 }) : [];
-    // The last game's highlight video rides on its scoreboard entry
-    const lastDay = last && !NBA.S.spoilers ? NBA.use(dayKeyOf(NBA.etDay(last.date))) : null;
-    const lastHl = lastDay && ((lastDay.games.find(x => x.id === last.id) || {}).hl || null);
+    // The last game's full highlights, once the NBA has posted them. The chip shows no score, so it stays in spoiler mode
+    const lastHl = last ? NBA.fullHl(last.id) : null;
+    const lastG = last && { id: last.id, away: last.home ? { abbr: last.oppAbbr || '' } : t, home: last.home ? t : { abbr: last.oppAbbr || '' } };
     const b = (NBA.use('bpi') || new Map()).get(myId);
     // Round the total too, so the projected record always adds up to the season's games
     const pw = b && Math.round(b.projectedw), pl = b && Math.round(b.projectedw + b.projectedl) - pw;
@@ -720,20 +720,39 @@ V.home = () => {
       <div class="mut">${mine ? [`${mine.w}-${mine.l}`, mine.seed ? `${NBA.ord(mine.seed)} in the ${esc(mine.conf)}` : esc(mine.conf), NBA.S.spoilers ? '' : esc(mine.strk || '')].filter(Boolean).join(' · ') : esc((sch && sch.record) || '')}</div>${bpi}</div></div>
       <div class="hm-team-games">${last ? `<button class="hm-g" data-act="game" data-id="${last.id}"><span class="eyebrow">Last game</span><b>${NBA.S.spoilers ? 'Final' : `<span class="${last.won ? 'w' : 'lo'}">${last.won ? 'W' : 'L'}</span> ${esc(last.my)}-${esc(last.their)}`}</b><small>${last.home ? 'vs' : '@'} ${esc(last.oppAbbr || '')} · ${esc(NBA.fmtDate(last.date, { month: 'short', day: 'numeric' }))}</small></button>` : ''}
         ${myNext ? `<button class="hm-g" data-act="game" data-id="${myNext.id}"><span class="eyebrow">Next game</span><b>${myNext.home ? 'vs' : '@'} ${esc(myNext.oppAbbr || '')}</b><small>${esc(NBA.fmtDate(myNext.date, { weekday: 'short', month: 'short', day: 'numeric' }))} · ${esc(NBA.fmtTime(myNext.date))}</small></button>` : ''}</div>
-      ${lastHl ? `<button class="chip hl-chip" ${NBA.hlAttrs(lastHl)}>▶ Highlights</button>` : ''}
+      ${lastHl ? `<button class="chip hl-chip" ${NBA.ytAttrs(lastHl, lastG)}>▶ Last game's full highlights${lastHl.dur ? ' · ' + NBA.fmtDur(lastHl.dur) : ''}</button>` : ''}
       ${leaders.length ? `<ul class="hm-lead3">${leaders.map(p => `<li data-act="player" data-id="${p.id}">${UI.hs(p.headshot)}<span><b>${esc(p.name)}</b><small>${f1(p.pts)} pts · ${f1(p.reb)} reb · ${f1(p.ast)} ast</small></span></li>`).join('')}</ul>` : ''}
       <a class="chip" href="#myteam">Team page</a></div>`;
   }
 
-  // Highlights: today's finals once they're in, then last night's, with your team's game first. In spoiler mode
-  // only games you've opened, since a poster can give the result away.
-  const yday = NBA.use('day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -1)));
-  const hlGames = (list, today) => list.filter(g => g.hl && NBA.isFinal(g) && (!NBA.S.spoilers || st.revealed.has(g.id))).map(g => ({ g, today }));
-  const hls = hlGames(games, true).concat(hlGames(yday ? NBA.sortGames(yday.games) : [], false))
+  // Full game highlights from the NBA on YouTube: tonight's finals, then last night's (or the last night with games),
+  // your team's game first. A final whose video isn't up yet gets a "posting soon" card that fills in on its own.
+  // In spoiler mode a game you haven't opened shows its logos instead of YouTube's still, which can give the result away
+  const nights = [];
+  games.filter(NBA.isFinal).forEach(g => nights.push({ g, when: 'Tonight' }));
+  for (let back = 1; back <= 4; back++) {
+    const dd = NBA.use('day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -back)));
+    if (!dd) break;
+    const fin = NBA.sortGames(dd.games).filter(NBA.isFinal);
+    fin.forEach(g => nights.push({ g, when: back === 1 ? 'Last night' : NBA.fmtDay(dd.day, { weekday: 'long' }) }));
+    if (fin.length) break;
+  }
+  const hlItems = nights.map(x => Object.assign(x, { v: NBA.fullHl(x.g.id) }))
+    .filter(x => x.v || Date.now() - Date.parse(x.g.date) < 36 * 3600000)
     .sort((a, b) => (UI.isMine(b.g) ? 1 : 0) - (UI.isMine(a.g) ? 1 : 0));
-  const hlCard = hls.length ? `<div class="card hm hm-hl"><div class="card-h"><h3>${hls.some(x => x.today) ? 'Highlights' : 'Last night in 90 seconds'}</h3></div>
-    <div class="card-b">${deckHtml('deck-home-hl', hls.map(({ g }) => `<button class="hl-card" ${NBA.hlAttrs(g.hl)} aria-label="${esc(`Play highlights: ${g.away.abbr} @ ${g.home.abbr}`)}"><img src="${esc(NBA.img(g.hl.poster, 720))}" alt="" loading="lazy" decoding="async"><span class="hl-play" aria-hidden="true">▶</span><b>${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</b><small>${esc(NBA.fmtDur(g.hl.dur))}</small></button>`),
-      { label: 'Highlights', cls: 'deck-hl', keys: hls.map(x => x.g.id) })}</div></div>` : '';
+  const tms = g => `<span class="hl-tms">${UI.logo(g.away, 20)}<b>${esc(g.away.abbr)}</b><span class="mut">@</span>${UI.logo(g.home, 20)}<b>${esc(g.home.abbr)}</b></span>`;
+  const logoArt = g => `<span class="pend-logos">${UI.logo(g.away, 56)}${UI.logo(g.home, 56)}</span>`;
+  const hlSlide = ({ g, when, v }) => {
+    if (!v) return `<div class="hl-card pending"><span class="hl-img">${logoArt(g)}<span class="hl-soon">Posting soon</span></span>
+      <span class="hl-meta">${tms(g)}<small>${esc(when)} · usually up about an hour after the final</small></span></div>`;
+    const hide = NBA.S.spoilers && !st.revealed.has(g.id);
+    return `<button class="hl-card" ${NBA.ytAttrs(v, g)} aria-label="${esc(`Play full game highlights: ${g.away.full || g.away.abbr} at ${g.home.full || g.home.abbr}`)}">
+      <span class="hl-img">${hide ? logoArt(g) : `<img ${NBA.ytSrcset(v)} sizes="(max-width:819px) 88vw, 600px" alt="" loading="lazy" decoding="async">`}<span class="hl-play" aria-hidden="true">▶</span>${v.dur ? `<span class="hl-dur">${NBA.fmtDur(v.dur)}</span>` : ''}</span>
+      <span class="hl-meta">${tms(g)}<small>${esc(when)}</small></span></button>`;
+  };
+  const whens = [...new Set(hlItems.map(x => x.when))];
+  const hlCard = hlItems.length ? `<div class="card hm hm-hl"><div class="card-h"><h3>Full game highlights</h3><div class="end"><span class="eyebrow">${esc(whens.join(' · '))}</span></div></div>
+    <div class="card-b">${deckHtml('deck-home-hl', hlItems.map(hlSlide), { label: 'Full game highlights', cls: 'deck-hl', keys: hlItems.map(x => x.g.id) })}</div></div>` : '';
 
   // Top 25 players
   const top = NBA.topPlayers(25);

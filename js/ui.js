@@ -21,6 +21,8 @@ UI.I = {
   left: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   right: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   close: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  expand: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  ext: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   down: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   star: '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M8 1.5l1.9 4 4.4.5-3.3 3 .9 4.4L8 11.2 4.1 13.4 5 9 1.7 6l4.4-.5z" fill="currentColor"/></svg>',
   gear: '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 6h8M15 6h2M3 14h2M9 14h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/><circle cx="13" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7" cy="14" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
@@ -31,8 +33,11 @@ UI.I = {
 UI.logo = (t, size = 28, cls = '') => { const px = size * 3, w = px <= 96 ? 96 : px <= 192 ? 192 : 384; return `<img class="${cls}" src="${esc(NBA.img(NBA.lg(t), w))}" alt="" width="${size}" height="${size}" loading="lazy" decoding="async">`; };
 // Headshots are 600x436; w is the pixel width to request (the default suits the 44x33 thumbnails)
 UI.hs = (url, cls = 'hs', w = 132) => url ? `<img class="${cls}" src="${esc(NBA.img(url, w))}" alt="" loading="lazy" decoding="async">` : `<span class="${cls}"></span>`;
-// The ▶ Highlights chip on finished games; the hl action plays it in the #vid dialog
-UI.hlChip = h => h && (h.hls || h.mp4) ? `<button class="chip hl-chip" ${NBA.hlAttrs(h)}>▶ Highlights${h.dur ? ' · ' + NBA.fmtDur(h.dur) : ''}</button>` : '';
+// The ▶ Full highlights chip on a finished game once the NBA has posted them; the yt action plays them in the #vid player
+UI.fullChip = g => {
+  const v = g.state === 'post' && g.completed !== false ? NBA.fullHl(g.id) : null;
+  return v ? `<button class="chip hl-chip" ${NBA.ytAttrs(v, g)}>▶ Full highlights${v.dur ? ' · ' + NBA.fmtDur(v.dur) : ''}</button>` : '';
+};
 UI.teamLink = id => `#teams/${id}`;
 UI.isFav = g => NBA.S.favorites.includes(g.away.id) || NBA.S.favorites.includes(g.home.id);
 UI.isMine = g => g.away.id === NBA.S.myTeam || g.home.id === NBA.S.myTeam;
@@ -92,7 +97,7 @@ UI.gameCard = (g, big) => {
       if (g.state === 'in' && g.lastPlay) extra += `<div class="last"><span class="lbl">Last play</span><span title="${esc(g.lastPlay)}">${esc(g.lastPlay)}</span></div>`;
       else if (g.state === 'post' && g.recap) extra += `<div class="last"><span class="lbl">Recap</span><span title="${esc(g.recap)}">${esc(g.recap)}</span></div>`;
     }
-    const chip = g.state === 'post' && !pp ? UI.hlChip(g.hl) : '';
+    const chip = UI.fullChip(g);
     if (chip) extra += `<div class="g-hl">${chip}</div>`;
   }
   const label = `${g.away.full} at ${g.home.full}, ${g.state === 'pre' ? UI.tipTime(g) : NBA.detail(g)}`;
@@ -289,7 +294,7 @@ UI.closeAll = fromHistory => {
   $('#drawer').hidden = true; $('#settings').hidden = true;
   lock(false);
   if (UI.histPushed) { UI.histPushed = false; if (fromHistory !== true) history.back(); }
-  if (had && UI.lastFocus && document.contains(UI.lastFocus)) UI.lastFocus.focus();
+  if (had && UI.lastFocus instanceof Node && document.contains(UI.lastFocus)) UI.lastFocus.focus();
 };
 /* The game view takes a history entry, so the browser's back button or a phone's back swipe closes it */
 window.addEventListener('popstate', () => { if (UI.drawer || UI.settingsOpen) UI.closeAll(true); else UI.histPushed = false; });
@@ -403,13 +408,23 @@ function renderDrawer() {
       html += `<div class="tblwrap dpad"><table class="lsx"><thead><tr><th></th>${Array.from({ length: nq }, (_, i) => `<th scope="col">${NBA.perLabel(i + 1)}</th>`).join('')}<th scope="col">T</th></tr></thead>
         <tbody><tr><td>${esc(away.abbr)}</td>${cells(away)}<td>${esc(away.score)}</td></tr><tr><td>${esc(home.abbr)}</td>${cells(home)}<td>${esc(home.score)}</td></tr></tbody></table></div>`;
     }
-    // Highlight video and the recap story; opening a game reveals it, so there's no spoiler check here.
-    // The scoreboard's video is the full game highlights; the summary's first video can be a 15 s clip
+    // The NBA's full game highlights and the recap story; opening a game reveals it, so there's no spoiler check here.
+    // Until the NBA posts the video (about an hour after the final) the box says so, and fills in on its own
     if (state === 'post' && !pp) {
-      const v = (g && g.hl) || (data && data.video), rc = data && data.recap;
-      if (v || rc) {
-        html += `<div class="dpad dr-recap">${v ? `<button class="dr-vid" ${NBA.hlAttrs(v)}>${v.poster ? `<img src="${esc(NBA.img(v.poster, 660))}" alt="" loading="lazy" decoding="async">` : ''}<span>▶ ${esc(v.title || 'Highlights')}${v.dur ? ' · ' + NBA.fmtDur(v.dur) : ''}</span></button>` : ''}${rc ? `<div><b>${esc(rc.headline)}</b><p class="note">${esc(rc.description)}</p></div>` : ''}</div>`;
+      const v = NBA.fullHl(d.id), rc = data && data.recap;
+      const tm = t => NBA.T(t.id).logo ? NBA.T(t.id) : t;
+      let box = '';
+      if (v) {
+        box = `<button class="dr-vid" ${NBA.ytAttrs(v, { id: d.id, away, home })} aria-label="Play the full game highlights${v.dur ? ', ' + NBA.fmtDur(v.dur) : ''}">
+          <span class="dr-vid-img"><img ${NBA.ytSrcset(v)} sizes="(max-width:640px) 92vw, 380px" alt="" loading="lazy" decoding="async"><span class="hl-play" aria-hidden="true">▶</span>${v.dur ? `<span class="dr-dur">${NBA.fmtDur(v.dur)}</span>` : ''}</span>
+          <span class="dr-vid-cap"><b>Full game highlights</b><small>From the NBA on YouTube</small></span></button>`;
+      } else if (NBA.data('ythl') !== undefined || NBA.status('ythl').err) {
+        const when = (data && data.date) || (g && g.date);
+        const old = when && Date.now() - Date.parse(when) > 2 * 864e5;
+        box = `<div class="dr-vid pending"><span class="dr-vid-img"><span class="pend-logos">${UI.logo(tm(away), 44)}${UI.logo(tm(home), 44)}</span></span>
+          <span class="dr-vid-cap"><b>Full game highlights</b><small>${old ? "The NBA didn't post full game highlights for this game." : "The NBA usually posts them about an hour after the final. They'll show up here on their own."}</small></span></div>`;
       }
+      if (box || rc) html += `<div class="dpad dr-recap">${box}${rc ? `<div class="dr-story"><b>${esc(rc.headline)}</b><p class="note">${esc(rc.description)}</p></div>` : ''}</div>`;
     }
     if (state === 'pre' && g && (g.odds || g.tv || g.venue)) {
       const o = g.odds, sm = o && UI.moved(o.spreadHome, g.home.abbr + ' '), tm = o && UI.moved(o.total);
@@ -500,9 +515,12 @@ function paneBox(d, data) {
   let out = '';
   if (!teams.length) out += `<p class="empty">The box score fills in once the game tips off.</p>`;
   else out += tools + `<div class="box-pair">${[data.away, data.home].map(t => data.box.find(b => b.teamId === t.id)).filter(Boolean).map(b => boxTeam(b, d)).join('')}</div>`;
+  // Each team's injuries under its own box score column: away on the left, home on the right
   if (data.injuries.length) {
-    out += `<div><h3 class="bx-team">Injury report</h3>${data.injuries.map(t => `<p class="note" style="margin:8px 0 4px;font-weight:800;color:var(--ink)">${esc(NBA.T(t.teamId).name || NBA.T(t.teamId).abbr)}</p>
-      <ul class="inj2">${t.list.map(i => `<li><b>${esc(i.name)}</b> <span class="mut">${esc(i.status)}${i.type ? ' · ' + esc(i.type) : ''}</span></li>`).join('')}</ul>`).join('')}</div>`;
+    const order = [data.away, data.home].map(t => data.injuries.find(x => x.teamId === t.id)).filter(Boolean);
+    const rest = data.injuries.filter(x => !order.includes(x));
+    out += `<div class="bx-inj"><h3 class="bx-team">Injury report</h3><div class="box-pair">${order.concat(rest).map(t => `<div><p class="bx-inj-tm">${UI.logo(NBA.T(t.teamId), 20)}${esc(NBA.T(t.teamId).name || NBA.T(t.teamId).abbr)}</p>
+      <ul class="inj2">${t.list.map(i => `<li><b>${esc(i.name)}</b> <span class="mut">${esc(i.status)}${i.type ? ' · ' + esc(i.type) : ''}</span></li>`).join('')}</ul></div>`).join('')}</div></div>`;
   }
   return out;
 }
@@ -744,12 +762,23 @@ Object.assign(NBA.actions, {
     el.scrollTop = b.scroll || 0;
     const c = $('#drawer [data-act="close"]'); if (c) c.focus({ preventScroll: true });
   },
-  // Highlights play in the #vid dialog, outside the view and the game window, so live repaints can't cut a video off
-  hl: a => {
-    const d = $('#vid');
-    if (!d || !d.showModal) { window.open(a.dataset.mp4 || a.dataset.hls, '_blank', 'noopener'); return; }
-    d.innerHTML = `<div class="vid-bar"><b>${esc(a.dataset.title)}</b><button class="ib" data-act="hlclose" aria-label="Close video">${UI.I.close}</button></div><video controls playsinline autoplay preload="metadata" poster="${esc(a.dataset.poster)}">${a.dataset.hls ? `<source src="${esc(a.dataset.hls)}" type="application/vnd.apple.mpegurl">` : ''}${a.dataset.mp4 ? `<source src="${esc(a.dataset.mp4)}" type="video/mp4">` : ''}</video>`;
+  // Full game highlights play in the #vid dialog, a player floating over the middle of the screen, outside the view and
+  // the game window so live repaints can't cut a video off. YouTube's own button (or ours) takes it full screen.
+  // Watching a game's highlights counts as opening it, so in spoiler mode its score shows afterwards
+  yt: a => {
+    const d = $('#vid'), id = a.dataset.v, gid = a.dataset.id;
+    if (gid && !UI.st.revealed.has(gid)) { UI.st.revealed.add(gid); NBA.changed(); }
+    const watch = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+    if (!d || !d.showModal) { window.open(watch, '_blank', 'noopener'); return; }
+    const fs = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+    d.innerHTML = `<div class="vid-bar"><b>${esc(a.dataset.title)}</b><span class="vid-tools">${fs ? `<button class="ib" data-act="vidfs" aria-label="Full screen" title="Full screen">${UI.I.expand}</button>` : ''}<a class="ib" href="${esc(watch)}" target="_blank" rel="noopener" aria-label="Watch on YouTube" title="Watch on YouTube">${UI.I.ext}</a><button class="ib" data-act="hlclose" aria-label="Close video" title="Close">${UI.I.close}</button></span></div>
+      <div class="vid-frame"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&amp;playsinline=1&amp;rel=0&amp;modestbranding=1" title="${esc(a.dataset.title)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
     d.showModal();
+  },
+  vidfs: () => {
+    const f = $('#vid iframe');
+    const go = f && (f.requestFullscreen || f.webkitRequestFullscreen);
+    if (go) Promise.resolve(go.call(f)).catch(() => {});
   },
   hlclose: () => stopVid($('#vid')),
   // Only the theme and team colors can be set here; everything else is fixed

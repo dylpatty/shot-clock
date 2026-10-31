@@ -15,16 +15,19 @@
 <meta name="theme-color" content="#E2E5EA" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#07090C" media="(prefers-color-scheme: dark)">
 <!-- Bump this and every ?v= below in any commit that changes js/ or css/ -->
-<meta name="build" content="20261030a">
+<meta name="build" content="20261031a">
 <!-- ESPN's feeds (fetch() makes CORS requests, hence crossorigin) and its image host (no-cors) -->
 <link rel="preconnect" href="https://site.api.espn.com" crossorigin>
 <link rel="preconnect" href="https://site.web.api.espn.com" crossorigin>
 <link rel="preconnect" href="https://sports.core.api.espn.com" crossorigin>
 <link rel="preconnect" href="https://a.espncdn.com">
+<!-- The full game highlights list (fetched, so CORS) and YouTube's video stills -->
+<link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
+<link rel="preconnect" href="https://i.ytimg.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Big+Shoulders+Display:wght@600;700;800;900&display=swap">
-<link rel="stylesheet" href="css/app.css?v=20261030a">
+<link rel="stylesheet" href="css/app.css?v=20261031a">
 <script>
   /* Apply the saved theme before first paint so the page doesn't flash */
   try {
@@ -74,13 +77,13 @@
 <!-- Highlight videos play here, outside the view and the game window, so live repaints can't cut one off -->
 <dialog class="vid" id="vid" aria-label="Highlights"></dialog>
 
-<script src="js/core.js?v=20261030a"></script>
-<script src="js/ui.js?v=20261030a"></script>
-<script src="js/views.js?v=20261030a"></script>
-<script src="js/games.js?v=20261030a"></script>
-<script src="js/home.js?v=20261030a"></script>
-<script src="js/players.js?v=20261030a"></script>
-<script src="js/ask.js?v=20261030a"></script>
+<script src="js/core.js?v=20261031a"></script>
+<script src="js/ui.js?v=20261031a"></script>
+<script src="js/views.js?v=20261031a"></script>
+<script src="js/games.js?v=20261031a"></script>
+<script src="js/home.js?v=20261031a"></script>
+<script src="js/players.js?v=20261031a"></script>
+<script src="js/ask.js?v=20261031a"></script>
 <script>NBA.boot();</script>
 </body>
 </html>

@@ -221,8 +221,16 @@ NBA.masked = (id, date) => !!NBA.S.spoilers && !(NBA.ui && NBA.ui.st.revealed.ha
 // ESPN sends '0.0 - 2nd' at the end of a period
 NBA.detail = g => String((g && g.detail) || '').replace(/^0\.0 - (\S+)/i, 'End of $1');
 NBA.fmtDur = s => { const t = Math.round(s) || 0; return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
-// The data-act="hl" attributes that open a highlight in the video dialog
-NBA.hlAttrs = h => `data-act="hl" data-hls="${NBA.esc(h.hls)}" data-mp4="${NBA.esc(h.mp4)}" data-poster="${NBA.esc(h.poster)}" data-title="${NBA.esc(h.title)}"`;
+
+/* ---------- full game highlights ---------- */
+// The NBA's full game highlights on YouTube, by ESPN game id: { id, dur, hd } once posted, else null.
+// The list comes from the 'ythl' resource (see .github/workflows/highlights.yml)
+NBA.fullHl = id => { const d = NBA.use('ythl'), v = d && d.games && d.games[id]; return v ? { id: v[0], dur: v[1] || 0, hd: !!v[2] } : null; };
+// YouTube's stills: mqdefault is 320 wide, hqdefault 480 and sddefault 640 (both letterboxed 4:3, which
+// object-fit:cover crops back to 16:9) and maxresdefault 1280, which only HD uploads have
+NBA.ytSrcset = v => { const u = n => `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/${n}.jpg`; return `src="${u('hqdefault')}" srcset="${u('mqdefault')} 320w, ${u('hqdefault')} 480w${v.hd ? `, ${u('sddefault')} 640w, ${u('maxresdefault')} 1280w` : ''}"`; };
+// The data-act="yt" attributes that play a game's full highlights in the floating player
+NBA.ytAttrs = (v, g) => `data-act="yt" data-v="${NBA.esc(v.id)}" data-id="${NBA.esc(g.id)}" data-title="${NBA.esc(`${g.away.abbr} @ ${g.home.abbr} · Full game highlights`)}"`;
 
 /* ---------- fetching with a small resource cache ---------- */
 // Every request gives up after 15 s, so one that never settles (a network handoff, the phone locking) can't stall polling.
@@ -277,8 +285,6 @@ const headshotOf = h => typeof h === 'string' ? h : (h && h.href) || '';
 // ESPN sometimes leaves a live score blank (score: []); the quarter scores still add up to it
 const lineSum = ls => { const v = (ls || []).map(l => parseFloat(l.value ?? l.displayValue)); return v.length && v.every(Number.isFinite) ? String(v.reduce((a, b) => a + b, 0)) : ''; };
 const scoreOf = c => { const s = c.score; if (typeof s === 'number' || (typeof s === 'string' && s !== '')) return String(s); if (s && typeof s === 'object' && !Array.isArray(s) && s.displayValue != null) return String(s.displayValue); return lineSum(c.linescores); };
-// A highlight video: HLS for Safari, mp4 for everything else
-const hlOf = h => { const s = (h && h.links && h.links.source) || {}; return h && (s.href || (s.HLS && s.HLS.href)) ? { title: h.headline || '', dur: h.duration || 0, poster: h.thumbnail || '', hls: (s.HLS && s.HLS.href) || '', mp4: s.href || '' } : null; };
 function parseTeam(c) {
   const t = c.team || {};
   return {
@@ -329,7 +335,6 @@ function parseGame(ev) {
     venue: c.venue ? [c.venue.fullName, c.venue.address && c.venue.address.city].filter(Boolean).join(', ') : '',
     lastPlay: c.situation && c.situation.lastPlay ? c.situation.lastPlay.text : '',
     recap: (c.headlines && c.headlines[0] && c.headlines[0].shortLinkText) || '',
-    hl: st.type.state === 'post' ? hlOf((c.highlights || [])[0]) : null,
     homeWin: prob && typeof prob.homeWinPercentage === 'number' ? prob.homeWinPercentage : null,
     odds: parseOdds(c),
     link: summaryLink ? summaryLink.href : `https://www.espn.com/nba/game/_/gameId/${ev.id}`,
@@ -434,7 +439,6 @@ function parseSummary(j, id) {
     ended: st.type.state === 'post' ? lastWall || '' : '',
     box, tstats, plays, wp: j.winprobability || [], injuries,
     link: link ? link.href : `https://www.espn.com/nba/game/_/gameId/${id}`,
-    video: hlOf((j.videos || []).find(v => v.links && v.links.source)),
     recap: art && art.type === 'Recap' ? { headline: art.headline || '', description: art.description || '' } : null,
     preview: parsePreview(j),
   };
@@ -748,6 +752,11 @@ def('roster', (id, d) => d && d.noExtras ? 5 * 60000 : 60 * 60000, async id => {
    ESPN alone, checked again in 5 minutes; any other failure retries in 30 seconds and keeps the last good copy. */
 def('extras', (a, d) => d && d.updated ? 3 * 3600000 : 5 * 60000,
   () => getJSON('data/extras.json').catch(e => { if (e.message === 'HTTP 404') return { players: {} }; throw e; }));
+/* Full game highlights, matched to ESPN game ids every 10 minutes on game nights by .github/workflows/highlights.yml.
+   The list lives on the repo's highlights branch, which raw.githubusercontent.com serves with CORS and a 5-minute cache.
+   Before the job's first run it doesn't exist (404): no highlights yet */
+def('ythl', 5 * 60000, () => getJSON('https://raw.githubusercontent.com/dylpatty/shot-clock/highlights/highlights.json')
+  .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }));
 def('summary', (id, d) => (d && d.state === 'post' ? 6 * 3600000 : 15000), async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
 // The matchup preview and injuries, on a 10-minute cache so Home never pulls the 15-second live summary
 def('preview', 10 * 60000, async id => { const s = parseSummary(await getJSON(`${API}/summary?event=${id}`), id); return Object.assign({}, s.preview, { injuries: s.injuries }); });
