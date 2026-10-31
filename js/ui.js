@@ -79,7 +79,10 @@ UI.gameCard = (g, big) => {
     status = `<span>${esc(g.detail)}${sum && sum.ended ? ' · ended ' + esc(NBA.fmtTime(sum.ended)) : ''}</span>`;
   }
   const started = !pp && g.state !== 'pre' && !/TBD/i.test(g.detail) ? 'Started ' + NBA.fmtTime(g.date) : '';
-  const right = [started, g.note, g.tv].filter(Boolean).join(' · ');
+  // Top right: where the game streams in Canada (Prime Video, Sportsnet+, TSN, NBA TV Canada or League Pass), blank if
+  // unknown. It never shrinks; the start time and note before it are cut short first on a narrow card
+  const ca = NBA.caTv(g), lead = [started, g.note].filter(Boolean).join(' · ');
+  const right = (lead ? `<span class="g-lead">${esc(lead)}</span>` : '') + (ca ? `<span class="ca-tv" title="${esc(`Streams in Canada on ${ca.label}`)}">${esc(ca.short)}</span>` : '');
   let extra = '';
   if (hide) extra = `<button class="chip reveal" data-act="reveal" data-id="${g.id}">Show score</button>`;
   else {
@@ -91,7 +94,7 @@ UI.gameCard = (g, big) => {
         <div class="wplab"><span>${esc(g.away.abbr)} ${aw}%</span><span class="mut">Win chance</span><span>${esc(g.home.abbr)} ${hw}%</span></div></div>`;
     }
     if (g.state === 'pre' && (g.odds || g.venue)) {
-      extra += `<div class="pre-meta">${g.odds && g.odds.details ? `<span>Line <b>${esc(g.odds.details)}</b></span>` : ''}${g.odds && g.odds.ou ? `<span>O/U <b>${esc(g.odds.ou)}</b></span>` : ''}${g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
+      extra += `<div class="pre-meta">${g.odds && g.odds.details ? `<span>Line <b>${esc(g.odds.details)}</b></span>` : ''}${g.odds && g.odds.ou ? `<span>O/U <b>${esc(g.odds.ou)}</b></span>` : ''}${g && g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
     }
     if (S.card.lastplay) {
       if (g.state === 'in' && g.lastPlay) extra += `<div class="last"><span class="lbl">Last play</span><span title="${esc(g.lastPlay)}">${esc(g.lastPlay)}</span></div>`;
@@ -102,7 +105,7 @@ UI.gameCard = (g, big) => {
   }
   const label = `${g.away.full} at ${g.home.full}, ${g.state === 'pre' ? UI.tipTime(g) : NBA.detail(g)}`;
   return `<div class="game${big ? ' big' : ''}${UI.isFav(g) ? ' fav' : ''}${UI.isMine(g) ? ' mine' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(label)}">
-    <div class="g-top">${status}<span>${esc(right)}</span></div>
+    <div class="g-top">${status}<span class="g-right">${right}</span></div>
     <div class="ls" style="grid-template-columns:${cols}">${head}${row(g.away)}${row(g.home)}</div>${extra}</div>`;
 };
 
@@ -110,7 +113,7 @@ UI.line = g => {
   const pp = g.state === 'post' && g.completed === false;
   const hide = NBA.S.spoilers && g.state !== 'pre' && !pp && !UI.st.revealed.has(g.id);
   let time;
-  if (g.state === 'pre') time = `${esc(/TBD/i.test(g.detail) ? 'TBD' : NBA.fmtTime(g.date))}<small>${esc(g.tv || '')}</small>`;
+  if (g.state === 'pre') time = `${esc(/TBD/i.test(g.detail) ? 'TBD' : NBA.fmtTime(g.date))}<small>${esc((NBA.caTv(g) || {}).short || '')}</small>`;
   else if (g.state === 'in') time = `<span class="st-live"><i class="dot blink"></i>Live</span><small>${esc(NBA.detail(g))}</small>`;
   else if (pp) time = esc(g.detail || 'Postponed');
   else time = `${esc(g.detail || 'Final')}<small>Started ${esc(NBA.fmtTime(g.date))}</small>`;
@@ -426,9 +429,12 @@ function renderDrawer() {
       }
       if (box || rc) html += `<div class="dpad dr-recap">${box}${rc ? `<div class="dr-story"><b>${esc(rc.headline)}</b><p class="note">${esc(rc.description)}</p></div>` : ''}</div>`;
     }
-    if (state === 'pre' && g && (g.odds || g.tv || g.venue)) {
-      const o = g.odds, sm = o && UI.moved(o.spreadHome, g.home.abbr + ' '), tm = o && UI.moved(o.total);
-      html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${g.tv ? `<span>TV <b>${esc(g.tv)}</b></span>` : ''}${o && o.details ? `<span>Line <b>${esc(o.details)}</b>${sm ? ` (${esc(sm)})` : ''}</span>` : ''}${o && o.ou ? `<span>O/U <b>${esc(o.ou)}</b>${tm ? ` (${esc(tm)})` : ''}</span>` : ''}${o && o.awayML ? `<span>Moneyline <b>${esc(g.away.abbr)} ${esc(o.awayML)} · ${esc(g.home.abbr)} ${esc(o.homeML)}</b></span>` : ''}${g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
+    // A game opened from a team schedule may not be on a loaded scoreboard; the summary has its date and teams too
+    const ca = NBA.caTv(g || data);
+    if (state === 'pre' && ((g && (g.odds || g.venue)) || ca)) {
+      const o = g && g.odds, sm = o && UI.moved(o.spreadHome, home.abbr + ' '), tm = o && UI.moved(o.total);
+      // Where to watch in Canada, linked straight to the game's page on that service when the NBA lists one
+      html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${ca ? `<span>Watch in Canada <b>${ca.items.map(s => s.link ? `<a class="ca-link" href="${esc(s.link)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>` : esc(s.label)).join(' / ')}</b></span>` : ''}${o && o.details ? `<span>Line <b>${esc(o.details)}</b>${sm ? ` (${esc(sm)})` : ''}</span>` : ''}${o && o.ou ? `<span>O/U <b>${esc(o.ou)}</b>${tm ? ` (${esc(tm)})` : ''}</span>` : ''}${o && o.awayML ? `<span>Moneyline <b>${esc(g.away.abbr)} ${esc(o.awayML)} · ${esc(g.home.abbr)} ${esc(o.homeML)}</b></span>` : ''}${g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
     }
   }
   // Matchup is there before tip-off, and stays for a game that tips off while it's open on that tab

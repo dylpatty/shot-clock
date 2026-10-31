@@ -709,8 +709,8 @@ function glistItem(e, tags = '') {
   if (e.state === 'post' && e.completed === false) rs = `<span class="mut">${esc(e.detail || 'Postponed')}</span>`;
   else if (e.state === 'post') rs = NBA.S.spoilers ? '<span class="mut">Final</span>' : `<span class="${e.won ? 'W' : 'L'}">${e.won ? 'W' : 'L'}</span> ${esc(e.my)}–${esc(e.their)}`;
   else if (e.state === 'in') rs = `<span class="st-live"><i class="dot blink"></i>Live</span>`;
-  // The TV network sits under the time: inside the opponent's name it was cut off with the name on phones
-  else rs = `<span class="mut">${esc(/TBD/i.test(e.detail || '') ? 'TBD' : NBA.fmtTime(e.date))}</span>${e.tv ? ` <small class="g-tv">${esc(e.tv)}</small>` : ''}`;
+  // Where it streams in Canada sits under the time: inside the opponent's name it was cut off with the name on phones
+  else { const ca = NBA.caTv(e); rs = `<span class="mut">${esc(/TBD/i.test(e.detail || '') ? 'TBD' : NBA.fmtTime(e.date))}</span>${ca ? ` <small class="g-tv">${esc(ca.short)}</small>` : ''}`; }
   return `<li data-act="game" data-id="${e.id}" role="button" tabindex="0"><span class="dt">${esc(NBA.fmtDate(e.date, { weekday: 'short', month: 'numeric', day: 'numeric' }))}</span>
     <span class="ha">${e.home ? 'vs' : '@'}</span>${UI.logo(op.abbr ? op : { logo: '' }, 26)}<span class="op">${esc(op.name || e.oppName || e.oppAbbr || '')}${tags}</span><span class="rs">${rs}</span></li>`;
 }
@@ -725,11 +725,12 @@ function teamSeason(t, evs) {
   const tags = e => b2b(e) ? '<span class="tag b2b" title="Second night of a back-to-back">B2B</span>' : '';
   const months = [];
   left.forEach(e => { const ym = NBA.etDay(e.date).slice(0, 7).replace('-', ''); const m = months[months.length - 1]; if (m && m[0] === ym) m[1].push(e); else months.push([ym, [e]]); });
-  const home = left.filter(e => e.home).length, backs = left.filter(b2b).length, tv = left.filter(e => e.tv).length;
+  // "On Canadian TV or Prime Video": a national broadcast in Canada, which League Pass blacks out
+  const home = left.filter(e => e.home).length, backs = left.filter(b2b).length, tv = left.filter(e => { const ca = NBA.caTv(e); return ca && ca.national; }).length;
   return `<div class="sbump">
       <div class="eyebrow">${esc(t.full)}</div>
       <h2>Rest of the season</h2>
-      <p class="sub">${left.length} games left · ${home} home, ${left.length - home} away · ${backs} back-to-backs · ${tv} on national TV</p>
+      <p class="sub">${left.length} games left · ${home} home, ${left.length - home} away · ${backs} back-to-backs · ${tv} on Canadian TV or Prime Video</p>
       <nav class="bump-months" aria-label="Jump to a month">${months.map(([ym]) => `<button class="chip" data-act="jumpto" data-to="tm-${ym}">${esc(monthLabel(ym, { month: 'short' }))}</button>`).join('')}</nav>
       <span class="bump-arrow" aria-hidden="true">${UI.I.down}</span>
     </div>
@@ -775,7 +776,7 @@ function teamView(id) {
     const me = { t, rec: r ? `${r.w}-${r.l}` : '' }, them = { t: op, rec: opr ? `${opr.w}-${opr.l}` : '' };
     const [left, right] = next.home ? [them, me] : [me, them];
     nextCard = `<div class="card"><div class="card-h"><h3>Next game</h3></div><div class="next-game" data-act="game" data-id="${next.id}" role="button" tabindex="0" style="cursor:pointer">
-      <div class="eyebrow">${esc(NBA.fmtDate(next.date, { weekday: 'long', month: 'short', day: 'numeric' }))} · ${esc(NBA.fmtTime(next.date))}${next.tv ? ' · ' + esc(next.tv) : ''}</div>
+      <div class="eyebrow">${esc(NBA.fmtDate(next.date, { weekday: 'long', month: 'short', day: 'numeric' }))} · ${esc(NBA.fmtTime(next.date))}${NBA.caTv(next) ? ' · ' + esc(NBA.caTv(next).short) : ''}</div>
       <div class="vs"><div>${UI.logo(left.t, 64)}<div class="ab">${esc(left.t.abbr)}</div><div class="mut">${esc(left.rec)}</div></div><div class="mid">@</div>
       <div>${UI.logo(right.t, 64)}<div class="ab">${esc(right.t.abbr)}</div><div class="mut">${esc(right.rec)}</div></div></div></div></div>`;
   } else nextCard = `<div class="card"><div class="card-h"><h3>Next game</h3></div>${sch ? '<p class="empty" style="padding:var(--pad)">No upcoming games scheduled.</p>' : stateOf('tsched:' + id, 'schedule')}</div>`;

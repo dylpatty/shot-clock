@@ -69,10 +69,11 @@ const gameLine = g => ({
   away: `${g.away.full} (${g.away.record})`, home: `${g.home.full} (${g.home.record})`,
   score: g.state === 'pre' || (g.state === 'post' && !NBA.isFinal(g)) ? null : `${g.away.abbr} ${g.away.score} - ${g.home.abbr} ${g.home.score}`,
   top_scorers: g.state === 'pre' ? undefined : [g.away, g.home].map(t => { const l = t.leaders.find(x => x.cat === 'points'); return l ? `${t.abbr}: ${l.full} ${l.value}` : null; }).filter(Boolean),
-  tv: g.tv || undefined, odds: g.odds && g.odds.details ? `${g.odds.details}, O/U ${g.odds.ou}` : undefined,
+  canada_stream: (NBA.caTv(g) || {}).label || undefined, us_tv: g.tv || undefined, odds: g.odds && g.odds.details ? `${g.odds.details}, O/U ${g.odds.ou}` : undefined,
 });
 async function teamSchedule(team, which, count) {
-  const sch = await NBA.need('tsched:' + team.id);
+  // The Canadian streaming list loads alongside, so each game can say where it's on in Canada
+  const [sch] = await Promise.all([NBA.need('tsched:' + team.id), NBA.need('catv').catch(() => null)]);
   // Through today's scoreboard, so a game that just ended counts as final before the schedule refreshes
   const evs = NBA.teamEvents(team.id) || sch.events;
   let list;
@@ -83,7 +84,7 @@ async function teamSchedule(team, which, count) {
     id: e.id, date: localDate(e.date), time: NBA.fmtTime(e.date), where: e.home ? 'home' : 'away', opponent: NBA.T(e.oppId).full || e.oppName,
     // A postponed game is 'post' with no score
     result: NBA.isFinal(e) ? (NBA.S.spoilers ? 'Final' : `${e.won ? 'W' : 'L'} ${e.my}-${e.their}`) : e.state === 'post' ? (e.detail || 'Postponed') : e.state === 'in' ? 'live now' : null,
-    tv: e.tv || undefined,
+    canada_stream: (NBA.caTv(e) || {}).label || undefined, us_tv: e.tv || undefined,
   }));
 }
 function playerLine(p) {
@@ -118,9 +119,9 @@ const TOOLS = [
     input_schema: { type: 'object', properties: { conference: { type: 'string', enum: ['East', 'West', 'both'], description: 'Which conference. Defaults to both.' } } } },
   { name: 'get_team_overview', description: "One team's season at a glance: record, conference seed, streak, last 10, home/road, scoring with league ranks, coach, next and last game, top players, and injuries.",
     input_schema: { type: 'object', properties: { team: { type: 'string', description: 'Team name, city or abbreviation, e.g. "Warriors", "GS", "Golden State".' } }, required: ['team'] } },
-  { name: 'get_team_schedule', description: "A team's upcoming games or recent results with dates (viewer's local time), opponents, home/away, results and TV.",
+  { name: 'get_team_schedule', description: "A team's upcoming games or recent results with dates (viewer's local time), opponents, home/away, results, where each streams in Canada and US TV.",
     input_schema: { type: 'object', properties: { team: { type: 'string' }, which: { type: 'string', enum: ['upcoming', 'recent', 'all'] }, count: { type: 'integer', minimum: 1, maximum: 82 } }, required: ['team', 'which'] } },
-  { name: 'get_scoreboard', description: 'All games on one date with status, scores, top scorers, TV and betting line. Omit date for today.',
+  { name: 'get_scoreboard', description: 'All games on one date with status, scores, top scorers, where each streams in Canada, US TV and betting line. Omit date for today.',
     input_schema: { type: 'object', properties: { date: { type: 'string', description: 'YYYY-MM-DD. Omit for today.' } } } },
   { name: 'get_game_box_score', description: 'Full box score for one game by its id (from get_scoreboard or get_team_schedule): player lines and team totals.',
     input_schema: { type: 'object', properties: { game_id: { type: 'string' } }, required: ['game_id'] } },
@@ -189,7 +190,7 @@ const RUN = {
   },
   async get_scoreboard({ date }) {
     const key = !date || date === NBA.today ? 'day:' : 'day:' + NBA.paramOf(date);
-    const d = await NBA.need(key);
+    const [d] = await Promise.all([NBA.need(key), NBA.need('catv').catch(() => null)]);
     return { date: d.day, games: NBA.sortGames(d.games).map(gameLine) };
   },
   async get_game_box_score({ game_id }) {
@@ -357,11 +358,11 @@ async function matchupAnswer(a, b) {
 }
 async function slateAnswer(which) {
   const key = which === 'yesterday' ? 'day:' + NBA.paramOf(NBA.shiftIso(NBA.today, -1)) : 'day:';
-  const d = await NBA.need(key);
+  const [d] = await Promise.all([NBA.need(key), NBA.need('catv').catch(() => null)]);
   const label = which === 'yesterday' ? 'Yesterday' : 'Today';
   if (!d.games.length) return `<p>No NBA games ${which === 'yesterday' ? 'yesterday' : 'today'}.</p>`;
   const games = NBA.sortGames(d.games);
-  const cell = g => g.state === 'pre' ? esc(NBA.fmtTime(g.date)) + (g.tv ? ` · ${esc(g.tv)}` : '')
+  const cell = g => g.state === 'pre' ? esc(NBA.fmtTime(g.date)) + (NBA.caTv(g) ? ` · ${esc(NBA.caTv(g).label)}` : '')
     : g.state === 'post' && !NBA.isFinal(g) ? esc(g.detail || 'Postponed')
     : NBA.S.spoilers ? esc(g.state === 'in' ? 'Live' : 'Final') : `${g.state === 'in' ? '<b>Live</b> ' : ''}${esc(g.away.abbr)} ${esc(g.away.score)} – ${esc(g.home.abbr)} ${esc(g.home.score)}${g.state === 'in' ? ` · ${esc(g.detail)}` : ''}`;
   return `<p><b>${label}: ${games.length} game${games.length > 1 ? 's' : ''}</b> (${esc(NBA.fmtDay(d.day, { weekday: 'long', month: 'short', day: 'numeric' }))}).</p>
@@ -532,7 +533,8 @@ How to answer:
 - Dates and times from the tools are already in the time zone named at the start of each question. Use them as given.
 - "Last week" means the last 7 days. For "best player" questions, rank by average Game Score from get_recent_performances or by season stats, and say which measure you used.
 - Odds are American odds from DraftKings. You may give the implied chance. Don't give betting advice.
-- Use common team names (Warriors, Lakers) and full player names.`;
+- Use common team names (Warriors, Lakers) and full player names.
+- The owner watches from Canada. For "where can I watch" or "what channel", give canada_stream (Prime Video, Sportsnet+, TSN, TSN Premium, NBA TV Canada or League Pass; two means either works). If it's missing, say the NBA hasn't listed a Canadian broadcaster for that game.`;
 function contextLine() {
   const zone = NBA.S.tz === 'local' ? `the viewer's time zone (${Intl.DateTimeFormat().resolvedOptions().timeZone})` : 'Eastern Time (ET)';
   return `Today is ${NBA.fmtDay(NBA.today, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Times are in ${zone}. Season: ${NBA.SEASON_LABEL}. Viewer's team: ${NBA.T(NBA.S.myTeam).full || 'Golden State Warriors'}.${NBA.S.spoilers ? ' The viewer has no-spoilers mode on: never state final scores, winners, streaks or results of finished games, or individual player stat lines from games in the last 2 days, even if a tool returns them, unless the viewer asks about one game by name.' : ''}`;

@@ -248,6 +248,14 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .g-top > span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
 /* The status stays on one line ('END OF 1ST'); the start time and TV on the right give way instead */
 .g-top > span:first-child{flex:none;white-space:nowrap}
+/* Where the game streams in Canada, top right of a game card; in the game view it links to the game on that service.
+   The start time and note before it are cut short first, so the service always shows */
+.g-top > .g-right{display:flex;justify-content:flex-end;gap:.45em;min-width:0}
+.g-right .g-lead{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-lead + .ca-tv::before{content:'·';margin-right:.45em}
+.ca-tv{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ca-link{color:var(--accent);text-decoration:none}
+@media (hover:hover){.ca-link:hover{text-decoration:underline;text-underline-offset:2px}}
 .st-live{display:inline-flex;align-items:center;gap:7px;color:var(--live)}
 .ls{--logo:30px;display:grid;align-items:center;column-gap:8px;row-gap:8px}
 .ls .hd{font-size:10px;font-weight:700;color:var(--muted);text-align:center;letter-spacing:.04em}

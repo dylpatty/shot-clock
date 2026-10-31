@@ -229,6 +229,27 @@ NBA.fullHl = id => { const d = NBA.use('ythl'), v = d && d.games && d.games[id];
 // YouTube's stills: mqdefault is 320 wide, hqdefault 480 and sddefault 640 (both letterboxed 4:3, which
 // object-fit:cover crops back to 16:9) and maxresdefault 1280, which only HD uploads have
 NBA.ytSrcset = v => { const u = n => `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/${n}.jpg`; return `src="${u('hqdefault')}" srcset="${u('mqdefault')} 320w, ${u('hqdefault')} 480w${v.hd ? `, ${u('sddefault')} 640w, ${u('maxresdefault')} 1280w` : ''}"`; };
+/* ---------- where a game streams in Canada ---------- */
+// From the NBA's Canada schedule ('catv'), by Eastern date and ESPN's code for the home team. Works on scoreboard
+// games (g.home is the team) and team schedule events (g.homeAbbr). Returns null or { svc (the main service), label
+// ('Sportsnet+ / League Pass' when a game is on more than one), items: [{ svc, label, link }], national }.
+// national: on a Canadian broadcaster that League Pass blacks out. Prime Video's Canadian NBA games are the same games it
+// streams in the US, so a US Prime game the list doesn't have yet (an NBA Cup knockout game whose teams were just set)
+// is on Prime here too
+const CA_SVC = { p: 'Prime Video', sn: 'Sportsnet+', tsn: 'TSN', tsnp: 'TSN Premium', nbac: 'NBA TV Canada', lp: 'League Pass' };
+NBA.caTv = g => {
+  const home = g && (g.home && typeof g.home === 'object' ? g.home.abbr : g.homeAbbr);
+  if (!home || !g.date) return null;
+  const d = NBA.use('catv');
+  let v = d && d.games && d.games[NBA.paramOf(NBA.etDay(g.date)) + ':' + home];
+  if (v && typeof v[0] === 'string') v = [v]; // the list's first format: a single [service, link]
+  let items = (v || []).filter(x => CA_SVC[x[0]]).map(x => ({ svc: x[0], label: CA_SVC[x[0]], link: x[1] || '' }));
+  if (!items.length && /prime video/i.test(g.tv || '')) items = [{ svc: 'p', label: CA_SVC.p, link: '' }];
+  // short: what fits a card's top corner. A game on three services leaves League Pass off there (the game view lists all)
+  const label = items.map(x => x.label).join(' / ');
+  const short = items.length > 2 ? items.filter(x => x.svc !== 'lp').map(x => x.label).join(' / ') : label;
+  return items.length ? { svc: items[0].svc, label, short, items, national: !items.some(x => x.svc === 'lp') } : null;
+};
 // The data-act="yt" attributes that play a game's full highlights in the floating player
 NBA.ytAttrs = (v, g) => `data-act="yt" data-v="${NBA.esc(v.id)}" data-id="${NBA.esc(g.id)}" data-title="${NBA.esc(`${g.away.abbr} @ ${g.home.abbr} · Full game highlights`)}"`;
 
@@ -379,6 +400,7 @@ function parseSchedule(j, id) {
       completed: !!(c.status && c.status.type && c.status.type.completed),
       detail: c.status && c.status.type ? c.status.type.shortDetail : '',
       home: me.homeAway === 'home', oppId: String(op.team && op.team.id), oppAbbr: op.team && op.team.abbreviation,
+      homeAbbr: ((me.homeAway === 'home' ? me : op).team || {}).abbreviation || '',
       oppName: op.team && (op.team.shortDisplayName || op.team.displayName),
       my: sc(me.score), their: sc(op.score), won: me.winner, tv: nat.join(', '),
     };
@@ -756,6 +778,9 @@ def('extras', (a, d) => d && d.updated ? 3 * 3600000 : 5 * 60000,
    The list lives on the repo's highlights branch, which raw.githubusercontent.com serves with CORS and a 5-minute cache.
    Before the job's first run it doesn't exist (404): no highlights yet */
 def('ythl', 5 * 60000, () => getJSON('https://raw.githubusercontent.com/dylpatty/shot-clock/highlights/highlights.json')
+  .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }));
+// Each game's Canadian streaming service, refreshed every 3 hours by the same job, on the same branch
+def('catv', 30 * 60000, () => getJSON('https://raw.githubusercontent.com/dylpatty/shot-clock/highlights/catv.json')
   .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }));
 def('summary', (id, d) => (d && d.state === 'post' ? 6 * 3600000 : 15000), async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
 // The matchup preview and injuries, on a 10-minute cache so Home never pulls the 15-second live summary

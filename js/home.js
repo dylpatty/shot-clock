@@ -682,7 +682,7 @@ V.home = () => {
     const [L, R] = myNext.home ? [[opp, recOf(myNext.oppId)], [t, recOf(myId)]] : [[t, recOf(myId)], [opp, recOf(myNext.oppId)]];
     nextPanel = `<button class="hh-next" data-act="game" data-id="${myNext.id}"><span class="eyebrow">${esc(t.name)} next game</span>
       <span class="nx-vs">${side(L[0], L[1])}<span class="nx-at">@</span>${side(R[0], R[1])}</span>
-      <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(/TBD/i.test(myNext.detail || '') ? 'Time TBD' : NBA.fmtTime(myNext.date))}${myNext.tv ? ' · ' + esc(myNext.tv) : ''}</span>
+      <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(/TBD/i.test(myNext.detail || '') ? 'Time TBD' : NBA.fmtTime(myNext.date))}${NBA.caTv(myNext) ? ' · ' + esc(NBA.caTv(myNext).short) : ''}</span>
       ${previewLine(myNext, myId, t, now)}<span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span></button>`;
   }
   const msg = heroMessage({ now, games, live, myId, t, sch, mine, loaded: !!day });
