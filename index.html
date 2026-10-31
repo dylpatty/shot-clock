@@ -15,7 +15,7 @@
 <meta name="theme-color" content="#E2E5EA" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#07090C" media="(prefers-color-scheme: dark)">
 <!-- Bump this and every ?v= below in any commit that changes js/ or css/ -->
-<meta name="build" content="20261031f">
+<meta name="build" content="20261031g">
 <!-- ESPN's feeds (fetch() makes CORS requests, hence crossorigin) and its image host (no-cors) -->
 <link rel="preconnect" href="https://site.api.espn.com" crossorigin>
 <link rel="preconnect" href="https://site.web.api.espn.com" crossorigin>
@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Big+Shoulders+Display:wght@600;700;800;900&display=swap">
-<link rel="stylesheet" href="css/app.css?v=20261031f">
+<link rel="stylesheet" href="css/app.css?v=20261031g">
 <script>
   /* Apply the saved theme before first paint so the page doesn't flash */
   try {
@@ -48,7 +48,7 @@
     <form class="ask" id="ask-form" role="search" autocomplete="off">
       <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m13 13 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       <label class="sr" for="ask-input">Ask anything about the NBA</label>
-      <input id="ask-input" type="search" placeholder="Ask anything: Warriors next 10 games, who leads the MVP race…" enterkeyhint="search">
+      <input id="ask-input" type="search" placeholder="Ask anything" enterkeyhint="search">
       <kbd>/</kbd>
       <button class="ask-go" type="submit">Ask</button>
     </form>
@@ -77,14 +77,14 @@
 <!-- Highlight videos play here, outside the view and the game window, so live repaints can't cut one off -->
 <dialog class="vid" id="vid" aria-label="Highlights"></dialog>
 
-<script src="js/core.js?v=20261031f"></script>
-<script src="js/ui.js?v=20261031f"></script>
-<script src="js/views.js?v=20261031f"></script>
-<script src="js/games.js?v=20261031f"></script>
-<script src="js/home.js?v=20261031f"></script>
-<script src="js/players.js?v=20261031f"></script>
-<script src="js/social.js?v=20261031f"></script>
-<script src="js/ask.js?v=20261031f"></script>
+<script src="js/core.js?v=20261031g"></script>
+<script src="js/ui.js?v=20261031g"></script>
+<script src="js/views.js?v=20261031g"></script>
+<script src="js/games.js?v=20261031g"></script>
+<script src="js/home.js?v=20261031g"></script>
+<script src="js/players.js?v=20261031g"></script>
+<script src="js/social.js?v=20261031g"></script>
+<script src="js/ask.js?v=20261031g"></script>
 <script>NBA.boot();</script>
 </body>
 </html>

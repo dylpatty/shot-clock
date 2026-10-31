@@ -1186,9 +1186,14 @@ a.hchip,button.hchip{cursor:pointer}
 /* Highlight player: always dark, centered over a dimmed page */
 /* The floating player: a medium window in the middle of the screen, as big as fits up to 920 px wide.
    The bar's full-screen button (or YouTube's own) takes the video full screen */
-/* No overflow clipping around the player: iPhone Safari can draw an embedded video black inside a rounded, clipped box */
-.vid{padding:0;border:0;border-radius:14px;background:#000;color:#fff;width:min(920px,calc(100vw - 24px),calc((100vh - 130px) * 16 / 9));width:min(920px,calc(100vw - 24px),calc((100dvh - 130px) * 16 / 9));max-width:none;max-height:none;box-shadow:0 24px 70px rgba(0,0,0,.5)}
+/* The floating player fills most of the screen: as wide as fits, up to 1600 px, leaving room above and below for its
+   title bar and the YouTube link. No overflow clipping around it: iPhone Safari can draw an embedded video black inside
+   a rounded, clipped box */
+.vid{padding:0;border:0;border-radius:14px;background:#000;color:#fff;width:min(1600px,calc(100vw - 48px),calc((100vh - 160px) * 16 / 9));width:min(1600px,calc(100vw - 48px),calc((100dvh - 160px) * 16 / 9));max-width:none;max-height:none;box-shadow:0 24px 70px rgba(0,0,0,.5)}
 .vid::backdrop{background:rgba(0,0,0,.75)}
+/* Phones use the full width; a phone on its side, the full height */
+@media (max-width:640px){.vid:not(.tall){width:calc(100vw - 16px)}}
+@media (max-height:500px){.vid:not(.tall){width:min(calc(100vw - 16px),calc((100vh - 96px) * 16 / 9));width:min(calc(100vw - 16px),calc((100dvh - 96px) * 16 / 9))}}
 .vid-frame{position:relative;width:100%;aspect-ratio:16/9;background:#000}
 /* The video's still and a spinner until YouTube's player is ready; taps go through to the player underneath */
 .vid-wait{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#000 center/cover no-repeat;pointer-events:none;transition:opacity .35s,visibility .35s}
@@ -1205,7 +1210,7 @@ a.hchip,button.hchip{cursor:pointer}
 .vid-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
 .vid-frame video,.vid-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
 /* Portrait clips and photos (reels, phone video) get a narrow window instead of black bars */
-.vid.tall{width:min(440px,calc(100vw - 24px),calc((100vh - 130px) * 9 / 16));width:min(440px,calc(100vw - 24px),calc((100dvh - 130px) * 9 / 16))}
+.vid.tall{width:min(620px,calc(100vw - 48px),calc((100vh - 160px) * 9 / 16));width:min(620px,calc(100vw - 48px),calc((100dvh - 160px) * 9 / 16))}
 .vid.tall .vid-frame{aspect-ratio:9/16}
 .vid-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 6px 6px 14px}
 .vid-bar b{min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

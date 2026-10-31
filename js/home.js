@@ -302,15 +302,19 @@ const slides = t => t.querySelectorAll('.deck-slide');
 const slideStep = t => { const s = slides(t); return (s.length > 1 ? s[1].offsetLeft - s[0].offsetLeft : s[0] ? s[0].offsetWidth : 1) || 1; };
 function deckState(track) {
   const n = slides(track).length;
-  if (!n) return;
+  if (!n || !track.clientWidth) return;
   const i = Math.max(0, Math.min(n - 1, Math.round(track.scrollLeft / slideStep(track))));
-  if (track._i === i) return;
-  track._i = i;
+  // Where two cards show at once (the highlights on a wide screen), the last stop has the last two in view: count that
+  // as the last card, so the end reads 10 / 10 with a full bar. The same when every card fits without scrolling
+  const end = track.scrollLeft >= track.scrollWidth - track.clientWidth - 4;
+  const shown = end ? n - 1 : i;
+  if (track._i === i && track._shown === shown) return;
+  track._i = i; track._shown = shown;
   st.deckIdx[track.id] = i;
   st.deckKey[track.id] = slides(track)[i].dataset.key;
   const deck = track.parentElement;
-  deck.querySelector('.deck-count b').textContent = i + 1;
-  deck.querySelector('.deck-prog i').style.transform = `scaleX(${((i + 1) / n).toFixed(4)})`;
+  deck.querySelector('.deck-count b').textContent = shown + 1;
+  deck.querySelector('.deck-prog i').style.transform = `scaleX(${((shown + 1) / n).toFixed(4)})`;
 }
 function goTo(t, i) {
   const n = slides(t).length;
