@@ -26,6 +26,9 @@ UI.I = {
   down: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   star: '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M8 1.5l1.9 4 4.4.5-3.3 3 .9 4.4L8 11.2 4.1 13.4 5 9 1.7 6l4.4-.5z" fill="currentColor"/></svg>',
   gear: '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 6h8M15 6h2M3 14h2M9 14h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/><circle cx="13" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7" cy="14" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+  // YouTube's play mark, white on the red button
+  yt: '<svg viewBox="0 0 34 24" width="34" height="24" aria-hidden="true"><rect width="34" height="24" rx="7" fill="#fff"/><path d="M13.5 6.6v10.8l9.4-5.4z" fill="#FF0000"/></svg>',
+  cal: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
 };
 
 /* ---------- small components ---------- */
@@ -207,7 +210,7 @@ function renderTitle() {
   const { tab } = UI.route();
   // The favorite team's tab has no fixed label; its name arrives with the data, so this runs on every render
   const name = tab === 'myteam' ? (NBA.T(NBA.S.myTeam).name || 'My team') : ((TABS.find(t => t.id === tab) || {}).label || 'NBA');
-  const title = tab === 'home' ? 'NBA' : `${name} · NBA`;
+  const title = tab === 'home' ? 'Full Court' : `${name} · Full Court`;
   if (document.title !== title) document.title = title;
 }
 function renderHeader() {
@@ -813,9 +816,9 @@ document.addEventListener('input', e => {
   if (ch && NBA.changes[ch]) NBA.changes[ch](t, e);
 });
 document.addEventListener('keydown', e => {
-  // The video dialog closes itself on Esc; the game under it stays open
-  const vid = $('#vid');
-  if (e.key === 'Escape' && vid && vid.open) return;
+  // The video dialog and the Schedule's calendar close themselves on Esc; the game under the video stays open
+  const vid = $('#vid'), cal = $('#calpop');
+  if (e.key === 'Escape' && ((vid && vid.open) || (cal && cal.open))) return;
   if (e.key === 'Escape') {
     if (NBA.ask && NBA.ask.isOpen()) { NBA.ask.close(); return; }
     if (UI.drawer || UI.settingsOpen) { UI.closeAll(); return; }
@@ -827,14 +830,18 @@ document.addEventListener('keydown', e => {
 function stopVid(d) { if (!d) return; if (d.open) d.close(); d.innerHTML = ''; }
 /* The floating player: a medium window over the middle of the screen with a title bar (full screen, open at the source,
    close). body is the player itself: an iframe, a <video>, or a picture. tall: a portrait video (reels, phone clips),
-   which gets a narrower window. Without <dialog> support the link opens instead */
-UI.openVid = ({ title, body, link, linkLabel = 'Open', tall = false, hint = '' }) => {
+   which gets a narrower window. yt: the link under the player is YouTube's big red button. Without <dialog> support the
+   link opens instead */
+UI.openVid = ({ title, body, link, linkLabel = 'Open', tall = false, hint = '', yt = false }) => {
   const d = $('#vid');
   if (!d || !d.showModal) { if (link) window.open(link, '_blank', 'noopener'); return null; }
   const fs = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+  const foot = !link ? '' : yt
+    ? `<div class="vid-foot">${hint ? `<span class="vid-msg">${esc(hint)}</span>` : ''}<a class="yt-btn" href="${esc(link)}" target="_blank" rel="noopener">${UI.I.yt}<span>${esc(linkLabel)}</span></a></div>`
+    : `<a class="vid-alt" href="${esc(link)}" target="_blank" rel="noopener">${hint ? `<span class="vid-msg">${esc(hint)}</span> ` : ''}${esc(linkLabel)} ↗</a>`;
   d.classList.toggle('tall', !!tall);
   d.innerHTML = `<div class="vid-bar"><b>${esc(title || '')}</b><span class="vid-tools">${fs ? `<button class="ib" data-act="vidfs" aria-label="Full screen" title="Full screen">${UI.I.expand}</button>` : ''}${link ? `<a class="ib" href="${esc(link)}" target="_blank" rel="noopener" aria-label="${esc(linkLabel)}" title="${esc(linkLabel)}">${UI.I.ext}</a>` : ''}<button class="ib" data-act="hlclose" aria-label="Close video" title="Close">${UI.I.close}</button></span></div>
-    <div class="vid-frame">${body}</div>${link ? `<a class="vid-alt" href="${esc(link)}" target="_blank" rel="noopener">${hint ? `<span class="vid-msg">${esc(hint)}</span> ` : ''}${esc(linkLabel)} ↗</a>` : ''}`;
+    <div class="vid-frame">${body}</div>${foot}`;
   if (!d.open) d.showModal();
   return d;
 };
@@ -846,7 +853,7 @@ UI.playYouTube = (id, title) => {
   const watch = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
   const src = `https://www.youtube.com/embed/${encodeURIComponent(id)}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
   const d = UI.openVid({
-    title, link: watch, linkLabel: 'Watch on YouTube', hint: 'Not playing?',
+    title, link: watch, linkLabel: 'Watch on YouTube', hint: 'Not playing?', yt: true,
     body: `<div class="vid-wait" style="background-image:url('https://i.ytimg.com/vi/${encodeURIComponent(id)}/hqdefault.jpg')"><span class="vid-spin" aria-hidden="true"></span><span class="vid-wait-t">Loading the video…</span></div>
       <iframe id="ytp" src="${esc(src)}" title="${esc(title || 'Video')}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`,
   });
@@ -857,7 +864,7 @@ UI.playYouTube = (id, title) => {
   const fail = code => {
     ready = true;
     if (wait) { wait.classList.remove('gone'); wait.classList.add('err'); wait.querySelector('.vid-wait-t').textContent = code === 101 || code === 150 || code === 152 ? "YouTube won't play this video outside YouTube." : "This video won't play here."; }
-    const alt = d.querySelector('.vid-alt'); if (alt) alt.classList.add('loud');
+    const alt = d.querySelector('.vid-foot'); if (alt) alt.classList.add('loud');
   };
   // YouTube answers once told we're listening; hearing anything from it means the player is up
   const hello = () => { try { f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'ytp', channel: 'widget' }), '*'); } catch (e) { /* closed */ } };
@@ -874,7 +881,7 @@ UI.playYouTube = (id, title) => {
   addEventListener('message', onMsg);
   f.addEventListener('load', () => { hello(); setTimeout(hello, 600); setTimeout(hello, 1500); });
   // Without word from YouTube the still stays up, and after a while the link below says what to do
-  setTimeout(() => { if (!ready && f.isConnected) { done(); const alt = d.querySelector('.vid-alt'); if (alt) alt.classList.add('loud'); } }, 9000);
+  setTimeout(() => { if (!ready && f.isConnected) { done(); const alt = d.querySelector('.vid-foot'); if (alt) alt.classList.add('loud'); } }, 9000);
   new MutationObserver((m, o) => { if (!f.isConnected) { removeEventListener('message', onMsg); o.disconnect(); } }).observe(d, { childList: true });
 };
 (() => {

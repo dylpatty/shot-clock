@@ -524,7 +524,7 @@ async function loadSdk() {
   });
   return sdk;
 }
-const SYSTEM = `You are the answer engine inside a personal NBA dashboard website. The site shows live data from ESPN's public feeds and DraftKings odds via ESPN, and your tools read that same data.
+const SYSTEM = `You are the answer engine inside Full Court, a personal NBA dashboard website. The site shows live data from ESPN's public feeds and DraftKings odds via ESPN, and your tools read that same data.
 
 How to answer:
 - Look facts up with the tools. Never guess records, stats, schedules, injuries or odds. If the tools can't answer something, say what's missing.
@@ -633,7 +633,12 @@ function renderPanel() {
 }
 A.render = () => { if (A.open) renderPanel(); };
 A.isOpen = () => A.open;
-A.close = () => { A.open = false; renderPanel(); };
+// On a phone the search bar is tucked away behind the header's magnifier; it opens with the answers and closes with them
+const showBar = on => {
+  document.documentElement.classList.toggle('srch', on);
+  const b = $('.srch-btn'); if (b) b.setAttribute('aria-expanded', String(on));
+};
+A.close = () => { A.open = false; showBar(false); renderPanel(); };
 A.keyChanged = () => { A.convo = []; renderPanel(); };
 function scrollToLast() {
   const el = $('#ask-panel'), qs = el.querySelectorAll('.qa-q');
@@ -669,6 +674,12 @@ Object.assign(NBA.actions, {
   // No reset while a question is running: it is still writing to A.convo and holds A.busy
   'ask-new': () => { if (A.busy) return; A.turns = []; A.convo = []; renderPanel(); $('#ask-input').focus(); },
   'ask-close': () => A.close(),
+  // The magnifier: focusing in the same tap is what brings up the iPhone keyboard. A second tap puts the bar away
+  'ask-open': () => {
+    if (document.documentElement.classList.contains('srch')) { if (!A.busy) A.close(); return; }
+    showBar(true);
+    $('#ask-input').focus();
+  },
   // The key field sits at the bottom of this panel, under the answers
   'ask-keyfocus': () => { const k = $('#ask-key'); if (k) { k.scrollIntoView({ block: 'center', behavior: 'smooth' }); k.focus({ preventScroll: true }); } },
   'ask-key-save': () => {

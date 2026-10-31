@@ -50,7 +50,7 @@ V.schedule = () => {
   const head = `<div class="sec-h"><h2>${isToday ? 'Schedule' : 'Games'}</h2>
     <div class="datenav" role="group" aria-label="Choose a day">
       <button class="ib" data-act="date" data-v="-1" aria-label="Previous day">${UI.I.left}</button>
-      <span class="datelbl">${esc(label)}</span>
+      <button class="datelbl" data-act="cal" aria-haspopup="dialog" title="Pick a day">${UI.I.cal}<span>${esc(label)}</span></button>
       <button class="ib" data-act="date" data-v="1" aria-label="Next day">${UI.I.right}</button></div>
     ${isToday ? '' : `<button class="chip" data-act="date" data-v="0">Back to today</button>`}
     <span class="end sub">Times in ${esc(NBA.tzLabel())}</span></div>`;
@@ -363,6 +363,91 @@ NBA.actions.date = a => {
   NBA.changed();
   NBA.need('day:' + NBA.dayParam).catch(() => {});
 };
+/* The calendar under the Schedule's date: tap any day of the season, past or future, for its games. It's a dialog
+   outside the view, so the live repaints of the games under it don't close it. Days with games get a dot from ESPN's
+   season calendar, then the number of games once that month's scoreboard loads, in your team's color when they play */
+let calYm = '';
+const calMonths = () => {
+  const c = NBA.calendar || [], ends = [c[0], c[c.length - 1], NBA.today].filter(Boolean).map(d => d.slice(0, 7)).sort();
+  return [ends[0], ends[ends.length - 1]];
+};
+function calDialog() {
+  let d = document.getElementById('calpop');
+  if (d) return d;
+  d = document.createElement('dialog');
+  d.className = 'calpop'; d.id = 'calpop'; d.setAttribute('aria-label', 'Pick a day');
+  document.body.appendChild(d);
+  // The panel fills the dialog, so a click on the dialog itself is a click on the backdrop around it
+  d.addEventListener('click', e => { if (e.target === d) d.close(); });
+  d.addEventListener('close', () => { const b = document.querySelector('.datelbl'); if (b) b.focus({ preventScroll: true }); });
+  // Arrow keys move a day or a week, into the next or last month at the edges
+  d.addEventListener('keydown', e => {
+    const b = e.target.closest && e.target.closest('.cal-d'), step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+    if (!b || !step) return;
+    e.preventDefault();
+    const iso = NBA.shiftIso(b.dataset.v, step), [lo, hi] = calMonths(), ym = iso.slice(0, 7);
+    if (ym < lo || ym > hi) return;
+    if (ym !== calYm) { calYm = ym; paintCal(); }
+    const nb = d.querySelector(`.cal-d[data-v="${iso}"]`); if (nb) nb.focus();
+  });
+  return d;
+}
+function paintCal() {
+  const d = document.getElementById('calpop');
+  if (!d || !d.open) return;
+  const sel = NBA.dayParam ? NBA.isoFromParam(NBA.dayParam) : NBA.today, [lo, hi] = calMonths();
+  const [y, m] = calYm.split('-').map(Number), key = 'month:' + calYm.replace('-', '');
+  const month = NBA.use(key), has = new Set(NBA.calendar || []), my = NBA.S.myTeam;
+  // Your team's games: the count sits on their color, with dark or light text to suit it
+  const tc = my && NBA.T(my).abbr ? NBA.tone(NBA.T(my)) : '', rgb = parseInt((tc || '#000000').slice(1), 16);
+  d.style.setProperty('--team', tc || 'var(--accent)');
+  d.style.setProperty('--team-ink', tc && .299 * (rgb >> 16) + .587 * (rgb >> 8 & 255) + .114 * (rgb & 255) > 150 ? '#111' : '#fff');
+  const cells = Array.from({ length: new Date(y, m - 1, 1).getDay() }, () => '<span></span>');
+  for (let i = 1, n = new Date(y, m, 0).getDate(); i <= n; i++) {
+    const iso = `${calYm}-${String(i).padStart(2, '0')}`, games = month ? month.days[iso] || [] : null;
+    const count = games ? games.length : has.has(iso) ? -1 : 0;
+    const mine = games && my && games.some(g => g.away.id === my || g.home.id === my);
+    const say = count > 0 ? `, ${count} game${count === 1 ? '' : 's'}${mine ? `, ${NBA.T(my).name || 'your team'} play` : ''}` : count < 0 ? ', games' : ', no games';
+    cells.push(`<button class="cal-d${count ? ' has' : ''}${mine ? ' mine' : ''}${iso === NBA.today ? ' today' : ''}" data-act="calday" data-v="${iso}" aria-pressed="${iso === sel}" aria-label="${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'long', day: 'numeric' }) + say)}"${iso === sel ? ' tabindex="0"' : ''}><b>${i}</b><i>${count > 0 ? count : count < 0 ? '•' : ''}</i></button>`);
+  }
+  const wk = ['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(x => `<span>${x}</span>`).join('');
+  d.innerHTML = `<div class="cal">
+    <div class="cal-h"><button class="ib" data-act="calmon" data-v="-1" aria-label="Previous month"${calYm <= lo ? ' disabled' : ''}>${UI.I.left}</button>
+      <b>${esc(NBA.fmtDay(calYm + '-15', { month: 'long', year: 'numeric' }))}</b>
+      <button class="ib" data-act="calmon" data-v="1" aria-label="Next month"${calYm >= hi ? ' disabled' : ''}>${UI.I.right}</button></div>
+    <div class="cal-wk" aria-hidden="true">${wk}</div>
+    <div class="cal-g">${cells.join('')}</div>
+    <div class="cal-f"><button class="chip" data-act="calday" data-v="${NBA.today}">Today</button>
+      <span class="cal-key">${my ? `<i class="cal-k mine"></i>${esc(NBA.T(my).abbr || 'Your team')} plays` : '<i class="cal-k"></i>Game day'}</span>
+      <button class="chip" data-act="calclose">Close</button></div></div>`;
+  // Each month's game counts come from one scoreboard request, kept for 2 hours
+  if (!month && !NBA.status(key).err) NBA.need(key).then(() => { if (calYm === key.slice(6, 10) + '-' + key.slice(10)) { const f = document.activeElement && document.activeElement.dataset.v; paintCal(); const b = f && d.querySelector(`.cal-d[data-v="${f}"]`); if (b) b.focus(); } }).catch(() => {});
+}
+NBA.actions.cal = a => {
+  const d = calDialog();
+  calYm = (NBA.dayParam ? NBA.isoFromParam(NBA.dayParam) : NBA.today).slice(0, 7);
+  // On a wide screen the calendar drops down from the date; on a phone it sits in the middle of the screen
+  const r = a.getBoundingClientRect(), wide = matchMedia('(min-width:641px)').matches;
+  d.classList.toggle('anch', wide);
+  d.style.top = wide ? `${r.bottom + scrollY + 8}px` : '';
+  d.style.left = wide ? `${Math.max(12, Math.min(r.left + scrollX + r.width / 2 - 170, document.documentElement.clientWidth - 352))}px` : '';
+  d.showModal();
+  paintCal();
+  const s = d.querySelector('.cal-d[aria-pressed="true"]') || d.querySelector('.cal-d'); if (s) s.focus();
+};
+NBA.actions.calmon = a => {
+  const [y, m] = calYm.split('-').map(Number), dt = new Date(y, m - 1 + +a.dataset.v, 1);
+  calYm = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  paintCal();
+};
+NBA.actions.calday = a => {
+  const iso = a.dataset.v;
+  NBA.dayParam = iso === NBA.today ? '' : NBA.paramOf(iso);
+  document.getElementById('calpop').close();
+  NBA.changed();
+  NBA.need('day:' + NBA.dayParam).catch(() => {});
+};
+NBA.actions.calclose = () => document.getElementById('calpop').close();
 NBA.actions.perf = a => { st.perfCat = a.dataset.v; NBA.changed(); };
 
 /* ================= Standings ================= */

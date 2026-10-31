@@ -72,7 +72,11 @@ a{color:inherit}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:41;background:var(--chrome)}
 .top{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:var(--chrome);border-bottom:1px solid var(--line)}
 .top-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:20px;padding-block:14px 10px}
-.brand{font-family:var(--f-display);font-weight:900;font-size:34px;letter-spacing:.07em;line-height:1;text-decoration:none;padding-right:4px}
+/* Full Court: the FC ball and the name */
+.brand{display:inline-flex;align-items:center;gap:11px;padding-right:4px;color:var(--ink);text-decoration:none}
+.brand-mark{display:block;width:38px;height:38px;flex:none}
+.brand-word{font-family:var(--f-display);font-weight:900;font-size:31px;letter-spacing:.05em;line-height:1;text-transform:uppercase;white-space:nowrap}
+.ib.srch-btn{display:none}
 .ask{justify-self:center;width:100%;max-width:980px;display:flex;align-items:center;gap:10px;height:52px;padding:0 6px 0 16px;border-radius:16px;
   background:var(--card);border:1px solid var(--line);box-shadow:0 1px 0 rgba(0,0,0,.03);transition:border-color .15s, box-shadow .15s}
 .ask:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 18%,transparent)}
@@ -115,9 +119,25 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
   /* views.js sets --strip-h to the strip's height, so the page below starts under it rather than behind it */
   .top{margin-bottom:var(--strip-h,0px)}
 }
-/* The narrowest phones (320-370px): the live button keeps just its count and the team picker gives up a little width.
-   A 375px iPhone still has room for both, even with 10+ games live */
-@media (max-width:370px){.hdr-team select{max-width:96px}.live-btn{padding:0 9px;gap:5px}.live-btn .lv-word{display:none}}
+/* Phones: one short row (the name, then search, live, team and settings), about half the old height. The search bar
+   is tucked away until the magnifier opens it (html.srch, set by ask.js), then drops in under that row */
+@media (max-width:640px){
+  .top-row{gap:8px 6px;padding-block:6px}
+  .brand{gap:7px}
+  .brand-mark{width:28px;height:28px}
+  .brand-word{font-size:22px;letter-spacing:.04em}
+  .top-meta{gap:4px}
+  .ib.srch-btn{display:inline-grid}
+  html.srch .srch-btn{background:var(--card);border-color:var(--line)}
+  .ask{display:none;height:44px;margin-bottom:2px}
+  html.srch .ask{display:flex}
+  .ht-lbl{display:none}
+  .hdr-team select{max-width:108px}
+  .live-btn{padding:0 9px;gap:5px}
+  .live-btn .lv-word{display:none}
+}
+/* The narrowest phones (320-370px): the team picker gives up a little more width */
+@media (max-width:370px){.hdr-team select{max-width:90px}.brand-word{font-size:20px}}
 /* While the scores on screen may be old, nothing pulses as if it were live */
 html.stale .blink{animation:none;opacity:.35}
 html.stale .game.big::after{animation:none}
@@ -136,7 +156,7 @@ html.stale .live-btn,html.stale .hchip.live{filter:saturate(.3)}
 .tab[aria-selected="true"]::before{content:"";position:absolute;left:16px;right:16px;top:-1px;height:4px;border-radius:0 0 4px 4px;background:var(--accent)}
 .tab img{width:24px;height:24px;object-fit:contain}
 .tab .badge{display:inline-flex;align-items:center;gap:5px;font:800 11px var(--f-ui);letter-spacing:.06em;color:var(--live);padding:3px 7px;border-radius:999px;background:var(--live-soft)}
-@media (max-width:640px){.tab{height:46px;padding:0 14px;font-size:17px}.tab img{width:20px;height:20px}}
+@media (max-width:640px){.tab{height:36px;padding:0 12px;gap:7px;border-radius:10px 10px 0 0;font-size:15px}.tab img{width:18px;height:18px}.tab[aria-selected="true"]::before{left:10px;right:10px;height:3px}}
 /* Laptop widths: all 11 tabs in one row */
 @media (min-width:641px) and (max-width:1600px){.tab{padding:0 15px;font-size:18px}}
 
@@ -229,7 +249,36 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
   .pb-val small{font-family:var(--f-ui);font-size:9px;font-weight:800;letter-spacing:.08em;color:var(--muted)}
 }
 .datenav{display:inline-flex;align-items:center;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:2px}
-.datelbl{font-weight:700;min-width:10.5em;text-align:center;font-variant-numeric:tabular-nums}
+.datelbl{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:10.5em;height:36px;padding:0 10px;border:0;border-radius:9px;background:none;color:inherit;font:inherit;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer}
+.datelbl svg{color:var(--muted);flex:none}
+@media (hover:hover){.datelbl:hover{background:var(--card-2)}.datelbl:hover svg{color:var(--accent)}}
+/* The Schedule's calendar: drops down from the date on a wide screen (.anch, placed by views.js), middle of the screen on a phone */
+.calpop{width:min(340px,calc(100vw - 24px));padding:0;border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);box-shadow:0 18px 50px rgba(0,0,0,.28)}
+.calpop::backdrop{background:rgba(0,0,0,.45)}
+.calpop.anch{position:absolute;margin:0;inset:auto}
+.calpop.anch::backdrop{background:rgba(0,0,0,.12)}
+.cal{padding:12px 12px 10px}
+.cal-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.cal-h b{font-family:var(--f-display);font-weight:800;font-size:22px;letter-spacing:.04em;text-transform:uppercase}
+.cal-h .ib:disabled{opacity:.3;cursor:default}
+.cal-wk,.cal-g{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.cal-wk span{padding:4px 0;font-size:11px;font-weight:800;letter-spacing:.06em;text-align:center;color:var(--muted)}
+.cal-d{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;height:44px;padding:0;border:1px solid transparent;border-radius:10px;background:none;color:var(--muted);font:inherit;cursor:pointer}
+.cal-d b{font-size:15px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.cal-d i{height:11px;font-style:normal;font-size:10px;font-weight:800;line-height:11px;color:var(--muted)}
+.cal-d.has{color:var(--ink)}
+.cal-d.has b{font-weight:800}
+.cal-d.has i{color:var(--accent)}
+.cal-d.mine i{display:inline-grid;place-items:center;min-width:15px;padding:0 3px;border-radius:6px;background:var(--team,var(--accent));color:var(--team-ink,#fff)}
+.cal-d.today{border-color:var(--accent)}
+.cal-d[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.cal-d[aria-pressed="true"] i{color:inherit}
+.cal-d[aria-pressed="true"].mine i{background:rgba(0,0,0,.22)}
+@media (hover:hover){.cal-d:not([aria-pressed="true"]):hover{background:var(--card-2)}}
+.cal-f{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}
+.cal-key{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted)}
+.cal-k{width:10px;height:10px;border-radius:3px;background:var(--accent)}
+.cal-k.mine{background:var(--team,var(--accent))}
 .sub-h{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:6px 0 -2px}
 .sub-h.live{color:var(--live)}
 /* Cards stretch to fill each row; everything inside scales with the card's own width (container queries) */
@@ -1189,11 +1238,11 @@ a.hchip,button.hchip{cursor:pointer}
 /* The floating player fills most of the screen: as wide as fits, up to 1600 px, leaving room above and below for its
    title bar and the YouTube link. No overflow clipping around it: iPhone Safari can draw an embedded video black inside
    a rounded, clipped box */
-.vid{padding:0;border:0;border-radius:14px;background:#000;color:#fff;width:min(1600px,calc(100vw - 48px),calc((100vh - 160px) * 16 / 9));width:min(1600px,calc(100vw - 48px),calc((100dvh - 160px) * 16 / 9));max-width:none;max-height:none;box-shadow:0 24px 70px rgba(0,0,0,.5)}
+.vid{padding:0;border:0;border-radius:14px;background:#000;color:#fff;width:min(1600px,calc(100vw - 48px),calc((100vh - 190px) * 16 / 9));width:min(1600px,calc(100vw - 48px),calc((100dvh - 190px) * 16 / 9));max-width:none;max-height:none;box-shadow:0 24px 70px rgba(0,0,0,.5)}
 .vid::backdrop{background:rgba(0,0,0,.75)}
 /* Phones use the full width; a phone on its side, the full height */
 @media (max-width:640px){.vid:not(.tall){width:calc(100vw - 16px)}}
-@media (max-height:500px){.vid:not(.tall){width:min(calc(100vw - 16px),calc((100vh - 96px) * 16 / 9));width:min(calc(100vw - 16px),calc((100dvh - 96px) * 16 / 9))}}
+@media (max-height:500px){.vid:not(.tall){width:min(calc(100vw - 16px),calc((100vh - 124px) * 16 / 9));width:min(calc(100vw - 16px),calc((100dvh - 124px) * 16 / 9))}}
 .vid-frame{position:relative;width:100%;aspect-ratio:16/9;background:#000}
 /* The video's still and a spinner until YouTube's player is ready; taps go through to the player underneath */
 .vid-wait{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#000 center/cover no-repeat;pointer-events:none;transition:opacity .35s,visibility .35s}
@@ -1207,6 +1256,19 @@ a.hchip,button.hchip{cursor:pointer}
 .vid-alt.loud{background:var(--accent);color:var(--accent-ink)}
 .vid-alt.loud .vid-msg{color:inherit}
 @media (hover:hover){.vid-alt:hover{color:#fff;text-decoration:underline;text-underline-offset:2px}}
+/* YouTube videos end in YouTube's big red button (the YouTube app on a phone). It pulses when the video won't play here */
+.vid-foot{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 18px;padding:12px 14px 14px}
+.vid-foot .vid-msg{font-size:15px;font-weight:600;color:rgba(255,255,255,.66)}
+.vid-foot.loud .vid-msg{color:#fff;font-weight:800}
+.yt-btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;height:52px;padding:0 28px 0 20px;border-radius:999px;background:#FF0000;color:#fff;font-size:18px;font-weight:800;letter-spacing:.01em;text-decoration:none;white-space:nowrap;box-shadow:0 6px 20px rgba(255,0,0,.3);transition:background .15s,transform .15s}
+.yt-btn svg{flex:none}
+@media (hover:hover){.yt-btn:hover{background:#D90000}}
+.yt-btn:active{transform:scale(.97)}
+.vid-foot.loud .yt-btn{animation:yt-pulse 1.4s ease-out 4}
+@keyframes yt-pulse{0%{box-shadow:0 0 0 0 rgba(255,0,0,.65)}100%{box-shadow:0 0 0 18px rgba(255,0,0,0)}}
+@media (prefers-reduced-motion:reduce){.vid-foot.loud .yt-btn{animation:none}}
+@media (max-width:640px){.vid-foot{flex-direction:column;padding:12px 12px 14px}.yt-btn{width:100%;max-width:440px;height:56px}}
+@media (max-height:500px){.vid-foot{flex-direction:row;padding:8px 12px 10px}.yt-btn{width:auto;height:44px;font-size:16px}}
 .vid-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
 .vid-frame video,.vid-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
 /* Portrait clips and photos (reels, phone video) get a narrow window instead of black bars */
@@ -1577,6 +1639,12 @@ html.soc-dragging,html.soc-dragging *{cursor:grabbing!important;user-select:none
   .ib{width:44px;height:44px}
   .top-meta .ib{width:40px;height:40px} /* so the 320px header still fits */
   .hdr-team select,.live-btn{height:36px}
+  /* The phone header's one row stays short; its buttons still get a full 44px to hit */
+  @media (max-width:640px){
+    .top-meta .ib{width:36px;height:36px;position:relative}
+    .top-meta .ib::after{content:"";position:absolute;inset:-4px}
+    .hdr-team select,.live-btn{height:32px}
+  }
   .seg button{height:36px}
   .seg.sm button{height:34px}
   .pl-az button,.pl-az span{width:34px;height:34px}
