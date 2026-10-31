@@ -1,14 +1,17 @@
-# Finds the NBA's full game highlights on YouTube as they're posted (usually about an hour after the final) and keeps
-# highlights.json (ESPN game id -> YouTube video) on the `highlights` branch, which the site reads straight from
-# raw.githubusercontent.com. Every 3 hours it also refreshes catv.json there: each game's Canadian streaming service,
-# from the NBA's Canada schedule. That branch is one commit, replaced on every change, so main's history stays clean.
+# The site's live data job. Every 10 minutes on game nights it keeps these on the `highlights` branch, which the site
+# reads straight from raw.githubusercontent.com:
+#   highlights.json      the NBA's full game highlights on YouTube, by ESPN game id (posted about an hour after the final)
+#   catv.json            each game's Canadian streaming service (refreshed every 3 hours)
+#   social.json          the Social tab's last day of posts from r/nba, Instagram and X
+#   social-archive.json  the biggest posts of the week and season
+# That branch is one commit, replaced on every run, so main's history stays clean.
 name: Full game highlights
 
 on:
   schedule:
-    - cron: '*/10 0-8,16-23 * * *'  # every 10 minutes from noon to 4-5 AM Eastern, when games end
-    - cron: '7 9-13,15 * * *'       # hourly through the morning, for early international games
-    - cron: '37 14 * * *'           # the daily check: this run fails if YouTube couldn't be read
+    - cron: '*/10 0-8,16-23 * * *'  # every 10 minutes from noon to 4-5 AM Eastern, when games are on and end
+    - cron: '7 9-13,15 * * *'       # hourly through the morning
+    - cron: '37 14 * * *'           # the daily check: this run fails if a source couldn't be read
   workflow_dispatch:
 
 permissions:
@@ -21,7 +24,7 @@ concurrency:
 jobs:
   highlights:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
         with:
@@ -35,7 +38,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/prev"
           if git fetch -q --depth=1 origin highlights; then
-            for f in highlights.json catv.json; do
+            for f in highlights.json catv.json social.json social-archive.json; do
               git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/prev/$f" 2>/dev/null || rm -f "$RUNNER_TEMP/prev/$f"
             done
           else
@@ -57,18 +60,30 @@ jobs:
           CHECK: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '37 14 * * *' }}
         run: node scripts/catv-job.js
 
-      # Runs even when a step above failed the daily check, so the other list still goes out
-      - name: Publish if anything changed
+      - name: Refresh the social feed
+        if: ${{ !cancelled() }}
+        timeout-minutes: 6
+        env:
+          PREV: ${{ runner.temp }}/prev/social.json
+          PREV_ARCH: ${{ runner.temp }}/prev/social-archive.json
+          OUT: ${{ runner.temp }}/out/social.json
+          OUT_ARCH: ${{ runner.temp }}/out/social-archive.json
+          CHECK: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '37 14 * * *' }}
+        run: node scripts/social-job.js
+
+      # Runs even when a step above failed the daily check, so the other lists still go out
+      - name: Publish
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ ! -f "$RUNNER_TEMP/out/highlights.json" ] && [ ! -f "$RUNNER_TEMP/out/catv.json" ]; then
+          mkdir -p "$RUNNER_TEMP/out"
+          if [ -z "$(ls -A "$RUNNER_TEMP/out")" ]; then
             echo "Nothing new to publish."
             exit 0
           fi
           # The branch is replaced whole, so a list that didn't change goes back in as it was
-          for f in highlights.json catv.json; do
+          for f in highlights.json catv.json social.json social-archive.json; do
             [ -f "$RUNNER_TEMP/out/$f" ] || [ ! -f "$RUNNER_TEMP/prev/$f" ] || cp "$RUNNER_TEMP/prev/$f" "$RUNNER_TEMP/out/$f"
           done
           cd "$RUNNER_TEMP/out"
@@ -76,6 +91,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -q -m "Full game highlights and Canadian TV"
+          git commit -q -m "Live data: highlights, Canadian TV and the social feed"
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" highlights
           echo "Published."
