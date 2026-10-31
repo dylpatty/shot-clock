@@ -16,8 +16,7 @@ export function seasonStart(now) {
 export function engagement(it) {
   const s = it.stats || {};
   if (it.src === 'reddit') { const c = (s.replies || 0) * (/game thread/i.test(it.flair || '') ? 0.15 : 1); return (it.sf ? (s.up || 0) : 4 * c) + 3 * c; }
-  if (it.src === 'x') return (s.likes || 0) + 2 * (s.reposts || 0) + 3 * (s.replies || 0) + 2 * (s.quotes || 0);
-  return (s.likes || 0) + 4 * (s.replies || 0);
+  return (s.likes || 0) + 2 * (s.reposts || 0) + 3 * (s.replies || 0) + 2 * (s.quotes || 0);
 }
 
 /* Merges fresh posts into the previous list: a post seen again keeps its first time and gets the newer counts (counts

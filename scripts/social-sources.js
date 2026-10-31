@@ -11,28 +11,9 @@ export const PAGE_HEADERS = Object.assign({
   'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'none', 'Sec-Fetch-User': '?1', 'Upgrade-Insecure-Requests': '1',
 }, CH);
 
-/* ---------- small parsing helpers ---------- */
-// The JSON string literal starting at html[i] (an opening quote), decoded
-export function stringAt(html, i) {
-  let j = i + 1;
-  for (; j < html.length; j++) { const c = html[j]; if (c === '\\') j++; else if (c === '"') break; }
-  try { return JSON.parse(html.slice(i, j + 1)); } catch (e) { return null; }
-}
-// Every <script type="application/json"> block that parses
-export function jsonScripts(html) {
-  const out = [], re = /<script type="application\/json"[^>]*>([\s\S]*?)<\/script>/g;
-  let m;
-  while ((m = re.exec(html || ''))) { try { out.push(JSON.parse(m[1])); } catch (e) { /* not JSON */ } }
-  return out;
-}
-// Every object under root that passes test (not looking inside a match)
-export function findAll(root, test, out = []) {
-  if (!root || typeof root !== 'object') return out;
-  if (test(root)) { out.push(root); return out; }
-  for (const k in root) findAll(root[k], test, out);
-  return out;
-}
+/* ---------- small helpers ---------- */
 const decodeEntities = s => String(s || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&#(\d+);/g, (m, n) => String.fromCodePoint(+n));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* ---------- Reddit r/nba, through Arctic Shift ---------- */
 /* Reddit closed its own feeds to logged-out readers in 2026, so r/nba comes from Arctic Shift, a public archive of Reddit
@@ -63,7 +44,6 @@ export function redditItem(p) {
     let host = ''; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { /* not a URL */ }
     link = { url, domain: host, title: p.title, thumb: pv && pv.url };
     if ((m = /(?:x|twitter)\.com\/[^/]+\/status\/(\d+)/.exec(url))) dup = 'x:' + m[1];
-    if ((m = /instagram\.com\/(?:p|reel)\/([\w-]+)/.exec(url))) dup = 'ig:' + m[1];
   }
   const flair = p.link_flair_text || '';
   return {
@@ -244,118 +224,4 @@ export async function readX({ get, prev = [], now, log = () => {} }) {
   if (!tl && !nit && !hyd) throw new Error('no X timeline, mirror or post could be read');
   log(`X: ${tl} timelines, ${nit} mirror feeds, ${hyd} posts looked up`);
   return [...found.values()].map(it => { delete it.sensitive; return it; });
-}
-
-/* ---------- Instagram ---------- */
-// Big NBA accounts; each profile page carries its 12 newest posts
-export const IG_ACCOUNTS = ['nba', 'houseofhighlights', 'bleacherreport', 'espn', 'nbaonprime', 'slam', 'overtime', 'ballislife', 'nbatv', 'warriors'];
-const IG_NAMES = { nba: 'NBA', houseofhighlights: 'House of Highlights', bleacherreport: 'Bleacher Report', espn: 'ESPN', nbaonprime: 'NBA on Prime', slam: 'SLAM', overtime: 'Overtime', ballislife: 'Ballislife', nbatv: 'NBA TV', warriors: 'Golden State Warriors' };
-// Instagram ids count up from 2011: the creation time is in the high bits
-export const igTime = pk => Math.floor(Number(BigInt(pk) >> 23n)) + 1314220021721;
-
-// The posts on a logged-out profile page
-export function igProfilePosts(html) {
-  const nodes = [];
-  jsonScripts(html).forEach(j => findAll(j, o => typeof o.pk === 'string' && typeof o.code === 'string' && (o.media_type != null || o.__typename) && o.user, nodes));
-  const seen = new Set();
-  return nodes.filter(n => !seen.has(n.code) && seen.add(n.code)).map(n => ({
-    code: n.code, pk: n.pk, time: igTime(n.pk), user: (n.user && n.user.username) || '',
-    caption: (n.caption && n.caption.text) || '', reel: n.product_type === 'clips', video: n.media_type === 2, thumb: n.display_uri || '',
-  }));
-}
-// What a post's official embed page knows: counts, caption, owner and the media files
-export function igEmbed(html) {
-  const i = (html || '').indexOf('"contextJSON":"');
-  if (i < 0) return null;
-  const s = stringAt(html, i + '"contextJSON":'.length);
-  let ctx; try { ctx = JSON.parse(s); } catch (e) { return null; }
-  return (ctx && ctx.gql_data && ctx.gql_data.shortcode_media) || null;
-}
-export function igItem(post, m) {
-  const media = [], dims = x => (x && x.dimensions) || {};
-  // A video without its file (the profile embed leaves it out) plays in Instagram's own embedded player
-  const embed = `https://www.instagram.com/p/${post.code}/embed/captioned/`;
-  const one = x => x.is_video
-    ? (x.video_url
-      ? { kind: 'video', thumb: x.display_url, mp4: x.video_url, w: dims(x).width, h: dims(x).height, dur: x.video_duration ? Math.round(x.video_duration) : undefined, embed }
-      : { kind: 'embed', thumb: x.display_url, embed, w: dims(x).width, h: dims(x).height, tall: dims(x).height > dims(x).width })
-    : { kind: 'image', thumb: x.display_url, w: dims(x).width, h: dims(x).height };
-  if (m) {
-    const kids = m.edge_sidecar_to_children && m.edge_sidecar_to_children.edges;
-    if (kids && kids.length) kids.forEach(e => media.push(one(e.node))); else media.push(one(m));
-  } else if (post.thumb) media.push({ kind: post.video ? 'embed' : 'image', thumb: post.thumb, embed: `https://www.instagram.com/p/${post.code}/embed/captioned/`, tall: post.reel });
-  const owner = (m && m.owner) || {};
-  const caption = (m && m.edge_media_to_caption && m.edge_media_to_caption.edges[0] && m.edge_media_to_caption.edges[0].node.text) || post.caption;
-  return {
-    id: 'ig:' + post.code, src: 'ig', dup: 'ig:' + post.code,
-    author: { name: IG_NAMES[owner.username || post.user] || owner.full_name || owner.username || post.user, handle: '@' + (owner.username || post.user), avatar: owner.profile_pic_url || '', verified: !!owner.is_verified },
-    text: caption, time: post.time, url: `https://www.instagram.com/${post.reel ? 'reel' : 'p'}/${post.code}/`,
-    stats: m ? { likes: (m.edge_liked_by || m.edge_media_preview_like || {}).count || 0, replies: (m.edge_media_to_comment || {}).count || 0, views: m.video_view_count || undefined } : {},
-    media,
-  };
-}
-const IG_EMBED_HEADERS = Object.assign({}, PAGE_HEADERS, { 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Site': 'cross-site', Referer: 'https://dylpatty.github.io/' });
-delete IG_EMBED_HEADERS['Sec-Fetch-User'];
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-// An account's official profile embed (/<user>/embed/, what sites embed): its 6 newest posts with likes, comments,
-// time and pictures, in one request. Instagram serves it to servers that its profile pages turn away
-export function igProfileEmbed(html) {
-  const i = (html || '').indexOf('"contextJSON":"');
-  if (i < 0) return [];
-  let ctx; try { ctx = JSON.parse(stringAt(html, i + '"contextJSON":'.length)).context; } catch (e) { return []; }
-  const owner = { username: ctx.username, full_name: ctx.full_name, is_verified: !!(ctx.is_verified || ctx.verified), profile_pic_url: ctx.profile_pic_url };
-  return (ctx.graphql_media || []).map(x => x && x.shortcode_media).filter(m => m && m.shortcode)
-    .map(m => ({ post: { code: m.shortcode, time: m.taken_at_timestamp ? m.taken_at_timestamp * 1000 : igTime(m.id), user: ctx.username }, m: Object.assign({ owner }, m, { owner: Object.assign({}, owner, m.owner) }) }));
-}
-
-/* Each run: every account's newest posts from its profile embed (the profile page as a fallback), then the post's own
-   embed page for new videos (the video file) and for the biggest recent posts no longer in the newest six (fresh counts).
-   prev: last run's Instagram items */
-export async function readInstagram({ get, prev = [], now, maxEmbeds = 14, log = () => {} }) {
-  const found = new Map(), fails = [];
-  for (const u of IG_ACCOUNTS) {
-    let got = [];
-    try { got = igProfileEmbed(await get(`https://www.instagram.com/${u}/embed/`, { headers: IG_EMBED_HEADERS })); } catch (e) { /* try the profile page */ }
-    if (!got.length) {
-      try { got = igProfilePosts(await get(`https://www.instagram.com/${u}/`, { headers: PAGE_HEADERS })).map(post => ({ post, m: null })); } catch (e) { /* neither answered */ }
-    }
-    if (!got.length) fails.push(u);
-    got.filter(g => now - g.post.time < 26 * 3600000).forEach(g => found.set(g.post.code, g));
-    await sleep(700);
-  }
-  if (fails.length === IG_ACCOUNTS.length) {
-    // What Instagram sends this machine instead, for the run's log
-    const tries = [
-      ['embed', 'https://www.instagram.com/nba/embed/', IG_EMBED_HEADERS],
-      ['embed, no referrer', 'https://www.instagram.com/nba/embed/', Object.assign({}, IG_EMBED_HEADERS, { Referer: undefined })],
-      ['embed, iPhone', 'https://www.instagram.com/nba/embed/', { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1', Accept: 'text/html', 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'cross-site' }],
-      ['post embed', 'https://www.instagram.com/p/DfJVylCG8nA/embed/captioned/', IG_EMBED_HEADERS],
-    ];
-    for (const [label, url, h] of tries) {
-      try {
-        const html = await get(url, { headers: Object.fromEntries(Object.entries(h).filter(([, v]) => v != null)) });
-        log(`Instagram check (${label}): ${html.length} bytes, contextJSON ${html.includes('"contextJSON":"') ? 'yes' : 'no'}, route ${(/"canonicalRouteName":"([^"]*)"/.exec(html) || [])[1] || '-'}, login ${/login|LoginAndSignup/i.test(html) ? 'yes' : 'no'}`);
-      } catch (e) { log(`Instagram check (${label}): ${e.message}`); }
-      await sleep(500);
-    }
-    throw new Error('no Instagram account could be read: ' + fails.slice(0, 3).join(', '));
-  }
-  if (fails.length) log(`Instagram: nothing from ${fails.join(', ')}`);
-  const had = new Map(prev.map(it => [it.id.slice(3), it]));
-  const hasFile = it => (it.media || []).some(x => x.mp4);
-  // Videos new this run (or still without a file), then the biggest recent posts that dropped out of the newest six
-  const videos = [...found.values()].filter(g => (g.m ? g.m.is_video || g.m.__typename === 'GraphSidecar' : g.post.video) && !(had.get(g.post.code) && hasFile(had.get(g.post.code)))).map(g => g.post);
-  const older = prev.filter(it => now - it.time < 12 * 3600000 && !found.has(it.id.slice(3))).sort((a, b) => ((b.stats || {}).likes || 0) - ((a.stats || {}).likes || 0)).slice(0, 6)
-    .map(it => ({ code: it.id.slice(3), time: it.time, user: (it.author.handle || '').slice(1) }));
-  let n = 0;
-  for (const p of [...videos, ...older]) {
-    if (n++ >= maxEmbeds) break;
-    try {
-      const m = igEmbed(await get(`https://www.instagram.com/p/${p.code}/embed/captioned/`, { headers: IG_EMBED_HEADERS }));
-      if (m) found.set(p.code, { post: p, m });
-    } catch (e) { /* the profile embed's data stands in */ }
-    await sleep(600);
-  }
-  return [...found.values()].map(g => igItem(g.post, g.m));
 }

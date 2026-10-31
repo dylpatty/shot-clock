@@ -2,7 +2,7 @@
 # reads straight from raw.githubusercontent.com:
 #   highlights.json      the NBA's full game highlights on YouTube, by ESPN game id (posted about an hour after the final)
 #   catv.json            each game's Canadian streaming service (refreshed every 3 hours)
-#   social.json          the Social tab's last day of posts from r/nba, Instagram and X
+#   social.json          the Social tab's last day of posts from r/nba and X
 #   social-archive.json  the biggest posts of the week and season
 # That branch is one commit, replaced on every run, so main's history stays clean.
 name: Full game highlights
@@ -69,13 +69,7 @@ jobs:
           OUT: ${{ runner.temp }}/out/social.json
           OUT_ARCH: ${{ runner.temp }}/out/social-archive.json
           CHECK: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '37 14 * * *' }}
-          IGRAW: ${{ runner.temp }}/igraw
-        # Instagram's pages come from the owner's PC (tools/ig-fetch.ps1), on the ig-raw branch
-        run: |
-          if git fetch -q --depth=1 origin ig-raw 2>/dev/null; then
-            mkdir -p "$IGRAW" && git archive FETCH_HEAD raw | tar -x -C "$IGRAW" --strip-components=1
-          fi
-          node scripts/social-job.js
+        run: node scripts/social-job.js
 
       # Runs even when a step above failed the daily check, so the other lists still go out
       - name: Publish

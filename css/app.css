@@ -1420,8 +1420,8 @@ a.hchip,button.hchip{cursor:pointer}
 @media (max-width:640px){.pl-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pl-card{padding:7px 8px 7px 7px;gap:8px}.pl-card img,.pl-card .hs{width:38px;height:29px}.pl-az button,.pl-az span{width:27px;height:27px}}
 
 /* ---------- Social: Courtside ---------- */
-/* One view-only feed from three sites, each colour-coded: Reddit orange, X black (white in dark mode), Instagram's gradient */
-:root{--rd:#FF4500;--xx:#0F1419;--xx-ink:#FFFFFF;--ig:linear-gradient(45deg,#F58529,#DD2A7B 55%,#8134AF);--ig-1:#DD2A7B}
+/* One view-only feed from two sites, each colour-coded: Reddit orange, X black (white in dark mode) */
+:root{--rd:#FF4500;--xx:#0F1419;--xx-ink:#FFFFFF}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--xx:#E7E9EA;--xx-ink:#0F1419}}
 :root[data-theme="dark"]{--xx:#E7E9EA;--xx-ink:#0F1419}
 @media (min-width:1100px){.soc{max-width:1040px;margin-inline:auto}}
@@ -1429,7 +1429,7 @@ a.hchip,button.hchip{cursor:pointer}
 .soc-brand{margin:0;font-family:var(--f-display);font-weight:900;font-size:clamp(38px,7vw,58px);letter-spacing:.02em;text-transform:uppercase;line-height:.88;background:linear-gradient(95deg,var(--ink) 30%,var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
 .soc-tag{margin:8px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
 .soc-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin:0 5px 0 3px;vertical-align:0}
-.sd-reddit{background:var(--rd)}.sd-x{background:var(--xx)}.sd-ig{background:var(--ig)}
+.sd-reddit{background:var(--rd)}.sd-x{background:var(--xx)}
 .soc-live{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .soc-pill{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
 .soc-pill.live{color:var(--live);border-color:color-mix(in srgb,var(--live) 40%,var(--line))}
@@ -1441,7 +1441,7 @@ html.soc-refreshing .soc-refresh svg,.soc-ptr.busy .soc-ptr-ic svg{animation:soc
 .soc-stories{display:flex;gap:12px;overflow-x:auto;scrollbar-width:none;padding:18px var(--pad) 6px;margin:0 calc(var(--pad) * -1);scroll-snap-type:x proximity;overscroll-behavior-x:contain}
 .soc-stories::-webkit-scrollbar{display:none}
 .soc-story{flex:none;display:flex;flex-direction:column;align-items:center;gap:3px;width:76px;border:0;background:none;color:inherit;cursor:pointer;padding:0;scroll-snap-align:start;-webkit-tap-highlight-color:transparent}
-.soc-story .ring{display:block;width:68px;height:68px;border-radius:50%;padding:3px;background:conic-gradient(from 200deg,#F58529,#DD2A7B,#8134AF,#FF4500,#F58529)}
+.soc-story .ring{display:block;width:68px;height:68px;border-radius:50%;padding:3px;background:conic-gradient(from 200deg,var(--accent),#FFC23A,var(--rd),var(--accent))}
 .soc-story .ring .hs{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover;object-position:top;background:var(--card-2);border:3px solid var(--bg)}
 .soc-story.on .ring{background:var(--accent)}
 .soc-story b{font-size:12px;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
@@ -1462,7 +1462,7 @@ html.soc-refreshing .soc-refresh svg,.soc-ptr.busy .soc-ptr-ic svg{animation:soc
 .soc-types .chip,.soc-srcs .chip{flex:none}
 .soc-src svg{width:14px;height:14px;flex:none}
 .soc-src small{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
-.sc-reddit svg{color:var(--rd)}.sc-x svg{color:var(--xx)}.sc-ig svg{color:var(--ig-1)}
+.sc-reddit svg{color:var(--rd)}.sc-x svg{color:var(--xx)}
 .soc-focus{display:flex;align-items:center;gap:8px;font-size:13px;width:100%}
 .soc-new{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--top-h,110px) + 10px);z-index:6;display:block;margin:0 auto 12px;padding:9px 18px;border-radius:999px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:800;font-size:13px;box-shadow:var(--shadow);cursor:pointer;animation:soc-drop .25s ease-out}
 @keyframes soc-drop{from{transform:translateY(-10px);opacity:0}}
@@ -1475,7 +1475,7 @@ html.soc-dragging,html.soc-dragging *{cursor:grabbing!important;user-select:none
 .soc-feed{display:flex;flex-direction:column;gap:12px}
 .sp{position:relative;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px 10px 18px;overflow:hidden;--sp-cut:var(--card);contain:layout paint}
 .sp::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--src)}
-.sp-reddit{--src:var(--rd)}.sp-x{--src:var(--xx)}.sp-ig{--src:var(--ig)}
+.sp-reddit{--src:var(--rd)}.sp-x{--src:var(--xx)}
 .sp-top{display:flex;align-items:center;gap:10px;min-width:0}
 .sp-av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none;background:var(--card-2)}
 .sp-av-l{display:grid;place-items:center;color:#fff;font-weight:800;font-size:17px}
@@ -1491,7 +1491,6 @@ html.soc-dragging,html.soc-dragging *{cursor:grabbing!important;user-select:none
 .sp-badge.solo svg{width:12px;height:12px}
 .sb-reddit{background:var(--rd);--sp-cut:var(--rd)}
 .sb-x{background:var(--xx);color:var(--xx-ink)}
-.sb-ig{background:var(--ig)}
 .sp-body{margin-top:10px}
 .sp-title{margin:0;font-size:16px;line-height:1.35;font-weight:700;overflow-wrap:anywhere}
 .sp-text{margin:6px 0 0;font-size:14.5px;line-height:1.5;overflow-wrap:anywhere}

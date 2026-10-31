@@ -1,6 +1,6 @@
-/* Courtside, the Social tab: the NBA conversation from Reddit's r/nba, X and Instagram in one view-only feed, colour-coded
-   by source and ranked by the site's own "heat" score. Posts come from .github/workflows/social.yml (social.json for
-   the last day, social-archive.json for the week and season); nothing here can post, like or reply. */
+/* Courtside, the Social tab: the NBA conversation from Reddit's r/nba and X in one view-only feed, colour-coded by source
+   and ranked by the site's own "heat" score. Posts come from .github/workflows/highlights.yml (social.json for the last
+   day, social-archive.json for the week and season); nothing here can post, like or reply. */
 (() => {
 'use strict';
 
@@ -15,12 +15,10 @@ const S = st.soc;
 const ICON = {
   reddit: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="11.6" r="6.4" fill="currentColor"/><circle cx="15.4" cy="3.9" r="1.5" fill="currentColor"/><path d="M10 5.3 11.3 2l4.1 1.6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7.6" cy="11.2" r="1.15" fill="var(--sp-cut)"/><circle cx="12.4" cy="11.2" r="1.15" fill="var(--sp-cut)"/><path d="M7.5 14c1.6 1.1 3.4 1.1 5 0" fill="none" stroke="var(--sp-cut)" stroke-width="1.1" stroke-linecap="round"/></svg>',
   x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.2 2.3h3.3l-7.2 8.3 8.5 11.2h-6.7l-5.2-6.8-6 6.8H1.7l7.7-8.8L1.3 2.3h6.8l4.7 6.2zm-1.2 17.5h1.8L7.1 4.1h-2z" fill="currentColor"/></svg>',
-  ig: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5.2" fill="none" stroke="currentColor" stroke-width="2.1"/><circle cx="12" cy="12" r="4.1" fill="none" stroke="currentColor" stroke-width="2.1"/><circle cx="17.4" cy="6.6" r="1.25" fill="currentColor"/></svg>',
 };
 const SRC = {
   reddit: { name: 'Reddit', tag: 'r/nba', open: 'Open on Reddit' },
   x: { name: 'X', tag: '', open: 'Open on X' },
-  ig: { name: 'Instagram', tag: 'Instagram', open: 'Open on Instagram' },
 };
 const STAT = {
   up: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 3 8.2h3.1V13h3.8V8.2H13z" fill="currentColor"/></svg>',
@@ -40,14 +38,13 @@ NBA.def('socarch', 30 * 60000, () => NBA.getJSON(RAW + 'social-archive.json').ca
 const DAY = 864e5;
 
 // Engagement on one scale per source, from each site's real counts: upvotes and comments on Reddit; likes, reposts,
-// replies and quotes on X; likes and comments on Instagram. Comments count extra, since a post people argue about is a
-// conversation, not just a scroll-by. A Reddit post's score is only real 4 hours in (sf), so until then its live comment
-// count stands in; game threads' play-by-play comments count for little. Same yardstick as scripts/socialcore.js
+// replies and quotes on X. Comments count extra, since a post people argue about is a conversation, not just a
+// scroll-by. A Reddit post's score is only real 4 hours in (sf), so until then its live comment count stands in; game
+// threads' play-by-play comments count for little. Same yardstick as scripts/socialcore.js
 function engagement(it) {
   const s = it.stats || {};
   if (it.src === 'reddit') { const c = (s.replies || 0) * (/game thread/i.test(it.flair || '') ? 0.15 : 1); return (it.sf ? (s.up || 0) : 4 * c) + 3 * c; }
-  if (it.src === 'x') return (s.likes || 0) + 2 * (s.reposts || 0) + 3 * (s.replies || 0) + 2 * (s.quotes || 0);
-  return (s.likes || 0) + 4 * (s.replies || 0);
+  return (s.likes || 0) + 2 * (s.reposts || 0) + 3 * (s.replies || 0) + 2 * (s.quotes || 0);
 }
 const isClip = it => (it.media || []).some(m => m.kind === 'video' || m.kind === 'embed');
 // News: a reporter's scoop ("[Charania] ..." on r/nba, insiders on X; the job marks these) or a News flair
@@ -235,8 +232,7 @@ function card(it, s) {
   // Reddit's upvotes show once they're real (about 4 hours in); before that the live comment count is the number
   const stats = it.src === 'reddit'
     ? [[STAT.up, it.sf ? st2.up : null, 'upvotes'], [STAT.reply, st2.replies, 'comments']]
-    : it.src === 'x' ? [[STAT.heart, st2.likes, 'likes'], [STAT.repost, st2.reposts, 'reposts'], [STAT.reply, st2.replies, 'replies'], [STAT.views, st2.views, 'views']]
-      : [[STAT.heart, st2.likes, 'likes'], [STAT.reply, st2.replies, 'comments'], [STAT.views, st2.views, 'views']];
+    : [[STAT.heart, st2.likes, 'likes'], [STAT.repost, st2.reposts, 'reposts'], [STAT.reply, st2.replies, 'replies'], [STAT.views, st2.views, 'views']];
   const body = `${it.title ? `<h4 class="sp-title">${esc(it.title)}</h4>` : ''}${it.text ? `<p class="sp-text${it.title ? ' sub' : ''}">${linkify(it.text.length > 420 ? it.text.slice(0, 400).replace(/\s+\S*$/, '') + '…' : it.text)}</p>` : ''}`;
   const reply = it.top && it.top.text && !hide ? `<div class="sp-reply"><b>${esc(it.top.author || 'Top reply')}</b> ${esc(it.top.text.length > 220 ? it.top.text.slice(0, 210).replace(/\s+\S*$/, '') + '…' : it.top.text)}${it.top.up ? `<span>${STAT.up}${num(it.top.up)}</span>` : ''}</div>` : '';
   return `<article class="sp sp-${it.src}" data-id="${esc(it.id)}">
@@ -279,7 +275,7 @@ V.social = () => {
   const upd = data && data.updated ? Date.parse(data.updated) : 0;
   const status = (data && data.status) || {};
 
-  const head = `<div class="soc-head"><div><h2 class="soc-brand">Courtside</h2><p class="soc-tag">Today's NBA conversation from ${Object.keys(SRC).map(k => `<span class="soc-dot sd-${k}"></span>${SRC[k].name}`).join(', ')}, ranked by heat</p></div>
+  const head = `<div class="soc-head"><div><h2 class="soc-brand">Courtside</h2><p class="soc-tag">Today's NBA conversation from ${Object.keys(SRC).map(k => `<span class="soc-dot sd-${k}"></span>${SRC[k].name}`).join(' and ')}, ranked by heat</p></div>
     <div class="soc-live">${live ? '<span class="soc-pill live"><i class="dot blink"></i>Games live</span>' : ''}<span class="soc-pill">${today.length} posts today${upd ? ` · updated ${esc(ago(upd))} ago` : ''}</span>
       <button class="ib soc-refresh" data-act="socrefresh" aria-label="Refresh the feed" title="Refresh">${STAT.refresh}</button></div></div>`;
   const stories = tr.players.length ? `<div class="soc-stories" role="list" aria-label="Trending players">${tr.players.map(({ x, c }) => `<button role="listitem" class="soc-story${S.focus === 'p' + x.id ? ' on' : ''}" data-act="socfocus" data-v="p${esc(x.id)}" aria-pressed="${S.focus === 'p' + x.id}"><span class="ring">${UI.hs(x.headshot, 'hs', 160)}</span><b>${esc((x.name || '').split(' ').slice(-1)[0])}</b><small>${c} posts</small></button>`).join('')}</div>` : '';
@@ -342,7 +338,7 @@ function findItem(id) {
    - Streamable (most r/nba highlights): its signed mp4 links expire, so they're looked up on tap; the embed if that fails
    - Reddit's own video: HLS (it carries the sound), natively in Safari and through hls.js elsewhere (Chrome says it can
      play HLS but can't), loaded the first time it's needed
-   - Instagram and X: the mp4; Instagram's links expire after a day or so, then its official player takes over */
+   - X: the mp4 (played in a frame that sends no referrer, set up in socplay) */
 const SAFARI = /^((?!chrome|chromium|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent) || /iP(hone|ad|od)/.test(navigator.userAgent);
 let hlsLib = null;
 const iframeOf = src => { const f = document.createElement('iframe'); f.src = src; f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen'; f.allowFullscreen = true; f.setAttribute('scrolling', 'no'); return f; };
@@ -376,7 +372,7 @@ async function playInto(v, x) {
   }
   if (x.mp4) v.src = x.mp4; else fallback(v, x);
 }
-// A picture whose link has expired (Instagram's last about a day) shows a plain tile instead of a broken image
+// A picture that's gone (a removed post, an expired link) shows a plain tile instead of a broken image
 addEventListener('error', e => {
   const t = e.target;
   if (!(t instanceof HTMLImageElement)) return;

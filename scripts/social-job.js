@@ -1,17 +1,23 @@
-/* Run by .github/workflows/highlights.yml every 10 minutes: reads r/nba, Instagram and X, merges them into the last day's
-   feed (social.json) and the week's and season's biggest posts (social-archive.json), written to $OUT and $OUT_ARCH.
+/* Run by .github/workflows/highlights.yml every 10 minutes: reads r/nba and X, merges them into the last day's feed
+   (social.json) and the week's and season's biggest posts (social-archive.json), written to $OUT and $OUT_ARCH.
    A source that fails keeps its last posts and is marked in social.json's status, so the site can say so; only the daily
    check run ($CHECK=true) fails, and only if every source failed */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { readReddit, readInstagram, readX } from './social-sources.js';
+import { readReddit, readX } from './social-sources.js';
 import { mergeFeed, buildArchive, slim, engagement } from './socialcore.js';
 
 const { PREV, PREV_ARCH, OUT = 'social.json', OUT_ARCH = 'social-archive.json' } = process.env;
 const CHECK = process.env.CHECK === 'true';
+// The feed's sites and how many of each site's posts a day keeps. Posts from any other site in the saved lists (Instagram
+// was one until Oct 31, 2026) are dropped on the next run
+const CAP = { reddit: 220, x: 200 };
+const ours = it => it && CAP[it.src] != null;
 const readJSON = async f => { try { return f ? JSON.parse(await readFile(f, 'utf8')) : null; } catch { return null; } };
 const prev = (await readJSON(PREV)) || { items: [], status: {}, state: {} };
+prev.items = (prev.items || []).filter(ours);
 const prevArch = (await readJSON(PREV_ARCH)) || {};
+['week', 'season'].forEach(k => { prevArch[k] = (prevArch[k] || []).filter(ours); });
 
 async function get(url, { headers = {}, timeout = 30000 } = {}) {
   const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeout);
@@ -28,7 +34,7 @@ async function get(url, { headers = {}, timeout = 30000 } = {}) {
 
 const now = Date.now();
 const mine = src => (prev.items || []).filter(it => it.src === src);
-const status = Object.assign({}, prev.status), state = Object.assign({}, prev.state), fresh = {};
+const status = Object.fromEntries(Object.entries(prev.status || {}).filter(([k]) => CAP[k] != null)), state = Object.assign({}, prev.state), fresh = {};
 const log = msg => console.log(msg);
 const run = async (src, label, f) => {
   const t = Date.now();
@@ -45,28 +51,11 @@ const run = async (src, label, f) => {
 };
 
 await run('reddit', 'Reddit', async () => { const r = await readReddit({ get, prev: mine('reddit'), state: state.reddit, now, log }); state.reddit = r.state; return r.items; });
-/* Instagram shows GitHub's servers a login wall, so its profile embeds are fetched from the owner's PC
-   (tools/ig-fetch.ps1) and land on the ig-raw branch; the workflow unpacks them into $IGRAW. Without them it asks
-   Instagram directly, which works from a home connection */
-const IGRAW = process.env.IGRAW;
-let igGet = get, igAt = null;
-try {
-  igAt = Date.parse((await readFile(`${IGRAW}/fetched.txt`, 'utf8')).trim()) || null;
-  igGet = async (url, o) => {
-    const m = /instagram\.com\/([a-z0-9_.]+)\/embed\/$/.exec(url);
-    if (m) { try { return await readFile(`${IGRAW}/${m[1]}.html`, 'utf8'); } catch { throw new Error('not in the PC upload'); } }
-    return get(url, o);
-  };
-  console.log(`Instagram pages from the PC upload, fetched ${Math.round((now - igAt) / 60000)} min ago.`);
-} catch { /* no upload: read Instagram directly */ }
-await run('ig', 'Instagram', () => readInstagram({ get: igGet, prev: mine('ig'), now, maxEmbeds: igAt ? 0 : 14, log }));
-if (igAt && status.ig && status.ig.ok) status.ig.at = new Date(igAt).toISOString();
 await run('x', 'X', () => readX({ get, prev: mine('x'), now, log }));
 
 let items = mergeFeed(prev.items, fresh, now);
 // Each site's day is trimmed to the posts worth ranking: Reddit's quiet posts (no score, few comments) once they've had
 // an hour and a half to catch on, and a cap per site so the file stays small for phones
-const CAP = { reddit: 220, ig: 120, x: 200 };
 items = Object.entries(CAP).flatMap(([src, cap]) => items.filter(it => it.src === src)
   .filter(it => it.src !== 'reddit' || now - it.time < 90 * 60000 || (it.stats.replies || 0) >= 5 || (it.sf && (it.stats.up || 0) >= 30))
   .sort((a, b) => engagement(b) - engagement(a)).slice(0, cap)).map(slim).sort((a, b) => b.time - a.time);
