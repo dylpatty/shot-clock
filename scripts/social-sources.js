@@ -324,7 +324,23 @@ export async function readInstagram({ get, prev = [], now, maxEmbeds = 14, log =
     got.filter(g => now - g.post.time < 26 * 3600000).forEach(g => found.set(g.post.code, g));
     await sleep(700);
   }
-  if (fails.length === IG_ACCOUNTS.length) throw new Error('no Instagram account could be read: ' + fails.slice(0, 3).join(', '));
+  if (fails.length === IG_ACCOUNTS.length) {
+    // What Instagram sends this machine instead, for the run's log
+    const tries = [
+      ['embed', 'https://www.instagram.com/nba/embed/', IG_EMBED_HEADERS],
+      ['embed, no referrer', 'https://www.instagram.com/nba/embed/', Object.assign({}, IG_EMBED_HEADERS, { Referer: undefined })],
+      ['embed, iPhone', 'https://www.instagram.com/nba/embed/', { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1', Accept: 'text/html', 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'cross-site' }],
+      ['post embed', 'https://www.instagram.com/p/DfJVylCG8nA/embed/captioned/', IG_EMBED_HEADERS],
+    ];
+    for (const [label, url, h] of tries) {
+      try {
+        const html = await get(url, { headers: Object.fromEntries(Object.entries(h).filter(([, v]) => v != null)) });
+        log(`Instagram check (${label}): ${html.length} bytes, contextJSON ${html.includes('"contextJSON":"') ? 'yes' : 'no'}, route ${(/"canonicalRouteName":"([^"]*)"/.exec(html) || [])[1] || '-'}, login ${/login|LoginAndSignup/i.test(html) ? 'yes' : 'no'}`);
+      } catch (e) { log(`Instagram check (${label}): ${e.message}`); }
+      await sleep(500);
+    }
+    throw new Error('no Instagram account could be read: ' + fails.slice(0, 3).join(', '));
+  }
   if (fails.length) log(`Instagram: nothing from ${fails.join(', ')}`);
   const had = new Map(prev.map(it => [it.id.slice(3), it]));
   const hasFile = it => (it.media || []).some(x => x.mp4);
