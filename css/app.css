@@ -29,6 +29,8 @@
   --gap:18px;
   --pad:18px;
   --tile-pad:14px;
+  /* The Full Court wordmark: lettering shaded like the logo (navy here, metallic white on dark) and its orange subline */
+  --brand-hi:#0E2D66; --brand-lo:#2F63BE; --brand-sub:#C2410C; --brand-edge:rgba(255,255,255,.7);
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
@@ -37,6 +39,7 @@
     --accent:#FF7A2F; --accent-soft:#3A2214; --accent-ink:#1B0E05; --live:#FF4B53; --live-soft:#3A1518;
     --win:#41C47F; --win-soft:#143324; --loss:#FF6E61; --loss-soft:#3A1A17; --warn:#F2A93B; --warn-soft:#3A2A10; --hl:#241A13;
     --scrim:rgba(0,0,0,.6); --shadow:0 18px 50px rgba(0,0,0,.5);
+    --brand-hi:#FFFFFF; --brand-lo:#B4C6E4; --brand-sub:#FF8A2B; --brand-edge:rgba(0,0,0,.55);
     color-scheme:dark;
   }
 }
@@ -45,6 +48,7 @@
   --accent:#FF7A2F; --accent-soft:#3A2214; --accent-ink:#1B0E05; --live:#FF4B53; --live-soft:#3A1518;
   --win:#41C47F; --win-soft:#143324; --loss:#FF6E61; --loss-soft:#3A1A17; --warn:#F2A93B; --warn-soft:#3A2A10; --hl:#241A13;
   --scrim:rgba(0,0,0,.6); --shadow:0 18px 50px rgba(0,0,0,.5);
+  --brand-hi:#FFFFFF; --brand-lo:#B4C6E4; --brand-sub:#FF8A2B; --brand-edge:rgba(0,0,0,.55);
   color-scheme:dark;
 }
 :root[data-density="compact"]{ --gap:12px; --pad:13px; --tile-pad:10px; }
@@ -72,10 +76,14 @@ a{color:inherit}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:41;background:var(--chrome)}
 .top{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:var(--chrome);border-bottom:1px solid var(--line)}
 .top-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:20px;padding-block:14px 10px}
-/* Full Court: the FC ball and the name */
+/* Full Court: the FC logo (with a blue glow), then the name over an orange "NBA TRACKER", like the logo's own lettering */
 .brand{display:inline-flex;align-items:center;gap:11px;padding-right:4px;color:var(--ink);text-decoration:none}
-.brand-mark{display:block;width:38px;height:38px;flex:none}
-.brand-word{font-family:var(--f-display);font-weight:900;font-size:31px;letter-spacing:.05em;line-height:1;text-transform:uppercase;white-space:nowrap}
+.brand-mark{display:block;width:42px;height:42px;flex:none;filter:drop-shadow(0 3px 9px rgba(40,110,230,.5))}
+.brand-txt{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.brand-word{font-family:var(--f-display);font-weight:900;font-size:28px;letter-spacing:.05em;line-height:.9;text-transform:uppercase;white-space:nowrap;
+  background:linear-gradient(180deg,var(--brand-hi) 30%,var(--brand-lo));-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 1px 0 var(--brand-edge))}
+.brand-sub{padding-left:2px;font:800 10px/1 var(--f-ui);letter-spacing:.47em;text-transform:uppercase;white-space:nowrap;color:var(--brand-sub)}
 .ib.srch-btn{display:none}
 .ask{justify-self:center;width:100%;max-width:980px;display:flex;align-items:center;gap:10px;height:52px;padding:0 6px 0 16px;border-radius:16px;
   background:var(--card);border:1px solid var(--line);box-shadow:0 1px 0 rgba(0,0,0,.03);transition:border-color .15s, box-shadow .15s}
@@ -124,8 +132,10 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 @media (max-width:640px){
   .top-row{gap:8px 6px;padding-block:6px}
   .brand{gap:7px}
-  .brand-mark{width:28px;height:28px}
-  .brand-word{font-size:22px;letter-spacing:.04em}
+  .brand-mark{width:32px;height:32px}
+  .brand-txt{gap:3px}
+  .brand-word{font-size:20px;letter-spacing:.04em}
+  .brand-sub{font-size:8px;letter-spacing:.42em}
   .top-meta{gap:4px}
   .ib.srch-btn{display:inline-grid}
   html.srch .srch-btn{background:var(--card);border-color:var(--line)}
@@ -137,7 +147,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
   .live-btn .lv-word{display:none}
 }
 /* The narrowest phones (320-370px): the team picker gives up a little more width */
-@media (max-width:370px){.hdr-team select{max-width:90px}.brand-word{font-size:20px}}
+@media (max-width:370px){.hdr-team select{max-width:90px}.brand-word{font-size:18px}.brand-sub{font-size:7.5px;letter-spacing:.38em}}
 /* While the scores on screen may be old, nothing pulses as if it were live */
 html.stale .blink{animation:none;opacity:.35}
 html.stale .game.big::after{animation:none}
