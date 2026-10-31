@@ -21,11 +21,11 @@ jobs:
     timeout-minutes: 10
     steps:
       # The branch as it is when the job starts, not when the run was queued
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.ref_name }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
 
