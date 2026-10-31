@@ -1,0 +1,63 @@
+# Finds the NBA's full game highlights on YouTube as they're posted (usually about an hour after the final) and keeps
+# highlights.json (ESPN game id -> YouTube video) on the `highlights` branch, which the site reads straight from
+# raw.githubusercontent.com. That branch is one commit, replaced on every change, so main's history stays clean.
+name: Full game highlights
+
+on:
+  schedule:
+    - cron: '*/10 0-8,16-23 * * *'  # every 10 minutes from noon to 4-5 AM Eastern, when games end
+    - cron: '7 9-13,15 * * *'       # hourly through the morning, for early international games
+    - cron: '37 14 * * *'           # the daily check: this run fails if YouTube couldn't be read
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: highlights
+  cancel-in-progress: false
+
+jobs:
+  highlights:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Read the current list
+        run: |
+          if git fetch -q --depth=1 origin highlights; then
+            git show FETCH_HEAD:highlights.json > "$RUNNER_TEMP/prev.json"
+          else
+            echo "No list yet; this run builds it from the whole season."
+          fi
+
+      - name: Find new full game highlights
+        env:
+          PREV: ${{ runner.temp }}/prev.json
+          OUT: ${{ runner.temp }}/out/highlights.json
+          CHECK: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '37 14 * * *' }}
+        run: node scripts/highlights.js
+
+      - name: Publish if anything changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f "$RUNNER_TEMP/out/highlights.json" ]; then
+            echo "Nothing new to publish."
+            exit 0
+          fi
+          cd "$RUNNER_TEMP/out"
+          git init -q -b highlights
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add highlights.json
+          git commit -q -m "Full game highlights"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" highlights
+          echo "Published."
