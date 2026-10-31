@@ -215,6 +215,7 @@ NBA.findTeams = text => {
 // Scores in the 60s-190s, or result verbs, mark a story as giving away a result. Previews always stay
 const SPOIL_RE = /\b(?:[6-9]\d|1\d\d)-(?:[6-9]\d|1\d\d)\b|\b(?:beat|beats|beaten|win|wins|won|victory|defeats?|defeated|routs?|routed|edges?|edged|tops|topped|snaps?|snapped|loses|lost|rall(?:y|ies|ied)|holds? (?:on|off)|triple-double)\b/i;
 NBA.newsSafe = a => !NBA.S.spoilers || a.type === 'Preview' || (a.type !== 'Recap' && a.type !== 'Media' && !SPOIL_RE.test(`${a.headline} ${a.description || ''}`));
+NBA.spoils = text => SPOIL_RE.test(String(text || ''));
 // A result stays hidden in spoiler mode for 2 days unless that game was opened. UI.st.revealed empties on every
 // reload, so without the window old results would stay hidden forever
 NBA.masked = (id, date) => !!NBA.S.spoilers && !(NBA.ui && NBA.ui.st.revealed.has(String(id))) && Date.now() - new Date(date).getTime() < 2 * 864e5;
@@ -269,6 +270,7 @@ NBA.getJSON = getJSON;
 const RES = new Map();
 const LOADERS = {};
 function def(prefix, ttl, load) { LOADERS[prefix] = { ttl, load }; }
+NBA.def = def; // for the feeds other scripts add (social.js)
 function need(key, force) {
   const i = key.indexOf(':');
   const prefix = i < 0 ? key : key.slice(0, i), arg = i < 0 ? '' : key.slice(i + 1);

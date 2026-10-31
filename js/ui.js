@@ -772,17 +772,12 @@ Object.assign(NBA.actions, {
   // the game window so live repaints can't cut a video off. YouTube's own button (or ours) takes it full screen.
   // Watching a game's highlights counts as opening it, so in spoiler mode its score shows afterwards
   yt: a => {
-    const d = $('#vid'), id = a.dataset.v, gid = a.dataset.id;
+    const id = a.dataset.v, gid = a.dataset.id;
     if (gid && !UI.st.revealed.has(gid)) { UI.st.revealed.add(gid); NBA.changed(); }
-    const watch = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
-    if (!d || !d.showModal) { window.open(watch, '_blank', 'noopener'); return; }
-    const fs = document.fullscreenEnabled || document.webkitFullscreenEnabled;
-    d.innerHTML = `<div class="vid-bar"><b>${esc(a.dataset.title)}</b><span class="vid-tools">${fs ? `<button class="ib" data-act="vidfs" aria-label="Full screen" title="Full screen">${UI.I.expand}</button>` : ''}<a class="ib" href="${esc(watch)}" target="_blank" rel="noopener" aria-label="Watch on YouTube" title="Watch on YouTube">${UI.I.ext}</a><button class="ib" data-act="hlclose" aria-label="Close video" title="Close">${UI.I.close}</button></span></div>
-      <div class="vid-frame"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&amp;playsinline=1&amp;rel=0&amp;modestbranding=1" title="${esc(a.dataset.title)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
-    d.showModal();
+    UI.playYouTube(id, a.dataset.title);
   },
   vidfs: () => {
-    const f = $('#vid iframe');
+    const f = $('#vid .vid-frame iframe, #vid .vid-frame video, #vid .vid-frame img');
     const go = f && (f.requestFullscreen || f.webkitRequestFullscreen);
     if (go) Promise.resolve(go.call(f)).catch(() => {});
   },
@@ -829,6 +824,58 @@ document.addEventListener('keydown', e => {
 });
 // Emptying the video dialog stops the video and its sound
 function stopVid(d) { if (!d) return; if (d.open) d.close(); d.innerHTML = ''; }
+/* The floating player: a medium window over the middle of the screen with a title bar (full screen, open at the source,
+   close). body is the player itself: an iframe, a <video>, or a picture. tall: a portrait video (reels, phone clips),
+   which gets a narrower window. Without <dialog> support the link opens instead */
+UI.openVid = ({ title, body, link, linkLabel = 'Open', tall = false, hint = '' }) => {
+  const d = $('#vid');
+  if (!d || !d.showModal) { if (link) window.open(link, '_blank', 'noopener'); return null; }
+  const fs = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+  d.classList.toggle('tall', !!tall);
+  d.innerHTML = `<div class="vid-bar"><b>${esc(title || '')}</b><span class="vid-tools">${fs ? `<button class="ib" data-act="vidfs" aria-label="Full screen" title="Full screen">${UI.I.expand}</button>` : ''}${link ? `<a class="ib" href="${esc(link)}" target="_blank" rel="noopener" aria-label="${esc(linkLabel)}" title="${esc(linkLabel)}">${UI.I.ext}</a>` : ''}<button class="ib" data-act="hlclose" aria-label="Close video" title="Close">${UI.I.close}</button></span></div>
+    <div class="vid-frame">${body}</div>${link ? `<a class="vid-alt" href="${esc(link)}" target="_blank" rel="noopener">${hint ? `<span class="vid-msg">${esc(hint)}</span> ` : ''}${esc(linkLabel)} ↗</a>` : ''}`;
+  if (!d.open) d.showModal();
+  return d;
+};
+/* A YouTube video in the floating player. Its still and a spinner hold the window until YouTube's player says it's
+   ready (an ad often plays first), so it's never just a black box. The player reports through YouTube's postMessage
+   API: an error (the video can't be embedded or played here) swaps the spinner for a clear message, and the "Watch on
+   YouTube" link under the player (the YouTube app on a phone) always works */
+UI.playYouTube = (id, title) => {
+  const watch = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+  const src = `https://www.youtube.com/embed/${encodeURIComponent(id)}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
+  const d = UI.openVid({
+    title, link: watch, linkLabel: 'Watch on YouTube', hint: 'Not playing?',
+    body: `<div class="vid-wait" style="background-image:url('https://i.ytimg.com/vi/${encodeURIComponent(id)}/hqdefault.jpg')"><span class="vid-spin" aria-hidden="true"></span><span class="vid-wait-t">Loading the video…</span></div>
+      <iframe id="ytp" src="${esc(src)}" title="${esc(title || 'Video')}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`,
+  });
+  if (!d) return;
+  const f = d.querySelector('#ytp'), wait = d.querySelector('.vid-wait');
+  let ready = false;
+  const done = () => { ready = true; if (wait) wait.classList.add('gone'); };
+  const fail = code => {
+    ready = true;
+    if (wait) { wait.classList.remove('gone'); wait.classList.add('err'); wait.querySelector('.vid-wait-t').textContent = code === 101 || code === 150 || code === 152 ? "YouTube won't play this video outside YouTube." : "This video won't play here."; }
+    const alt = d.querySelector('.vid-alt'); if (alt) alt.classList.add('loud');
+  };
+  // YouTube answers once told we're listening; hearing anything from it means the player is up
+  const hello = () => { try { f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'ytp', channel: 'widget' }), '*'); } catch (e) { /* closed */ } };
+  const onMsg = e => {
+    if (!/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(e.origin) || !f.isConnected || e.source !== f.contentWindow) return;
+    let m; try { m = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch (x) { return; }
+    if (!m || !m.event) return;
+    // The still lifts once the video plays, or shortly after the player is up: an ad may be showing (which must be
+    // seen and skippable), or a phone may be waiting for a tap on YouTube's own play button
+    if (m.event === 'onError') fail(+m.info);
+    else if (m.info && m.info.playerState === 1) done();
+    else if (m.event === 'onReady' && !ready) setTimeout(() => { if (!wait.classList.contains('err')) done(); }, 1800);
+  };
+  addEventListener('message', onMsg);
+  f.addEventListener('load', () => { hello(); setTimeout(hello, 600); setTimeout(hello, 1500); });
+  // Without word from YouTube the still stays up, and after a while the link below says what to do
+  setTimeout(() => { if (!ready && f.isConnected) { done(); const alt = d.querySelector('.vid-alt'); if (alt) alt.classList.add('loud'); } }, 9000);
+  new MutationObserver((m, o) => { if (!f.isConnected) { removeEventListener('message', onMsg); o.disconnect(); } }).observe(d, { childList: true });
+};
 (() => {
   const vid = $('#vid');
   if (!vid) return;
