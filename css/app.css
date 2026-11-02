@@ -1745,7 +1745,8 @@ html.soc-dragging,html.soc-dragging *{cursor:grabbing!important;user-select:none
 .vgrid{display:grid;gap:18px 14px;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr))}
 .vmore{align-self:center;margin-top:8px}
 .vcard-team .card-b{padding:var(--pad)}
-.dr-videos{display:flex;flex-direction:column;gap:10px;padding-bottom:16px}
+/* Under the box score (or whichever tab is open), set off from it by a line */
+.dr-videos{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding-block:16px 24px;border-top:1px solid var(--line)}
 .dr-vh .bx-team{margin:6px 0 0}
 
 /* ---------- touch ---------- */
