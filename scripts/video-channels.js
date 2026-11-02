@@ -1,0 +1,60 @@
+/* The YouTube channels behind the Videos feature, checked by hand on Nov. 1, 2026 (several obvious handles belong to
+   unrelated people: @HoustonRockets, @nuggets, @Raptors, @memgrizz, @dallasmavs, @PelicansNBA, @NBAonPrime...).
+   kind: team (its own channel; team is the ESPN team id the site uses), league (the NBA and its broadcasters),
+   analysis (film and stat breakdowns), podcast, feature (documentaries).
+   only / skip: a channel that isn't all NBA keeps only the titles matching `only`, or drops those matching `skip`;
+   nba: keep only titles that name the NBA, a team or a star.
+   Teams that post no postgame interviews on YouTube this season (Celtics, Nets, Bulls, Mavericks, Heat, Lakers, Kings,
+   Spurs) still bring their features and highlights. */
+export const CHANNELS = [
+  { handle: 'ATLHawks', name: 'Atlanta Hawks', kind: 'team', team: '1' },
+  { handle: 'celtics', name: 'Boston Celtics', kind: 'team', team: '2' },
+  { handle: 'BrooklynNets', name: 'Brooklyn Nets', kind: 'team', team: '17' },
+  { handle: 'hornets', name: 'Charlotte Hornets', kind: 'team', team: '30' },
+  { handle: 'chicagobulls', name: 'Chicago Bulls', kind: 'team', team: '4' },
+  { handle: 'cavs', name: 'Cleveland Cavaliers', kind: 'team', team: '5' },
+  { handle: 'mavericks', name: 'Dallas Mavericks', kind: 'team', team: '6' },
+  { handle: 'denvernuggets', name: 'Denver Nuggets', kind: 'team', team: '7' },
+  { handle: 'PistonsTV', name: 'Detroit Pistons', kind: 'team', team: '8' },
+  { handle: 'warriors', name: 'Golden State Warriors', kind: 'team', team: '9' },
+  { handle: 'OfficialRockets', name: 'Houston Rockets', kind: 'team', team: '10' },
+  { handle: 'pacers', name: 'Indiana Pacers', kind: 'team', team: '11' },
+  { handle: 'LAClippers', name: 'LA Clippers', kind: 'team', team: '12' },
+  { handle: 'lakers', name: 'Los Angeles Lakers', kind: 'team', team: '13' },
+  { handle: 'MemphisGrizzlies', name: 'Memphis Grizzlies', kind: 'team', team: '29' },
+  { handle: 'MiamiHEAT', name: 'Miami Heat', kind: 'team', team: '14' },
+  { handle: 'Bucks', name: 'Milwaukee Bucks', kind: 'team', team: '15' },
+  { handle: 'Timberwolves', name: 'Minnesota Timberwolves', kind: 'team', team: '16' },
+  { handle: 'NBAPelicans', name: 'New Orleans Pelicans', kind: 'team', team: '3' },
+  { handle: 'nyknicks', name: 'New York Knicks', kind: 'team', team: '18' },
+  { handle: 'okcthunder', name: 'Oklahoma City Thunder', kind: 'team', team: '25' },
+  { handle: 'OrlandoMagic', name: 'Orlando Magic', kind: 'team', team: '19' },
+  { handle: 'sixers', name: 'Philadelphia 76ers', kind: 'team', team: '20' },
+  { handle: 'suns', name: 'Phoenix Suns', kind: 'team', team: '21' },
+  { handle: 'trailblazers', name: 'Portland Trail Blazers', kind: 'team', team: '22' },
+  { handle: 'SacramentoKings', name: 'Sacramento Kings', kind: 'team', team: '23' },
+  { handle: 'Spurs', name: 'San Antonio Spurs', kind: 'team', team: '24' },
+  { handle: 'TorontoRaptors', name: 'Toronto Raptors', kind: 'team', team: '28' },
+  { handle: 'utahjazz', name: 'Utah Jazz', kind: 'team', team: '26' },
+  { handle: 'WashingtonWizards', name: 'Washington Wizards', kind: 'team', team: '27' },
+
+  { handle: 'NBA', name: 'NBA', kind: 'league' },
+  { handle: 'NBAonESPN', name: 'NBA on ESPN', kind: 'league' },
+  { handle: 'SportsOnPrime', name: 'NBA on Prime', kind: 'league', only: 'NBA on Prime' },
+
+  { handle: 'ThinkingBasketball', name: 'Thinking Basketball', kind: 'analysis' },
+  { handle: 'BBALLBREAKDOWN', name: 'BBALLBREAKDOWN', kind: 'analysis', skip: 'WNBA' },
+  { handle: 'TheRingerNBA', name: 'Ringer NBA', kind: 'analysis', skip: 'WNBA' },
+  { handle: 'SecretBaseSBN', name: 'Secret Base', kind: 'feature', nba: true },
+
+  { handle: 'MindTheGamePodcast', name: 'Mind the Game', kind: 'podcast' },
+  { handle: 'Club520Podcast', name: 'Club 520', kind: 'podcast' },
+  { handle: 'AllTheSmokeProductions', name: 'All the Smoke', kind: 'podcast', nba: true },
+  { handle: 'GilsArenaShow', name: "Gil's Arena", kind: 'podcast', nba: true },
+  { handle: 'DraymondGreenShow', name: 'The Draymond Green Show', kind: 'podcast', skip: 'WNBA' },
+  { handle: 'OLDMANANDTHREE', name: 'The Old Man and the Three', kind: 'podcast' },
+  { handle: 'NateDuncan', name: "Dunc'd On", kind: 'podcast' },
+  { handle: 'RunItBackFDTV', name: 'Run It Back', kind: 'podcast' },
+  { handle: 'TheAthleticNBADaily', name: 'The Athletic NBA Daily', kind: 'podcast' },
+  { handle: 'NoDunksInc', name: 'No Dunks', kind: 'podcast' },
+];

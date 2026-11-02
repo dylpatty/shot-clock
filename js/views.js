@@ -912,6 +912,7 @@ function teamView(id) {
     <div class="card w12"><div class="card-h"><h3>Full roster</h3><div class="end"><span class="eyebrow">Season averages · tap a player for their card</span></div></div><div class="card-b">${rosterHtml}</div></div>
     <div class="card"><div class="card-h"><h3>Injuries</h3></div>${injHtml}</div>
     <div class="card w8"><div class="card-h"><h3>${esc(t.name)} news</h3></div>${newsHtml}</div>
+    ${NBA.teamVideos ? NBA.teamVideos(id) : ''}
   </div>
   ${sch ? `<section class="sec team-season">${teamSeason(t, evs)}</section>` : ''}`;
 }

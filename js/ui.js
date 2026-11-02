@@ -186,6 +186,7 @@ const TABS = [
   { id: 'facts', label: 'Fun Facts' },
   { id: 'games', label: 'Games' },
   { id: 'players', label: 'Players' },
+  { id: 'videos', label: 'Videos' },
   { id: 'social', label: 'Social' },
 ];
 UI.route = () => {
@@ -511,6 +512,8 @@ function renderDrawer() {
     }
   }
   // Matchup is there before tip-off, and stays for a game that tips off while it's open on that tab
+  // Postgame interviews and related videos from YouTube (or the run-up, before tip-off): js/videos.js
+  if (away && home && NBA.gameVideos && !pp) html += NBA.gameVideos({ id: d.id, date: (data && data.date) || (g && g.date), away, home }, state);
   const tabs = [...(state === 'pre' || d.tab === 'preview' ? [['preview', 'Matchup']] : []), ['box', 'Box score'], ['team', 'Team stats'], ['plays', 'Plays'], ['wp', 'Win chance']];
   html += `<div class="dtabs dpad" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-act="dtab" data-v="${k}" aria-selected="${d.tab === k}">${l}</button>`).join('')}</div>`;
   // The win chance chart is drawn at the pane's real width, so its labels keep their size on a phone. The width
