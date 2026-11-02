@@ -132,11 +132,27 @@ UI.line = g => {
     <span class="ln-time">${time}</span>${side(g.away, false)}<span class="ln-at">@</span>${side(g.home, true)}<span class="ln-odds">${esc(UI.oddsText(g.odds))}</span></li>`;
 };
 
-/* Re-rendering replaces nodes; skip identical HTML and put keyboard focus back on the equivalent control */
+/* Re-rendering replaces nodes; skip identical HTML and put keyboard focus back on the equivalent control.
+   A dropdown that's open (focused) is never rebuilt under the finger: on an iPhone that closes its menu, and focusing
+   the new one opens the menu a second time. Its new HTML goes in when it loses focus, without taking focus back */
 UI.paint = (el, html) => {
-  if (!el || el._html === html) return false;
-  el._html = html;
+  if (!el) return false;
   const a = document.activeElement;
+  if (a && a.tagName === 'SELECT' && el.contains(a)) {
+    el._pending = html;
+    // The flag lives on this dropdown, so a replaced one gets its own; any later paint also applies the newest HTML
+    if (!a._paintOnBlur) {
+      a._paintOnBlur = true;
+      a.addEventListener('blur', () => setTimeout(() => {
+        a._paintOnBlur = false;
+        if (el._pending != null) UI.paint(el, el._pending);
+      }, 0), { once: true });
+    }
+    return false;
+  }
+  el._pending = null;
+  if (el._html === html) return false;
+  el._html = html;
   let sel = null, caret = null;
   if (a && a.tagName === 'INPUT' && el.contains(a)) { try { caret = [a.selectionStart, a.selectionEnd]; } catch (e) { caret = null; } }
   if (a && a !== document.body && el.contains(a)) {
@@ -798,7 +814,8 @@ Object.assign(NBA.actions, {
 Object.assign(NBA.changes, {
   spoilers: t => { NBA.S.spoilers = t.checked; UI.st.revealed.clear(); NBA.save(); NBA.changed(); },
   // The favorite team is also the highlighted team, and drives the team-colors theme. Standings on a phone reopens on its conference
-  myTeam: t => { if (!t.value) return; NBA.S.myTeam = t.value; NBA.S.favorites = [t.value]; NBA.save(); UI.st.confIdx = null; applyLook(); repaintAll(); },
+  // The pick is made, so the menu closes first; the header then redraws with the new team instead of waiting
+  myTeam: t => { if (!t.value) return; t.blur(); NBA.S.myTeam = t.value; NBA.S.favorites = [t.value]; NBA.save(); UI.st.confIdx = null; applyLook(); repaintAll(); },
   scoring: t => { if (UI.drawer) { UI.drawer.scoringOnly = t.checked; renderDrawer(); } },
 });
 document.addEventListener('click', e => {
