@@ -4,6 +4,7 @@
 #   catv.json            each game's Canadian streaming service (refreshed every 3 hours)
 #   social.json          the Social tab's last day of posts from r/nba and X
 #   social-archive.json  the biggest posts of the week and season
+#   videos.json          the Videos tab: interviews, breakdowns and podcasts from YouTube (scripts/video-channels.js)
 # That branch is one commit, replaced on every run, so main's history stays clean.
 name: Full game highlights
 
@@ -24,7 +25,7 @@ concurrency:
 jobs:
   highlights:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v7
         with:
@@ -38,7 +39,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/prev"
           if git fetch -q --depth=1 origin highlights; then
-            for f in highlights.json catv.json social.json social-archive.json; do
+            for f in highlights.json catv.json social.json social-archive.json videos.json; do
               git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/prev/$f" 2>/dev/null || rm -f "$RUNNER_TEMP/prev/$f"
             done
           else
@@ -71,6 +72,15 @@ jobs:
           CHECK: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '37 14 * * *' }}
         run: node scripts/social-job.js
 
+      - name: Refresh the videos
+        if: ${{ !cancelled() }}
+        timeout-minutes: 6
+        env:
+          PREV: ${{ runner.temp }}/prev/videos.json
+          OUT: ${{ runner.temp }}/out/videos.json
+          CHECK: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '37 14 * * *' }}
+        run: node scripts/videos.js
+
       # Runs even when a step above failed the daily check, so the other lists still go out
       - name: Publish
         if: ${{ !cancelled() }}
@@ -83,7 +93,7 @@ jobs:
             exit 0
           fi
           # The branch is replaced whole, so a list that didn't change goes back in as it was
-          for f in highlights.json catv.json social.json social-archive.json; do
+          for f in highlights.json catv.json social.json social-archive.json videos.json; do
             [ -f "$RUNNER_TEMP/out/$f" ] || [ ! -f "$RUNNER_TEMP/prev/$f" ] || cp "$RUNNER_TEMP/prev/$f" "$RUNNER_TEMP/out/$f"
           done
           cd "$RUNNER_TEMP/out"
