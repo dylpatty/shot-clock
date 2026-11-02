@@ -1145,6 +1145,31 @@ a.hchip,button.hchip{cursor:pointer}
 }
 .box-pair{display:grid;gap:28px;grid-template-columns:repeat(auto-fit,minmax(min(100%,600px),1fr));align-items:start}
 .box-pair > *{min-width:0}
+/* Phones and small tablets: the two box scores sit side by side in a strip that swipes from one team to the other,
+   with a button for each team above it (ui.js keeps the button lit for the team showing) */
+.box-tabs{display:none}
+@media (max-width:900px){
+  .box-tabs{display:flex;gap:6px;margin:0 0 12px}
+  .box-tabs button{flex:1 1 0;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 10px;
+    border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--muted);font:800 14px var(--f-ui);cursor:pointer;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .box-tabs button img{width:20px;height:20px;object-fit:contain;flex:none}
+  .box-tabs button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
+  .box-swipe{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
+  .box-swipe::-webkit-scrollbar{display:none}
+  .box-swipe > *{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always}
+}
+/* Phones: the key stats fit the screen (tighter cells, names cut short, no position), so the table never scrolls on
+   its own and a swipe on it moves to the other team. All stats is too wide for that and scrolls as before */
+@media (max-width:640px){
+  .box-swipe.fit .bx{font-size:12px}
+  .box-swipe.fit .bx th,.box-swipe.fit .bx td{padding:6px 4px}
+  .box-swipe.fit .bx thead th{padding:0}
+  .box-swipe.fit .bx thead th.pl{padding:6px 4px}
+  .box-swipe.fit .bx .sortb{padding-inline:4px}
+  .box-swipe.fit .bx .pl .pp{display:none}
+  .box-swipe.fit .bx .plink{display:inline-block;max-width:104px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+}
 .drawer.modal .cmp,.drawer.modal .wpwrap,.drawer.modal .wpwrap + .note{width:100%;max-width:1100px;margin-left:auto;margin-right:auto}
 .dpad{padding-left:22px;padding-right:max(22px,env(safe-area-inset-right,0px))}
 @media (max-width:640px){.dpad{padding-left:14px;padding-right:max(14px,env(safe-area-inset-right,0px))}}

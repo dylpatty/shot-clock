@@ -341,6 +341,15 @@ window.addEventListener('popstate', () => { if (UI.drawer || UI.settingsOpen) UI
     if (Math.abs(dx) > 90 && Math.abs(dx) > 2 * Math.abs(dy)) UI.closeAll();
   }, { passive: true });
 })();
+/* Swiping the phone box score: remember which team is showing (repaints come back to it) and light its button */
+document.getElementById('drawer').addEventListener('scroll', e => {
+  const bs = e.target;
+  if (!bs.classList || !bs.classList.contains('box-swipe') || !UI.drawer || !bs.clientWidth) return;
+  const i = Math.round(bs.scrollLeft / bs.clientWidth);
+  if (i === (UI.drawer.boxIdx || 0)) return;
+  UI.drawer.boxIdx = i;
+  bs.parentElement.querySelectorAll('.box-tabs button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.v === i)));
+}, { capture: true, passive: true });
 /* Something under the finger that scrolls sideways (a wide table, a carousel, the tab bar), or a control that takes the
    gesture itself: a sideways swipe that starts there belongs to it, not to the page */
 UI.ownsSwipe = el => {
@@ -521,6 +530,9 @@ function renderDrawer() {
   const xs = el._html ? [...el.querySelectorAll('.tblwrap')].map(w => w.scrollLeft) : [];
   if (UI.paint(el, html)) {
     el.querySelectorAll('.tblwrap').forEach((w, i) => { if (xs[i]) w.scrollLeft = xs[i]; });
+    // On a phone, stay on the team being looked at
+    const bs = el.querySelector('.box-swipe');
+    if (bs && d.boxIdx) bs.scrollLeft = d.boxIdx * bs.clientWidth;
     // Setting scrollTop stops an iPhone flick mid-glide, so only put it back if the repaint moved it
     if (el.scrollTop !== top) el.scrollTop = top;
     if (data && d.tab === 'wp') bindWp(data);
@@ -584,7 +596,17 @@ function paneBox(d, data) {
   const teams = data.box.filter(b => b.players.some(p => !p.dnp));
   let out = '';
   if (!teams.length) out += `<p class="empty">The box score fills in once the game tips off.</p>`;
-  else out += tools + `<div class="box-pair">${[data.away, data.home].map(t => data.box.find(b => b.teamId === t.id)).filter(Boolean).map(b => boxTeam(b, d)).join('')}</div>`;
+  else {
+    // Wide screens show the two teams side by side; phones swipe between them, with a button for each team above
+    const boxes = [data.away, data.home].map(t => data.box.find(b => b.teamId === t.id)).filter(Boolean);
+    const at = Math.min(d.boxIdx || 0, boxes.length - 1);
+    const pick = boxes.length > 1 ? `<div class="box-tabs" role="group" aria-label="Team">${boxes.map((b, i) => {
+      const t = NBA.T(b.teamId);
+      return `<button data-act="boxteam" data-v="${i}" aria-pressed="${i === at}">${UI.logo(t, 20)}${esc(t.name || t.abbr)}</button>`;
+    }).join('')}</div>` : '';
+    // .fit: the key stats are squeezed to fit a phone's width, so a swipe anywhere on them changes team
+    out += tools + pick + `<div class="box-pair box-swipe${NBA.S.boxCols === 'full' ? '' : ' fit'}">${boxes.map(b => boxTeam(b, d)).join('')}</div>`;
+  }
   // Each team's injuries under its own box score column: away on the left, home on the right
   if (data.injuries.length) {
     const order = [data.away, data.home].map(t => data.injuries.find(x => x.teamId === t.id)).filter(Boolean);
@@ -815,6 +837,13 @@ Object.assign(NBA.actions, {
     else { window.scrollTo(0, 0); NBA.changed(); }
   },
   dtab: a => { if (UI.drawer) { UI.drawer.tab = a.dataset.v; renderDrawer(); } },
+  // A team's button above the phone box score slides to that team
+  boxteam: a => {
+    const bs = $('#drawer .box-swipe'), i = +a.dataset.v;
+    if (!bs || !UI.drawer) return;
+    UI.drawer.boxIdx = i;
+    bs.scrollTo({ left: i * bs.clientWidth, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  },
   sort: a => {
     if (!UI.drawer) return;
     const k = a.dataset.k, s = UI.drawer.sort;
