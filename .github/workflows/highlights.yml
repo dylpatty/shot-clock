@@ -35,16 +35,29 @@ jobs:
         with:
           node-version: lts/*
 
+      # Only a branch that isn't there yet (ls-remote's exit code 2) means a first run. A read that keeps failing stops
+      # the job, so a network blip can't force-push lists rebuilt from scratch over the season's archive
       - name: Read the current lists
+        id: prev
         run: |
           mkdir -p "$RUNNER_TEMP/prev"
-          if git fetch -q --depth=1 origin highlights; then
-            for f in highlights.json catv.json social.json social-archive.json videos.json; do
-              git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/prev/$f" 2>/dev/null || rm -f "$RUNNER_TEMP/prev/$f"
-            done
-          else
-            echo "No lists yet; this run builds them from the whole season."
-          fi
+          for try in 1 2 3; do
+            rc=0
+            git ls-remote --exit-code origin refs/heads/highlights > /dev/null || rc=$?
+            if [ $rc -eq 0 ] && git fetch -q --depth=1 origin highlights; then
+              for f in highlights.json catv.json social.json social-archive.json videos.json; do
+                git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/prev/$f" 2>/dev/null || rm -f "$RUNNER_TEMP/prev/$f"
+              done
+              exit 0
+            fi
+            if [ $rc -eq 2 ]; then
+              echo "No lists yet; this run builds them from the whole season."
+              exit 0
+            fi
+            [ $try -eq 3 ] || sleep 15
+          done
+          echo "::error::The current lists couldn't be read, so nothing was rebuilt or published."
+          exit 1
 
       - name: Find new full game highlights
         env:
@@ -54,7 +67,7 @@ jobs:
         run: node scripts/highlights.js
 
       - name: Refresh where each game streams in Canada
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.prev.outcome == 'success' }}
         env:
           PREV: ${{ runner.temp }}/prev/catv.json
           OUT: ${{ runner.temp }}/out/catv.json
@@ -62,7 +75,7 @@ jobs:
         run: node scripts/catv-job.js
 
       - name: Refresh the social feed
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.prev.outcome == 'success' }}
         timeout-minutes: 9
         env:
           PREV: ${{ runner.temp }}/prev/social.json
@@ -73,7 +86,7 @@ jobs:
         run: node scripts/social-job.js
 
       - name: Refresh the videos
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.prev.outcome == 'success' }}
         timeout-minutes: 6
         env:
           PREV: ${{ runner.temp }}/prev/videos.json
@@ -81,9 +94,9 @@ jobs:
           CHECK: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '37 14 * * *' }}
         run: node scripts/videos.js
 
-      # Runs even when a step above failed the daily check, so the other lists still go out
+      # Runs even when a step above failed the daily check, so the other lists still go out, but never after a failed read
       - name: Publish
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.prev.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
