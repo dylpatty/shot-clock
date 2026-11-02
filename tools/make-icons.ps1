@@ -70,17 +70,20 @@ public static class SoftEdge {
 # on a square of the tile's own blues (lighter at the top, like the tile) and blended in through a soft round edge
 $S = 1024; $bx = 568; $by = 208; $bs = 270
 $scale = $S * 0.8 / $bs  # leaves room around the swoosh, and inside the phone's rounded corners
+# The ball's centre sits 18 below the middle of that square (the glow arcs above it fill the rest), so it's lifted by
+# that much to sit in the middle of the icon; the owner saw it low
+$lift = 18 * $scale
 $app, $g = New-Canvas $S $S
 $fill = New-Object System.Drawing.Drawing2D.LinearGradientBrush ((New-Object System.Drawing.Point 0, 0), (New-Object System.Drawing.Point 0, $S), ([System.Drawing.Color]::FromArgb(34, 102, 162)), ([System.Drawing.Color]::FromArgb(7, 34, 84)))
 $g.FillRectangle($fill, 0, 0, $S, $S)
 $g.Dispose()
 $ball, $g = New-Canvas $S $S
 $off = ($S - $bs * $scale) / 2; $size = $bs * $scale
-$to = New-Object System.Drawing.RectangleF $off, $off, $size, $size
+$to = New-Object System.Drawing.RectangleF $off, ($off - $lift), $size, $size
 $from = New-Object System.Drawing.RectangleF $bx, $by, $bs, $bs
 $g.DrawImage($src, $to, $from, [System.Drawing.GraphicsUnit]::Pixel)
 $g.Dispose()
-[SoftEdge]::Blend($app, $ball, $S / 2, $S / 2, 112 * $scale, 135 * $scale)
+[SoftEdge]::Blend($app, $ball, $S / 2, $S / 2 - $lift, 112 * $scale, 135 * $scale)
 $ball.Dispose()
 Save-Size $app 180 'apple-touch-icon.png'
 Save-Size $app 192 'icon-192.png'
