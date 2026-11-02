@@ -271,7 +271,13 @@ function renderView() {
   // A new tab or page opens at the top (on Schedule, today's games), not wherever the last one was scrolled
   const routeKey = tab + '/' + arg;
   if (routeKey !== lastRoute) { if (lastRoute !== null) window.scrollTo(0, 0); lastRoute = routeKey; }
-  if (tab !== lastTab) { view._html = null; lastTab = tab; }
+  if (tab !== lastTab) {
+    view._html = null; lastTab = tab;
+    // A tab reached by swiping slides in from the side the finger moved toward
+    view.classList.remove('sw-next', 'sw-prev');
+    if (UI.swipeDir) { void view.offsetWidth; view.classList.add('sw-' + UI.swipeDir); }
+  }
+  UI.swipeDir = null;
   // Lets the stylesheet give a tab its own page layout (the Schedule's right-hand performers rail)
   document.documentElement.dataset.tab = tab;
   const html = fn(arg), season = $('#season');
@@ -327,12 +333,50 @@ window.addEventListener('popstate', () => { if (UI.drawer || UI.settingsOpen) UI
   let x0 = 0, y0 = 0, armed = false;
   el.addEventListener('touchstart', e => {
     const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY;
-    armed = e.touches.length === 1 && !e.target.closest('.tblwrap, .dtabs, .wpwrap');
+    armed = e.touches.length === 1 && !e.target.closest('.tblwrap, .dtabs, .wpwrap') && !UI.ownsSwipe(e.target);
   }, { passive: true });
   el.addEventListener('touchend', e => {
     if (!armed || !UI.drawer) return;
     const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
     if (Math.abs(dx) > 90 && Math.abs(dx) > 2 * Math.abs(dy)) UI.closeAll();
+  }, { passive: true });
+})();
+/* Something under the finger that scrolls sideways (a wide table, a carousel, the tab bar), or a control that takes the
+   gesture itself: a sideways swipe that starts there belongs to it, not to the page */
+UI.ownsSwipe = el => {
+  for (let n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+    if (n.matches('[data-noswipe], input, textarea, select, iframe, video')) return true;
+    if (n.scrollWidth > n.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return true;
+  }
+  return false;
+};
+/* Touch screens: a quick sideways swipe anywhere else on the page moves to the next or previous tab, so the tab bar
+   needn't be reached. Nothing happens while a game, settings, a video, the calendar or search is open */
+(() => {
+  let x0 = 0, y0 = 0, t0 = 0, armed = false;
+  const busy = () => UI.drawer || UI.settingsOpen || ($('#vid') && $('#vid').open) || ($('#calpop') && $('#calpop').open)
+    || document.documentElement.classList.contains('srch') || (NBA.ask && NBA.ask.isOpen());
+  addEventListener('touchstart', e => {
+    armed = false;
+    if (e.touches.length !== 1 || busy()) return;
+    const t = e.touches[0];
+    // In Safari itself (not the Home Screen app) a swipe in from the screen's edge is the browser's back and forward
+    if (!navigator.standalone && (t.clientX < 24 || t.clientX > innerWidth - 24)) return;
+    if (UI.ownsSwipe(e.target)) return;
+    x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); armed = true;
+  }, { passive: true });
+  addEventListener('touchcancel', () => { armed = false; }, { passive: true });
+  addEventListener('touchend', e => {
+    if (!armed) return;
+    armed = false;
+    const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    // Far enough, mostly sideways and quick: a slow wander is someone reading or scrolling, not changing tabs
+    if (Math.abs(dx) < Math.max(70, innerWidth * 0.2) || Math.abs(dx) < 1.8 * Math.abs(dy) || Date.now() - t0 > 800) return;
+    if (String(getSelection ? getSelection() : '')) return;
+    const ids = TABS.map(x => x.id), i = ids.indexOf(UI.route().tab), j = i + (dx < 0 ? 1 : -1);
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    UI.swipeDir = dx < 0 ? 'next' : 'prev';
+    location.hash = '#' + ids[j];
   }, { passive: true });
 })();
 

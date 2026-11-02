@@ -203,6 +203,11 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 
 /* ---------- page sections ---------- */
 .view{padding-block:22px 40px;min-height:60vh}
+/* A tab reached by swiping (ui.js) slides in from the side the finger moved toward */
+@keyframes sw-next{from{transform:translateX(32px);opacity:.3}to{transform:none;opacity:1}}
+@keyframes sw-prev{from{transform:translateX(-32px);opacity:.3}to{transform:none;opacity:1}}
+.view.sw-next{animation:sw-next .22s ease-out}
+.view.sw-prev{animation:sw-prev .22s ease-out}
 .sec{display:flex;flex-direction:column;gap:14px;min-width:0}
 .sec + .sec{margin-top:34px}
 .sec-h{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;min-width:0}
