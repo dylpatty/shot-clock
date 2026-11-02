@@ -31,8 +31,9 @@ UI.vcard = (v, d, { hide = false, gid = '' } = {}) => `<button class="vc${hide ?
     <span class="vc-t">${hide ? 'Title hidden while spoiler mode is on' : esc(v.title)}</span>
     <span class="vc-m">${esc(channel(d, v))} · ${ago(v.t)}${v.views != null ? ' · ' + viewsTxt(v.views) : ''}</span></button>`;
 const spoils = v => NBA.S.spoilers && (v.kind === 'interview' || v.kind === 'highlights' || NBA.spoils(v.title));
-// A sideways strip of videos (it scrolls on its own, so a swipe on it doesn't change tabs or close the game)
-const row = (list, d, opts) => `<div class="vrow">${list.map(v => UI.vcard(v, d, opts && opts(v))).join('')}</div>`;
+// A sideways strip of videos (it scrolls on its own, so a swipe on it doesn't change tabs or close the game). key
+// keeps it scrolled where it was through live repaints (UI.paint)
+const row = (list, d, opts, key) => `<div class="vrow" data-sx="${key}">${list.map(v => UI.vcard(v, d, opts && opts(v))).join('')}</div>`;
 
 /* ---------- the Videos tab ---------- */
 V.videos = () => {
@@ -47,7 +48,7 @@ V.videos = () => {
   if (!items.length) body = `<p class="empty">${S.mine ? `No ${esc(mt.name || 'team')} videos in the last two weeks.` : 'No videos yet. They show up as the channels post.'}</p>`;
   else if (S.kind === 'all') {
     // Shelves: interviews from the last day and a half, newest first, then the most interesting of each kind
-    const shelf = (title, list, kind) => list.length ? `<div class="vshelf"><div class="vshelf-h"><h3>${title}</h3><button class="link" data-act="vkind" data-v="${kind}">See all</button></div>${row(list, d, v => ({ hide: spoils(v) }))}</div>` : '';
+    const shelf = (title, list, kind) => list.length ? `<div class="vshelf"><div class="vshelf-h"><h3>${title}</h3><button class="link" data-act="vkind" data-v="${kind}">See all</button></div>${row(list, d, v => ({ hide: spoils(v) }), `v-${kind}`)}</div>` : '';
     const top = k => items.filter(v => v.kind === k).sort((a, b) => score(b) - score(a)).slice(0, 12);
     const fresh = items.filter(v => v.kind === 'interview' && Date.now() - v.t < 36 * HOUR).sort((a, b) => b.t - a.t).slice(0, 16);
     body = shelf('Latest interviews', fresh.length ? fresh : top('interview'), 'interview') + shelf('Breakdowns and analysis', top('breakdown'), 'breakdown')
@@ -77,7 +78,7 @@ NBA.teamVideos = id => {
   const rest = all.filter(v => !recent.includes(v)).sort((a, b) => score(b) - score(a));
   const t = NBA.T(id);
   return `<div class="card w12 vcard-team"><div class="card-h"><h3>${esc(t.name || 'Team')} videos</h3><div class="end"><span class="eyebrow">Interviews, podcasts and more from YouTube</span></div></div>
-    <div class="card-b">${row(recent.concat(rest).slice(0, 18), d, v => ({ hide: spoils(v) }))}</div></div>`;
+    <div class="card-b">${row(recent.concat(rest).slice(0, 18), d, v => ({ hide: spoils(v) }), `team-${id}`)}</div></div>`;
 };
 
 /* ---------- the game view ---------- */
@@ -116,11 +117,11 @@ NBA.gameVideos = (g, state) => {
   if (state === 'post') {
     const talk = post.filter(v => v.kind === 'interview'), more = post.filter(v => v.kind !== 'interview');
     const ended = Date.now() - Date.parse(g.date) < 6 * HOUR;
-    out += talk.length ? `<div class="dr-vh"><h3 class="bx-team">Postgame interviews</h3></div>${row(talk, d, opts)}`
+    out += talk.length ? `<div class="dr-vh"><h3 class="bx-team">Postgame interviews</h3></div>${row(talk, d, opts, `g-post-${g.id}`)}`
       : ended ? `<div class="dr-vh"><h3 class="bx-team">Postgame interviews</h3></div><p class="note">They usually go up on the teams' YouTube channels within an hour or two of the final, and show up here on their own.</p>` : '';
-    if (more.length) out += `<div class="dr-vh"><h3 class="bx-team">More videos</h3></div>${row(more.slice(0, 12), d, opts)}`;
+    if (more.length) out += `<div class="dr-vh"><h3 class="bx-team">More videos</h3></div>${row(more.slice(0, 12), d, opts, `g-more-${g.id}`)}`;
   } else if (pre.length) {
-    out += `<div class="dr-vh"><h3 class="bx-team">Before the game</h3></div>${row(pre, d, () => ({}))}`;
+    out += `<div class="dr-vh"><h3 class="bx-team">Before the game</h3></div>${row(pre, d, () => ({}), `g-pre-${g.id}`)}`;
   }
   return out ? `<div class="dpad dr-videos">${out}</div>` : '';
 };

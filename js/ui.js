@@ -162,7 +162,11 @@ UI.paint = (el, html) => {
       if (parts.length) sel = parts.join('');
     }
   }
+  // Sideways strips marked data-sx (the video rows) keep their place: their cards' "6m ago" changes every minute
+  const sx = {};
+  el.querySelectorAll('[data-sx]').forEach(n => { if (n.scrollLeft) sx[n.dataset.sx] = n.scrollLeft; });
   el.innerHTML = html;
+  for (const k in sx) { const n = el.querySelector(`[data-sx="${CSS.escape(k)}"]`); if (n) n.scrollLeft = sx[k]; }
   if (sel) {
     const n = el.querySelector(sel);
     if (n) {
