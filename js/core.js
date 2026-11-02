@@ -193,9 +193,11 @@ NBA.findTeams = text => {
   const pairs = [];
   NBA.teams.forEach(t => {
     if (!t.abbr) return;
-    // The Pelicans' code "NO" is the word "no" in free text, so they match by "nop", "pels" or name instead
-    const al = new Set([t.full, t.name, t.abbr !== 'NO' && t.abbr, ...(EXTRA_ALIASES[t.abbr] || [])].filter(Boolean).map(x => x.toLowerCase()));
-    if (t.location && counts[t.location.toLowerCase()] === 1) al.add(t.location.toLowerCase());
+    // The Pelicans' code "NO" is the word "no" in free text, and the Timberwolves' "MIN" is minutes in a stat line,
+    // so they match by "nop", "pels", "wolves" or name instead
+    const al = new Set([t.full, t.name, !['NO', 'MIN'].includes(t.abbr) && t.abbr, ...(EXTRA_ALIASES[t.abbr] || [])].filter(Boolean).map(x => x.toLowerCase()));
+    // ESPN's Clippers are "LA", which is also in "LA Lakers" and "Las Vegas", so two-letter places don't count
+    if (t.location && t.location.length > 2 && counts[t.location.toLowerCase()] === 1) al.add(t.location.toLowerCase());
     al.forEach(a => pairs.push([a, t]));
   });
   pairs.sort((a, b) => b[0].length - a[0].length);
@@ -703,7 +705,8 @@ def('day', (p, d) => !p ? 60000 : d && NBA.isoFromParam(p) < NBA.today && d.game
   const games = (j.events || []).map(parseGame);
   games.forEach(g => [g.away, g.home].forEach(mergeTeam));
   const season = j.leagues && j.leagues[0] && j.leagues[0].season;
-  if (season && season.type && (season.type.type === 2 || season.type.type === 3)) NBA.seasonType = season.type.type;
+  // Only today's board sets the season type: a past or future day can be on the other side of the playoffs' start
+  if (!p && season && season.type && (season.type.type === 2 || season.type.type === 3)) NBA.seasonType = season.type.type;
   if (!p) {
     if (j.day && j.day.date) {
       NBA.today = j.day.date;
@@ -737,15 +740,26 @@ def('standings', 10 * 60000, async () => {
 });
 def('news', 5 * 60000, async team => (await getJSON(`${API}/news?limit=${team ? 12 : 40}${team ? '&team=' + team : ''}`)).articles || []);
 def('injuries', 10 * 60000, async () => parseInjuries(await getJSON(`${API}/injuries`)));
-def('players', 30 * 60000, async () => parsePlayers(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byathlete?region=us&lang=en&contentorigin=espn&isqualified=false&page=1&limit=1000&sort=offensive.avgPoints%3Adesc&season=${NBA.SEASON}&seasontype=${NBA.seasonType}`, 60000)));
+/* The stats feeds come in a regular-season and a playoff version. Each waits for today's scoreboard to say which part
+   of the season it is (at launch it hasn't loaded yet), remembers the type it used, and loads again when that changes */
+async function typeNow() { await need('day:').catch(() => {}); return NBA.seasonType; }
+const typed = ttl => (a, d) => (d && d.type !== NBA.seasonType ? 0 : ttl);
+def('players', typed(30 * 60000), async () => {
+  const type = await typeNow();
+  return Object.assign(parsePlayers(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byathlete?region=us&lang=en&contentorigin=espn&isqualified=false&page=1&limit=1000&sort=offensive.avgPoints%3Adesc&season=${NBA.SEASON}&seasontype=${type}`, 60000)), { type });
+});
 /* The core leaders feed: 100 PER rows, deep enough for the view to keep only rotation players.
    Rows carry the player id only; names and headshots come from NBA.playerById */
-def('per', 30 * 60000, async () => {
-  const j = await getJSON(`${CORE}/seasons/${NBA.SEASON}/types/${NBA.seasonType}/leaders?limit=100`);
+def('per', typed(30 * 60000), async () => {
+  const type = await typeNow();
+  const j = await getJSON(`${CORE}/seasons/${NBA.SEASON}/types/${type}/leaders?limit=100`);
   const cat = (j.categories || []).find(c => c.name === 'PER');
-  return cat ? (cat.leaders || []).map(l => ({ id: (/athletes\/(\d+)/.exec((l.athlete && l.athlete.$ref) || '') || [])[1] || '', value: l.value, display: l.displayValue })).filter(r => r.id) : [];
+  return Object.assign(cat ? (cat.leaders || []).map(l => ({ id: (/athletes\/(\d+)/.exec((l.athlete && l.athlete.$ref) || '') || [])[1] || '', value: l.value, display: l.displayValue })).filter(r => r.id) : [], { type });
 });
-def('teamstats', 30 * 60000, async () => parseTeamStats(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byteam?region=us&lang=en&season=${NBA.SEASON}&seasontype=${NBA.seasonType}`)));
+def('teamstats', typed(30 * 60000), async () => {
+  const type = await typeNow();
+  return Object.assign(parseTeamStats(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byteam?region=us&lang=en&season=${NBA.SEASON}&seasontype=${type}`)), { type });
+});
 def('futures', 15 * 60000, async () => parseFutures(await getJSON(`${CORE}/seasons/${NBA.SEASON}/futures?limit=100`)));
 def('athlete', 24 * 3600000, async id => {
   let a;
@@ -784,7 +798,10 @@ def('ythl', 5 * 60000, () => getJSON('https://raw.githubusercontent.com/dylpatty
 // Each game's Canadian streaming service, refreshed every 3 hours by the same job, on the same branch
 def('catv', 30 * 60000, () => getJSON('https://raw.githubusercontent.com/dylpatty/shot-clock/highlights/catv.json')
   .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }));
-def('summary', (id, d) => (d && d.state === 'post' ? 6 * 3600000 : 15000), async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
+// ESPN posts the recap a while after the final, so a finished game without one is checked every 5 minutes until it turns
+// up or the game is 3 hours old (5 hours from tip-off when the end time is missing)
+def('summary', (id, d) => (!d || d.state !== 'post' ? 15000 : d.recap || Date.now() - Date.parse(d.ended || d.date) > (d.ended ? 3 : 5) * 3600000 ? 6 * 3600000 : 5 * 60000),
+  async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
 // The matchup preview and injuries, on a 10-minute cache so Home never pulls the 15-second live summary
 def('preview', 10 * 60000, async id => { const s = parseSummary(await getJSON(`${API}/summary?event=${id}`), id); return Object.assign({}, s.preview, { injuries: s.injuries }); });
 /* ESPN BPI projections for all 30 teams, by team id. Each stat comes as value and, with a D suffix, display text:
@@ -826,32 +843,36 @@ def('awards', 24 * 3600000, async id => {
   }
   return list;
 });
-/* Season plus-minus per player (ESPN keeps it only in per-player season stats) */
-def('pm', 6 * 3600000, async id => {
-  const j = await getJSON(`${CORE}/seasons/${NBA.SEASON}/types/${NBA.seasonType}/athletes/${id}/statistics/0?lang=en&region=us`);
+/* Season plus-minus per player (ESPN keeps it only in per-player season stats). 'pm:<id>.2' is the regular season,
+   'pm:<id>.3' the playoffs; plain 'pm:<id>' follows today's scoreboard, so it is looked up again every minute */
+def('pm', arg => (arg.includes('.') ? 6 * 3600000 : 60000), async arg => {
+  const [id, type] = arg.split('.');
+  if (!type) return need(`pm:${id}.${await typeNow()}`);
+  const j = await getJSON(`${CORE}/seasons/${NBA.SEASON}/types/${type}/athletes/${id}/statistics/0?lang=en&region=us`);
   const gen = ((j.splits && j.splits.categories) || []).find(c => c.name === 'general') || {};
   const s = (gen.stats || []).find(x => x.name === 'plusMinus');
   return s ? s.value : null;
 });
 /* Plus-minus leaders: rotation players only (20+ minutes, enough games), cached in this browser for 6 hours.
-   An empty list (before opening night) is checked again in 5 minutes and never saved. */
-def('pmlead', (a, d) => (d && d.length ? 6 * 3600000 : 5 * 60000), async () => {
+   An empty list (before opening night) is checked again in 5 minutes and never saved. Like the stats feeds, it is
+   built again when the playoffs start */
+def('pmlead', (a, d) => (d && d.type !== NBA.seasonType ? 0 : d && d.length ? 6 * 3600000 : 5 * 60000), async () => {
   const CACHE = 'nba.pm.v1';
-  const cached = readJSON(CACHE);
-  if (cached && cached.season === NBA.SEASON && cached.rows && cached.rows.length && Date.now() - cached.t < 6 * 3600000) return cached.rows;
+  const type = await typeNow(), cached = readJSON(CACHE);
+  if (cached && cached.season === NBA.SEASON && cached.type === type && cached.rows && cached.rows.length && Date.now() - cached.t < 6 * 3600000) return Object.assign(cached.rows, { type });
   await Promise.all([need('players'), need('standings')]);
   const sm = NBA.standingsMap();
   const cands = (NBA.players() || []).filter(p => p.min >= 20 && NBA.qualifies(p, null, sm));
-  const rows = [];
+  const rows = Object.assign([], { type });
   let failed = 0;
   for (let i = 0; i < cands.length; i += 8) {
-    const chunk = await Promise.allSettled(cands.slice(i, i + 8).map(p => need('pm:' + p.id).then(v => ({ p, v }))));
+    const chunk = await Promise.allSettled(cands.slice(i, i + 8).map(p => need(`pm:${p.id}.${type}`).then(v => ({ p, v }))));
     chunk.forEach(c => { if (c.status !== 'fulfilled') failed++; else if (c.value.v != null) rows.push({ id: c.value.p.id, total: c.value.v, gp: c.value.p.gp }); });
   }
   // Too many lookups failed (network drop, rate limit): show the error and retry in 30 s rather than keep a list missing leaders.
   // The lookups that worked stay cached, so the retry only fetches the rest.
   if (failed > cands.length * .1) throw new Error("Couldn't get plus-minus for every player from ESPN. Try again shortly.");
-  if (rows.length) { try { localStorage.setItem(CACHE, JSON.stringify({ t: Date.now(), season: NBA.SEASON, rows })); } catch (e) { /* storage full or blocked */ } }
+  if (rows.length) { try { localStorage.setItem(CACHE, JSON.stringify({ t: Date.now(), season: NBA.SEASON, type, rows })); } catch (e) { /* storage full or blocked */ } }
   return rows;
 });
 
@@ -914,11 +935,19 @@ NBA.statFmt = (key, v, mode) => {
   return v.toFixed(d.dec ?? 1);
 };
 function teamGames(id, sm) { const r = sm.get(id); return r ? r.w + r.l : 0; }
-/* NBA qualification rules, pro-rated to games played so far */
+// Games each team has played by the stats feed: its most-used player's games, worked out once per feed
+const TEAM_GP = new WeakMap();
+function teamMaxGp(all, id) {
+  let m = TEAM_GP.get(all);
+  if (!m) { m = new Map(); all.forEach(x => m.set(x.teamId, Math.max(m.get(x.teamId) || 0, x.gp || 0))); TEAM_GP.set(all, m); }
+  return m.get(id) || 0;
+}
+/* NBA qualification rules, pro-rated to games played so far. The standings only hold the regular season, so playoff
+   stats are measured against the team's playoff games */
 NBA.qualifies = (p, qual, sm) => {
   sm = sm || NBA.standingsMap();
   const all = NBA.players() || [];
-  const tg = teamGames(p.teamId, sm) || Math.max(1, ...all.map(x => x.gp || 0));
+  const tg = ((all.type || 2) === 2 && teamGames(p.teamId, sm)) || teamMaxGp(all, p.teamId) || 1;
   if (p.gp < Math.max(1, Math.ceil(tg * .7))) return false;
   if (qual === 'fg') return p.tot.fgm >= tg * 3.66;
   if (qual === '3p') return p.tot.tpm >= tg * 1.0;
@@ -937,7 +966,7 @@ NBA.leaders = ({ stat = 'pts', mode = 'game', limit = 10, teamId, conf, pos, low
   if (pos) list = list.filter(p => p.pos && p.pos.toUpperCase().includes(pos.toUpperCase()));
   if (!teamId && (mode === 'game' || d.pct || d.qual)) list = list.filter(p => NBA.qualifies(p, d.qual, sm));
   if (teamId && (d.pct || d.qual)) {
-    const tg = teamGames(String(teamId), sm) || Math.max(1, ...list.map(p => p.gp || 0));
+    const tg = ((all.type || 2) === 2 && teamGames(String(teamId), sm)) || Math.max(1, ...list.map(p => p.gp || 0));
     list = list.filter(p => p.gp >= Math.max(1, Math.ceil(tg / 2)) && (d.qual === 'fg' ? p.fga >= 5 : d.qual === '3p' ? p.tpa >= 2.5 : d.qual === 'ft' ? p.fta >= 2 : true));
   }
   list.sort((a, b) => lowest ? NBA.statValue(stat, a, mode) - NBA.statValue(stat, b, mode) : NBA.statValue(stat, b, mode) - NBA.statValue(stat, a, mode));

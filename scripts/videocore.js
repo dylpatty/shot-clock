@@ -98,6 +98,8 @@ const HIGHLIGHT = /highlights|full game|top \d+|best plays|every (?:bucket|three
 const INTERVIEW = /post[- ]?game|press conference|presser|media availability|pregame|pre[- ]game|shootaround|practice|interview|walk-?off|locker room|reacts?\b|recaps?\b|breaks? down|talks?\b|discuss|speaks?\b|says\b|reflects|reveals|meets the media|\bmedia\b|on (?:the |his |their )?(?:win|loss|performance|night)|after (?:the |a )?(?:win|loss|game)|availability|exit interview|introductory|one on one/i;
 // Elsewhere only these words mean an interview ("talks" or "recap" on the NBA's channel are usually something else)
 const INTERVIEW_STRICT = /post[- ]?game|press conference|presser|media availability|interview|locker room|reacts to\b.*\bwith (?:the )?(?:NBA on|crew)/i;
+// On a team's channel these always mean someone talking, whatever else the title says
+const TEAM_TALK = /press conference|presser|media availability|interview|locker room|walk-?off|post[- ]?game (?:sound|media|interview|press)|shootaround|practice|breaks? down|recaps?\b|reacts?\b|talks?\b|speaks?\b/i;
 const PODCAST = /podcast|\bpod\b|episode|\bep\.?\s*\d+|full show|reaction show/i;
 const BREAKDOWN = /breakdown|film (?:study|session|room)|explained|explain|analy[sz]|stats? (?:say|show|don't lie)|tactic|scheme|why (?:the|is|are|did)|how (?:the|did|does)|\bvs\.? (?:data|numbers)|deep dive|ranking|ranked|tier list/i;
 
@@ -107,7 +109,9 @@ export function kindOf(ch, title) {
   if (ch.kind === 'podcast' || (ch.kind === 'team' ? /podcast|\bpod\b/i : PODCAST).test(title)) return 'podcast';
   if (ch.kind === 'feature') return 'feature';
   if (ch.kind === 'analysis') return HIGHLIGHT.test(title) && !BREAKDOWN.test(title) ? 'highlights' : 'breakdown';
-  if (ch.kind === 'team') return INTERVIEW.test(title) ? 'interview' : HIGHLIGHT.test(title) ? 'highlights' : dateIn(title) ? 'interview' : 'feature';
+  // On a team's channel, sure interview words win (someone talking: Curry "Breaks Down Insane Shot..."); then a
+  // highlights title ("POSTGAME HIGHLIGHTS: MAGIC VS. CELTICS"), before the looser words like a bare "postgame" get a say
+  if (ch.kind === 'team') return TEAM_TALK.test(title) ? 'interview' : HIGHLIGHT.test(title) ? 'highlights' : INTERVIEW.test(title) || dateIn(title) ? 'interview' : 'feature';
   // The league's own channel and other outlets: a dated title or one "vs" a team is a game's highlights
   if (INTERVIEW_STRICT.test(title)) return 'interview';
   if (BREAKDOWN.test(title)) return 'breakdown';

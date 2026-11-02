@@ -580,7 +580,10 @@ async function askClaude(turn, q) {
     A.convo.length = start; // drop the unanswered question so the next one starts clean
     throw explain(e, Anthropic);
   }
-  if (A.convo[A.convo.length - 1].role === 'user') A.convo.length = start; // step limit hit mid-lookup
+  // Step limit hit mid-lookup, or cut off (max_tokens, refusal) partway through asking for one. Either way a lookup
+  // is left unanswered, and the API would reject every later question
+  const last = A.convo[A.convo.length - 1];
+  if (last.role === 'user' || last.content.some(b => b.type === 'tool_use')) A.convo.length = start;
   const [pi, po, pw, pr] = PRICES[model];
   const cost = (usage.in * pi + usage.out * po + usage.cw * pw + usage.cr * pr) / 1e6;
   return { html: md(text || 'No answer came back.'), meta: `${MODEL_NAMES[model]} · ${lookups} lookup${lookups === 1 ? '' : 's'} · about $${cost < .01 ? cost.toFixed(4) : cost.toFixed(2)}` };
@@ -646,7 +649,9 @@ function scrollToLast() {
 }
 async function ask(q) {
   q = q.trim();
-  if (!q || A.busy) return;
+  if (!q) return;
+  // One question at a time: show the one still running (the panel may have been closed) rather than doing nothing
+  if (A.busy) { A.open = true; renderPanel(); scrollToLast(); return; }
   A.open = true; A.busy = true;
   const turn = { q, steps: [], pending: true };
   A.turns.push(turn);
@@ -702,7 +707,8 @@ window.addEventListener('resize', () => { if (A.open) placePanel(); });
 if (window.visualViewport) ['resize', 'scroll'].forEach(t => visualViewport.addEventListener(t, () => { if (A.open) placePanel(); }));
 document.addEventListener('pointerdown', e => {
   if (!A.open || A.busy) return;
-  if (e.target.closest('#ask-panel, #ask-form, .drawer, .scrim')) return;
+  // The magnifier is left to its own click, which puts the bar away; closing here first made that click reopen it
+  if (e.target.closest('#ask-panel, #ask-form, .srch-btn, .drawer, .scrim')) return;
   A.close();
 });
 })();

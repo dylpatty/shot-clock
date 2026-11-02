@@ -38,6 +38,13 @@ NBA.topPlayers = (n = 25) => {
 const niceStep = (span, n) => { const raw = span / Math.max(1, n), p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; };
 const tickFmt = step => v => step < 1 ? v.toFixed(step < .1 ? 2 : 1) : String(Math.round(v));
 const LOG_TICKS = [.1, .2, .5, 1, 2, 5, 10, 20, 50, 100];
+// Safari's toolbars change innerHeight as they hide and show mid-scroll. The small viewport height (toolbars showing)
+// holds still, so charts don't redraw at a new height and shift the cards below while you scroll
+let vhProbe = null;
+const vh = () => {
+  if (!vhProbe) { vhProbe = document.createElement('div'); vhProbe.style.cssText = 'position:fixed;top:0;width:0;height:100vh;height:100svh;visibility:hidden'; document.body.appendChild(vhProbe); }
+  return vhProbe.offsetHeight || innerHeight;
+};
 function drawChart(wrap, spec) {
   const pts = spec.pts.filter(p => Number.isFinite(p.x) && Number.isFinite(p.y) && (!spec.yLog || p.y > 0));
   if (pts.length < 3) { wrap.innerHTML = '<p class="empty">Not enough games yet for this chart.</p>'; return; }
@@ -46,7 +53,7 @@ function drawChart(wrap, spec) {
   const narrow = W < 600;
   const top = document.getElementById('top');
   // Leave room for the card's title, note and deck controls so a whole card fits on one screen
-  const avail = innerHeight - (top ? top.offsetHeight : 0) - (+wrap.dataset.chrome || 220);
+  const avail = vh() - (top ? top.offsetHeight : 0) - (+wrap.dataset.chrome || 220);
   const H = Math.round(Math.max(260, Math.min(avail, W * (narrow ? 1.1 : .56))));
   const m = narrow ? { l: 40, r: 12, t: 14, b: 44 } : { l: 64, r: 24, t: 24, b: 56 };
   const rad = spec.face ? (narrow ? 14 : W < 1200 ? 18 : 22) : (narrow ? 11 : W < 1200 ? 16 : 20);
@@ -279,7 +286,7 @@ function drawCharts(root) {
   root.querySelectorAll('[data-chart]').forEach(w => {
     const s = SPECS.get(w.dataset.chart);
     if (!s || !w.clientWidth) return;
-    const sig = s.pts.map(p => `${p.id}:${(+p.x).toFixed(2)}:${(+p.y).toFixed(2)}:${p.on ? 1 : 0}`).join() + `|${w.clientWidth}|${innerHeight}|${NBA.isDark()}`;
+    const sig = s.pts.map(p => `${p.id}:${(+p.x).toFixed(2)}:${(+p.y).toFixed(2)}:${p.on ? 1 : 0}`).join() + `|${w.clientWidth}|${vh()}|${NBA.isDark()}`;
     if (w._sig !== sig) { w._sig = sig; drawChart(w, s); }
   });
 }
@@ -664,6 +671,8 @@ V.home = () => {
     return days ? `${days} day${days > 1 ? 's' : ''}${h ? `, ${h} hr` : ''}` : h ? `${h} hr ${m % 60} min` : `${m} min`;
   };
   const myNext = sch && sch.events.find(e => e.state === 'pre');
+  // A game with no tip-off set yet carries a placeholder time from ESPN, so don't show it or count down to it
+  const nextTbd = !!myNext && /TBD/i.test(myNext.detail || '');
   const myLive = live.find(g => g.away.id === myId || g.home.id === myId);
   // Every chip is about today's games, so each lands on today's schedule even if Schedule was left on another day.
   // The next-tip chip steps aside when the next tip is your team's: the panel already counts down to it.
@@ -677,7 +686,8 @@ V.home = () => {
   const recOf = id => { const r = sm.get(id); return r ? `${r.w}-${r.l}` : ''; };
   let nextPanel = '';
   if (myLive) {
-    const hide = NBA.S.spoilers;
+    // Same rule as the game tiles: opening the game reveals its score here too
+    const hide = NBA.S.spoilers && !st.revealed.has(myLive.id);
     nextPanel = `<button class="hh-next live" data-act="game" data-id="${myLive.id}"><span class="eyebrow"><i class="dot blink"></i>${esc(t.name)} are live</span>
       <span class="nx-vs">${side(myLive.away, myLive.away.record, hide ? null : myLive.away.score)}<span class="nx-at">${esc(hide ? 'Live' : NBA.detail(myLive))}</span>${side(myLive.home, myLive.home.record, hide ? null : myLive.home.score)}</span>
       <span class="nx-when">Tap for the box score</span></button>`;
@@ -686,8 +696,8 @@ V.home = () => {
     const [L, R] = myNext.home ? [[opp, recOf(myNext.oppId)], [t, recOf(myId)]] : [[t, recOf(myId)], [opp, recOf(myNext.oppId)]];
     nextPanel = `<button class="hh-next" data-act="game" data-id="${myNext.id}"><span class="eyebrow">${esc(t.name)} next game</span>
       <span class="nx-vs">${side(L[0], L[1])}<span class="nx-at">@</span>${side(R[0], R[1])}</span>
-      <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(/TBD/i.test(myNext.detail || '') ? 'Time TBD' : NBA.fmtTime(myNext.date))}${NBA.caTv(myNext) ? ' · ' + esc(NBA.caTv(myNext).short) : ''}</span>
-      ${previewLine(myNext, myId, t, now)}<span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span></button>`;
+      <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(nextTbd ? 'Time TBD' : NBA.fmtTime(myNext.date))}${NBA.caTv(myNext) ? ' · ' + esc(NBA.caTv(myNext).short) : ''}</span>
+      ${previewLine(myNext, myId, t, now)}${nextTbd ? '' : `<span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span>`}</button>`;
   }
   const msg = heroMessage({ now, games, live, myId, t, sch, mine, loaded: !!day });
   const star = t.abbr ? marqueeOf(myId) : null;
@@ -722,8 +732,8 @@ V.home = () => {
     const bpi = b && Number.isFinite(pw) && Number.isFinite(pl) ? `<div class="mut hm-bpi">ESPN projects ${pw}-${pl}${b.probmakeplayoffsD ? ` · ${esc(b.probmakeplayoffsD)} playoff odds` : ''}</div>` : '';
     teamCard = `<div class="card hm hm-team" style="--tc:${esc(t.color || '#444')}"><div class="hm-team-top">${UI.logo(t, 56)}<div><div class="eyebrow">Your team</div><h3>${esc(t.full)}</h3>
       <div class="mut">${mine ? [`${mine.w}-${mine.l}`, mine.seed ? `${NBA.ord(mine.seed)} in the ${esc(mine.conf)}` : esc(mine.conf), NBA.S.spoilers ? '' : esc(mine.strk || '')].filter(Boolean).join(' · ') : esc((sch && sch.record) || '')}</div>${bpi}</div></div>
-      <div class="hm-team-games">${last ? `<button class="hm-g" data-act="game" data-id="${last.id}"><span class="eyebrow">Last game</span><b>${NBA.S.spoilers ? 'Final' : `<span class="${last.won ? 'w' : 'lo'}">${last.won ? 'W' : 'L'}</span> ${esc(last.my)}-${esc(last.their)}`}</b><small>${last.home ? 'vs' : '@'} ${esc(last.oppAbbr || '')} · ${esc(NBA.fmtDate(last.date, { month: 'short', day: 'numeric' }))}</small></button>` : ''}
-        ${myNext ? `<button class="hm-g" data-act="game" data-id="${myNext.id}"><span class="eyebrow">Next game</span><b>${myNext.home ? 'vs' : '@'} ${esc(myNext.oppAbbr || '')}</b><small>${esc(NBA.fmtDate(myNext.date, { weekday: 'short', month: 'short', day: 'numeric' }))} · ${esc(NBA.fmtTime(myNext.date))}</small></button>` : ''}</div>
+      <div class="hm-team-games">${last ? `<button class="hm-g" data-act="game" data-id="${last.id}"><span class="eyebrow">Last game</span><b>${NBA.masked(last.id, last.date) ? 'Final' : `<span class="${last.won ? 'w' : 'lo'}">${last.won ? 'W' : 'L'}</span> ${esc(last.my)}-${esc(last.their)}`}</b><small>${last.home ? 'vs' : '@'} ${esc(last.oppAbbr || '')} · ${esc(NBA.fmtDate(last.date, { month: 'short', day: 'numeric' }))}</small></button>` : ''}
+        ${myNext ? `<button class="hm-g" data-act="game" data-id="${myNext.id}"><span class="eyebrow">Next game</span><b>${myNext.home ? 'vs' : '@'} ${esc(myNext.oppAbbr || '')}</b><small>${esc(NBA.fmtDate(myNext.date, { weekday: 'short', month: 'short', day: 'numeric' }))} · ${esc(nextTbd ? 'Time TBD' : NBA.fmtTime(myNext.date))}</small></button>` : ''}</div>
       ${lastHl ? `<button class="chip hl-chip" ${NBA.ytAttrs(lastHl, lastG)}>▶ Last game's full highlights${lastHl.dur ? ' · ' + NBA.fmtDur(lastHl.dur) : ''}</button>` : ''}
       ${leaders.length ? `<ul class="hm-lead3">${leaders.map(p => `<li data-act="player" data-id="${p.id}">${UI.hs(p.headshot)}<span><b>${esc(p.name)}</b><small>${f1(p.pts)} pts · ${f1(p.reb)} reb · ${f1(p.ast)} ast</small></span></li>`).join('')}</ul>` : ''}
       <a class="chip" href="#myteam">Team page</a></div>`;

@@ -141,14 +141,19 @@ function diversify(scored) {
   return out;
 }
 
-// One copy of a post seen in two places (a tweet also on Reddit): the bigger one, noting the other
+// One copy of a post seen in two places (a tweet also on Reddit): the bigger one, noting the other. Each keeps the
+// same key whichever copy wins, so the feed doesn't see it as a new post when the other copy grows bigger
 function dedupe(list) {
-  const by = new Map();
+  const by = new Map(), seen = new Set();
   list.forEach(it => {
+    // The archive's older copy of a post still in today's feed (today's come first and have the live counts), whether
+    // or not that post is the one its card shows
+    if (seen.has(it.id)) return;
+    seen.add(it.id);
     // The same scoop posted twice on r/nba has the same title
     const k = it.dup || (it.src === 'reddit' && it.title ? 'rt:' + it.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() : it.id), have = by.get(k);
-    if (!have || engagement(it) > engagement(have)) by.set(k, Object.assign({}, it, { also: have ? [...(have.also || []), have.src] : it.also }));
-    else if (have.src !== it.src) have.also = [...(have.also || []), it.src];
+    if (!have || engagement(it) > engagement(have)) by.set(k, Object.assign({}, it, { key: k, also: have ? [...(have.also || []), have.src].filter(s => s !== it.src) : it.also }));
+    else if (have.src !== it.src && !(have.also || []).includes(it.src)) have.also = [...(have.also || []), it.src];
   });
   return [...by.values()];
 }
@@ -190,6 +195,8 @@ function trending(list) {
 /* ---------- rendering ---------- */
 const num = n => !n ? '0' : n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'K' : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K' : String(n);
 const ago = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'now' : m < 60 ? m + 'm' : m < 1440 ? Math.round(m / 60) + 'h' : Math.round(m / 1440) + 'd'; };
+// "5m ago", or "just now" rather than "now ago"
+const agoTxt = ms => { const a = ago(ms); return a === 'now' ? 'just now' : a + ' ago'; };
 // X's logo is its name, so its badge is the logo alone
 const badge = src => `<span class="sp-badge sb-${src}${SRC[src].tag ? '' : ' solo'}" title="From ${esc(SRC[src].name)}">${ICON[src]}${SRC[src].tag ? `<span>${esc(SRC[src].tag)}</span>` : ''}</span>`;
 const flames = s => { const n = Math.max(1, Math.min(5, Math.ceil(s.heatPct * 5))); return `<span class="sp-heat" title="Heat ${n} of 5" aria-label="Heat ${n} of 5">${Array.from({ length: 5 }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`; };
@@ -204,7 +211,8 @@ function avatar(it) {
 function mediaHtml(it, hide) {
   const m = it.media || [];
   if (!m.length) {
-    if (it.link && it.link.url) return `<a class="sp-link" href="${esc(it.link.url)}" target="_blank" rel="noopener">${it.link.thumb ? `<img src="${esc(it.link.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}<span><small>${esc(it.link.domain || '')}</small><b>${esc(it.link.title || it.link.url)}</b></span></a>`;
+    // A hidden post's link keeps its headline back too, since that's usually the post's own title
+    if (it.link && it.link.url) return `<a class="sp-link" href="${esc(it.link.url)}" target="_blank" rel="noopener">${it.link.thumb ? `<img src="${esc(it.link.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}<span><small>${esc(it.link.domain || '')}</small>${hide ? '' : `<b>${esc(it.link.title || it.link.url)}</b>`}</span></a>`;
     return '';
   }
   const one = (x, i) => {
@@ -257,14 +265,15 @@ V.social = () => {
   // Percentile of heat among what's shown, for the flame meter
   const heats = all.map(x => x.s.heat).sort((a, b) => a - b);
   all.forEach(x => { const i = heats.indexOf(x.s.heat); x.s.heatPct = heats.length > 1 ? (i + 1) / heats.length : 0.6; });
-  const byId = new Map(all.map(x => [x.it.id, x]));
-  // The order on screen holds still while new posts arrive; they wait behind the "new posts" button
-  const key = [S.sort, S.range, S.type, S.src, S.focus].join('|');
-  if (key !== S.key || !S.shown.length) { S.key = key; S.shown = all.map(x => x.it.id); S.pending = []; }
+  const byId = new Map(all.map(x => [x.it.key, x]));
+  // The order on screen holds still while new posts arrive; they wait behind the "new posts" button. The week's and
+  // season's lists sort again once their archive has loaded, so it doesn't all land behind the button
+  const key = [S.sort, S.range, S.type, S.src, S.focus, S.sort === 'top' && S.range !== 'day' && NBA.data('socarch') !== undefined].join('|');
+  if (key !== S.key || !S.shown.length) { S.key = key; S.shown = all.map(x => x.it.key); S.pending = []; }
   else {
     const have = new Set(S.shown);
     S.shown = S.shown.filter(id => byId.has(id));
-    const fresh = all.filter(x => !have.has(x.it.id) && !S.pending.includes(x.it.id)).map(x => x.it.id);
+    const fresh = all.filter(x => !have.has(x.it.key) && !S.pending.includes(x.it.key)).map(x => x.it.key);
     S.pending = S.pending.filter(id => byId.has(id)).concat(fresh);
   }
   const shown = S.shown.map(id => byId.get(id)).filter(Boolean);
@@ -276,7 +285,7 @@ V.social = () => {
   const status = (data && data.status) || {};
 
   const head = `<div class="soc-head"><div><h2 class="soc-brand">Courtside</h2><p class="soc-tag">Today's NBA conversation from ${Object.keys(SRC).map(k => `<span class="soc-dot sd-${k}"></span>${SRC[k].name}`).join(' and ')}, ranked by heat</p></div>
-    <div class="soc-live">${live ? '<span class="soc-pill live"><i class="dot blink"></i>Games live</span>' : ''}<span class="soc-pill">${today.length} posts today${upd ? ` · updated ${esc(ago(upd))} ago` : ''}</span>
+    <div class="soc-live">${live ? '<span class="soc-pill live"><i class="dot blink"></i>Games live</span>' : ''}<span class="soc-pill">${today.length} posts today${upd ? ` · updated ${esc(agoTxt(upd))}` : ''}</span>
       <button class="ib soc-refresh" data-act="socrefresh" aria-label="Refresh the feed" title="Refresh">${STAT.refresh}</button></div></div>`;
   const stories = tr.players.length ? `<div class="soc-stories" role="list" aria-label="Trending players">${tr.players.map(({ x, c }) => `<button role="listitem" class="soc-story${S.focus === 'p' + x.id ? ' on' : ''}" data-act="socfocus" data-v="p${esc(x.id)}" aria-pressed="${S.focus === 'p' + x.id}"><span class="ring">${UI.hs(x.headshot, 'hs', 160)}</span><b>${esc((x.name || '').split(' ').slice(-1)[0])}</b><small>${c} posts</small></button>`).join('')}</div>` : '';
   const seg = (list, cur, act, label) => `<div class="seg soc-seg" role="group" aria-label="${label}">${list.map(([k, l]) => `<button data-act="${act}" data-v="${k}" aria-pressed="${cur === k}">${l}</button>`).join('')}</div>`;
@@ -291,7 +300,7 @@ V.social = () => {
   else if (!shown.length) feed = `<p class="empty">${err ? "Couldn't load the feed. It will try again shortly." : S.focus || S.type !== 'all' || S.src !== 'all' ? 'Nothing matches these filters yet.' : S.sort === 'top' && S.range !== 'day' && !NBA.data('socarch') ? 'Loading…' : 'No posts yet. The feed fills in as the NBA world wakes up.'}</p>`;
   else feed = shown.slice(0, S.limit).map(x => card(x.it, x.s)).join('') + (shown.length > S.limit ? `<div class="soc-sentinel" aria-hidden="true"></div><button class="btn soc-moreb" data-act="socmore">Show more</button>` : `<p class="soc-end">You're all caught up.</p>`);
   const newPill = S.pending.length ? `<button class="soc-new" data-act="socnew">↑ ${S.pending.length} new post${S.pending.length > 1 ? 's' : ''}</button>` : '';
-  const srcState = Object.keys(SRC).map(k => { const s = status[k] || {}; return `<li><span class="sp-badge sb-${k}">${ICON[k]}</span><b>${SRC[k].name}</b><small>${s.ok === false ? esc(s.note || 'Not reachable right now') : `${counts[k] || 0} posts today${s.at ? ' · checked ' + esc(ago(Date.parse(s.at))) + ' ago' : ''}`}</small></li>`; }).join('');
+  const srcState = Object.keys(SRC).map(k => { const s = status[k] || {}; return `<li><span class="sp-badge sb-${k}">${ICON[k]}</span><b>${SRC[k].name}</b><small>${s.ok === false ? esc(s.note || 'Not reachable right now') : `${counts[k] || 0} posts today${s.at ? ' · checked ' + esc(agoTxt(Date.parse(s.at))) : ''}`}</small></li>`; }).join('');
   const rail = `<aside class="soc-rail">
     ${tr.teams.length ? `<div class="card"><div class="card-h"><h3>Trending teams</h3></div><ol class="soc-trend">${tr.teams.map(({ x, c }, i) => `<li><button data-act="socfocus" data-v="t${esc(x.id)}" aria-pressed="${S.focus === 't' + x.id}"><span class="rk">${i + 1}</span>${UI.logo(x, 22)}<b>${esc(x.name || x.abbr)}</b><small>${c} post${c > 1 ? 's' : ''}</small></button></li>`).join('')}</ol></div>` : ''}
     <div class="card"><div class="card-h"><h3>Sources</h3></div><ul class="soc-state">${srcState}</ul><p class="note soc-about">${esc(about)}</p></div></aside>`;
@@ -314,7 +323,8 @@ Object.assign(NBA.actions, {
   socplay: a => {
     const it = findItem(a.dataset.id), x = it && (it.media || [])[+a.dataset.i || 0];
     if (!it || !x) return;
-    S.open[it.id] = true;
+    // Watching it shows the post too: a spoiler-hidden card opens up behind the player, not at some later repaint
+    S.open[it.id] = true; NBA.changed();
     const title = `${SRC[it.src].name} · ${(it.author && (it.author.name || it.author.handle)) || ''}`;
     if (x.kind === 'image') { UI.openVid({ title, link: it.url, linkLabel: SRC[it.src].open, tall: x.h > x.w, body: `<img src="${esc(x.full || x.thumb)}" alt="${esc(it.title || it.text || '')}" referrerpolicy="no-referrer">` }); return; }
     if (x.kind === 'embed') { UI.openVid({ title, link: it.url, linkLabel: SRC[it.src].open, tall: !!x.tall, body: `<iframe src="${esc(x.embed)}" title="${esc(title)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" scrolling="no"></iframe>` }); return; }
@@ -349,9 +359,12 @@ async function playInto(v, x) {
   if (x.streamable) {
     try {
       const j = await NBA.getJSON(`https://api.streamable.com/videos/${encodeURIComponent(x.streamable)}`);
+      // The player was closed while it looked: a <video> off the page would still play its sound
+      if (!v.isConnected) return;
       const f = (j && j.files) || {}, pick = (innerWidth < 760 && f['mp4-mobile']) || f.mp4 || f['mp4-mobile'];
       if (pick && pick.url) { v.src = pick.url.replace(/^\/\//, 'https://'); return; }
     } catch (e) { /* removed or unreachable */ }
+    if (!v.isConnected) return;
     if (x.mp4) { v.src = x.mp4; return; }
     fallback(v, x); return;
   }
@@ -370,6 +383,7 @@ async function playInto(v, x) {
       }
     } catch (e) { /* hls.js didn't load */ }
   }
+  if (!v.isConnected) return;
   if (x.mp4) v.src = x.mp4; else fallback(v, x);
 }
 // A picture that's gone (a removed post, an expired link) shows a plain tile instead of a broken image
@@ -433,7 +447,8 @@ NBA.pollHooks.push({ run: () => UI.route().tab === 'social' ? NBA.need('social')
   }, { passive: false });
   addEventListener('touchend', end, { passive: true });
   addEventListener('touchcancel', () => { dy = 0; end(); }, { passive: true });
-  addEventListener('mousedown', e => { if (e.button === 0 && startOk(e.target)) { y0 = e.clientY; dy = 0; mouse = true; dragged = false; } });
+  // Every press starts clean: a drag whose click never came (its card was repainted away) can't eat the next click
+  addEventListener('mousedown', e => { dragged = false; if (e.button === 0 && startOk(e.target)) { y0 = e.clientY; dy = 0; mouse = true; } });
   addEventListener('mousemove', e => {
     if (y0 == null || !mouse) return;
     dy = e.clientY - y0;

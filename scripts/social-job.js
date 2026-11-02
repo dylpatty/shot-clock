@@ -52,11 +52,19 @@ const run = async (src, label, f) => {
   }
 };
 
-await run('reddit', 'Reddit', async () => { const r = await readReddit({ get, prev: mine('reddit'), state: state.reddit, now, log }); state.reddit = r.state; return r.items; });
+// Reddit posts removed or deleted since they went up (Reddit's reader finds them on its later reads)
+let gone = new Set();
+await run('reddit', 'Reddit', async () => { const r = await readReddit({ get, prev: mine('reddit'), state: state.reddit, now, log }); state.reddit = r.state; gone = new Set(r.gone || []); return r.items; });
 // X posts r/nba linked to get looked up too
 const linked = (fresh.reddit || []).map(it => it.dup).filter(d => d && d.startsWith('x:')).map(d => d.slice(2));
-await run('x', 'X', () => readX({ get, prev: mine('x'), now, extra: linked, log }));
+// X reads a third of its accounts per run, taking turns by a count kept here; the clock picked the same third on every
+// hourly morning run, since those all start at the same minute
+state.xSlot = ((state.xSlot ?? -1) + 1) % 3;
+await run('x', 'X', () => readX({ get, prev: mine('x'), now, extra: linked, log, slot: state.xSlot }));
 
+// Removed posts leave the day's feed and the week's and season's lists, which would otherwise carry their old copies on
+prev.items = prev.items.filter(it => !gone.has(it.id));
+['week', 'season'].forEach(k => { prevArch[k] = prevArch[k].filter(it => !gone.has(it.id)); });
 let items = mergeFeed(prev.items, fresh, now);
 // Each site's day is trimmed to the posts worth ranking: Reddit's quiet posts (no score, few comments) once they've had
 // an hour and a half to catch on, and a cap per site so the file stays small for phones

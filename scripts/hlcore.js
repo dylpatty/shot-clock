@@ -203,9 +203,13 @@ export async function buildHighlights({ get, post, exists, prev, now = new Date(
 
   // 4. Match new videos to games, oldest first, so a re-upload (newer) replaces the first one
   const added = new Set();
+  const pos = new Map(listed.map((v, i) => [v.id, i]));
   fresh.slice().reverse().forEach(v => {
     const g = gameFor(v, byDate);
     if (!g) { report.unmatched.push(v.title); return; }
+    // The first upload is still listed below its re-upload and counts as new again next run, so it mustn't take the game back
+    const cur = out.games[g.id];
+    if (cur && cur[0] !== v.id && pos.has(cur[0]) && pos.get(cur[0]) < pos.get(v.id)) return;
     out.games[g.id] = [v.id, v.dur || 0];
     added.add(g.id);
     delete out.tries[g.id];

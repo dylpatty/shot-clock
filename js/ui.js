@@ -137,6 +137,8 @@ UI.line = g => {
    the new one opens the menu a second time. Its new HTML goes in when it loses focus, without taking focus back */
 UI.paint = (el, html) => {
   if (!el) return false;
+  // A sideways strip under a finger, or still gliding, isn't rebuilt either (see UI.heldStrip below)
+  if (UI.heldStrip && el.contains(UI.heldStrip)) return false;
   const a = document.activeElement;
   if (a && a.tagName === 'SELECT' && el.contains(a)) {
     el._pending = html;
@@ -224,7 +226,11 @@ function renderTabs() {
   }
   // .more fades the right edge while tabs are still hidden past it
   const more = () => tb.classList.toggle('more', tb.scrollLeft + tb.clientWidth < tb.scrollWidth - 4);
-  if (!tb._moreBound) { tb._moreBound = true; tb.addEventListener('scroll', more, { passive: true }); window.addEventListener('resize', more); }
+  if (!tb._moreBound) {
+    tb._moreBound = true; tb.addEventListener('scroll', more, { passive: true }); window.addEventListener('resize', more);
+    // On a laptop too narrow for every tab, the mouse wheel scrolls the bar sideways (it has no visible scrollbar)
+    tb.addEventListener('wheel', e => { if (tb.scrollWidth > tb.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { tb.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+  }
   more();
 }
 function renderTitle() {
@@ -264,6 +270,9 @@ function renderUpdated() {
   const cls = 'upd' + (NBA.failing ? ' err' : stale ? ' stale' : '');
   if (el.className !== cls) el.className = cls;
   if (el.textContent !== txt) el.textContent = txt;
+  // Up to 900px wide the note hangs under the header as a strip: the page and its sticky headings move down by its height
+  const sh = cls !== 'upd' && matchMedia('(max-width:900px)').matches ? el.offsetHeight + 'px' : '0px', rs = document.documentElement.style;
+  if (rs.getPropertyValue('--strip-h') !== sh) rs.setProperty('--strip-h', sh);
   // Stops the live dots blinking while the scores on screen may be old
   document.documentElement.classList.toggle('stale', stale || (NBA.failing && age > 30000));
 }
@@ -274,8 +283,8 @@ function renderView() {
   const fn = NBA.views[tab];
   if (!fn) return;
   // A new tab or page opens at the top (on Schedule, today's games), not wherever the last one was scrolled
-  const routeKey = tab + '/' + arg;
-  if (routeKey !== lastRoute) { if (lastRoute !== null) window.scrollTo(0, 0); lastRoute = routeKey; }
+  const routeKey = tab + '/' + arg, sameRoute = routeKey === lastRoute;
+  if (!sameRoute) { if (lastRoute !== null) window.scrollTo(0, 0); lastRoute = routeKey; }
   if (tab !== lastTab) {
     view._html = null; lastTab = tab;
     // A tab reached by swiping slides in from the side the finger moved toward
@@ -289,7 +298,11 @@ function renderView() {
   // iPhone Safari doesn't hold the scroll still when today's games above change height, so when the
   // rest-of-season list is scrolled into, keep it where it was (Chrome's own correction leaves nothing to do)
   const t0 = tab === 'schedule' && view._html !== html ? season.getBoundingClientRect().top : 0;
+  // Live refreshes rebuild the page's tables (a team page's roster during its game), so keep each one scrolled
+  // sideways where it was, on the same page only
+  const xs = sameRoute && view._html ? [...view.querySelectorAll('.tblwrap')].map(w => w.scrollLeft) : [];
   const changed = UI.paint(view, html);
+  if (changed) view.querySelectorAll('.tblwrap').forEach((w, i) => { if (xs[i]) w.scrollLeft = xs[i]; });
   // The rest-of-season list under the schedule only shows on that tab
   if (tab !== 'schedule') { UI.paint(season, ''); UI.paint($('#pband'), ''); }
   if (NBA.after[tab]) NBA.after[tab](view, changed);
@@ -355,15 +368,38 @@ document.getElementById('drawer').addEventListener('scroll', e => {
   UI.drawer.boxIdx = i;
   bs.parentElement.querySelectorAll('.box-tabs button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.v === i)));
 }, { capture: true, passive: true });
-/* Something under the finger that scrolls sideways (a wide table, a carousel, the tab bar), or a control that takes the
-   gesture itself: a sideways swipe that starts there belongs to it, not to the page */
-UI.ownsSwipe = el => {
+/* The nearest thing around el that scrolls sideways (a wide table, a carousel, a video strip, the tab bar) */
+UI.sideScroller = el => {
   for (let n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
-    if (n.matches('[data-noswipe], input, textarea, select, iframe, video')) return true;
-    if (n.scrollWidth > n.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return true;
+    if (n.scrollWidth > n.clientWidth + 2 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return n;
   }
-  return false;
+  return null;
 };
+/* Something under the finger that scrolls sideways, or a control that takes the gesture itself: a sideways swipe that
+   starts there belongs to it, not to the page */
+UI.ownsSwipe = el => !!(el && el.closest && el.closest('[data-noswipe], input, textarea, select, iframe, video')) || !!UI.sideScroller(el);
+/* Live polls never rebuild a sideways strip under a finger or still gliding from a flick: on an iPhone that ends the
+   swipe dead (the gesture belongs to the element that started it). UI.paint skips any part holding UI.heldStrip; once
+   the strip has been still for a moment a normal render paints the newest of everything, after-paint hooks included */
+(() => {
+  let quiet = 0, lifted = true;
+  const release = () => { clearTimeout(quiet); if (!UI.heldStrip) return; UI.heldStrip = null; NBA.changed(); };
+  const settle = () => { clearTimeout(quiet); quiet = setTimeout(release, 300); };
+  addEventListener('touchstart', e => {
+    const s = UI.sideScroller(e.target);
+    if (!s) return;
+    if (UI.heldStrip && UI.heldStrip !== s) release();
+    UI.heldStrip = s; lifted = false; clearTimeout(quiet);
+  }, { passive: true, capture: true });
+  const lift = () => { if (UI.heldStrip) { lifted = true; settle(); } };
+  addEventListener('touchend', lift, { passive: true, capture: true });
+  addEventListener('touchcancel', lift, { passive: true, capture: true });
+  // A tap isn't a swipe (only a touch that didn't scroll ends in a click): its own repaint, like a newly chosen tab
+  // lighting up in the tab bar, goes straight through. Capture runs before the click's action and its hashchange
+  addEventListener('click', release, true);
+  // A glide keeps the hold going until the strip stops moving
+  addEventListener('scroll', e => { if (lifted && e.target === UI.heldStrip) settle(); }, { passive: true, capture: true });
+})();
 /* Touch screens: a quick sideways swipe anywhere else on the page moves to the next or previous tab, so the tab bar
    needn't be reached. Nothing happens while a game, settings, a video, the calendar or search is open */
 (() => {
@@ -512,7 +548,7 @@ function renderDrawer() {
     if (state === 'pre' && ((g && (g.odds || g.venue)) || ca)) {
       const o = g && g.odds, sm = o && UI.moved(o.spreadHome, home.abbr + ' '), tm = o && UI.moved(o.total);
       // Where to watch in Canada, linked straight to the game's page on that service when the NBA lists one
-      html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${ca ? `<span>Watch in Canada <b>${ca.items.map(s => s.link ? `<a class="ca-link" href="${esc(s.link)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>` : esc(s.label)).join(' / ')}</b></span>` : ''}${o && o.details ? `<span>Line <b>${esc(o.details)}</b>${sm ? ` (${esc(sm)})` : ''}</span>` : ''}${o && o.ou ? `<span>O/U <b>${esc(o.ou)}</b>${tm ? ` (${esc(tm)})` : ''}</span>` : ''}${o && o.awayML ? `<span>Moneyline <b>${esc(g.away.abbr)} ${esc(o.awayML)} · ${esc(g.home.abbr)} ${esc(o.homeML)}</b></span>` : ''}${g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
+      html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${ca ? `<span>Watch in Canada <b>${ca.items.map(s => s.link ? `<a class="ca-link" href="${esc(s.link)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>` : esc(s.label)).join(' / ')}</b></span>` : ''}${o && o.details ? `<span>Line <b>${esc(o.details)}</b>${sm ? ` (${esc(sm)})` : ''}</span>` : ''}${o && o.ou ? `<span>O/U <b>${esc(o.ou)}</b>${tm ? ` (${esc(tm)})` : ''}</span>` : ''}${o && o.awayML ? `<span>Moneyline <b>${esc(g.away.abbr)} ${esc(o.awayML)} · ${esc(g.home.abbr)} ${esc(o.homeML)}</b></span>` : ''}${g && g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
     }
   }
   // Matchup is there before tip-off, and stays for a game that tips off while it's open on that tab
@@ -849,6 +885,8 @@ Object.assign(NBA.actions, {
     const bs = $('#drawer .box-swipe'), i = +a.dataset.v;
     if (!bs || !UI.drawer) return;
     UI.drawer.boxIdx = i;
+    // Lit straight away: with Reduce Motion the jump fires no scroll that the listener below would hear
+    a.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === a)));
     bs.scrollTo({ left: i * bs.clientWidth, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   },
   sort: a => {
@@ -916,12 +954,13 @@ document.addEventListener('keydown', e => {
   // The video dialog and the Schedule's calendar close themselves on Esc; the game under the video stays open
   const vid = $('#vid'), cal = $('#calpop');
   if (e.key === 'Escape' && ((vid && vid.open) || (cal && cal.open))) return;
+  // A game or settings window sits on top of the answers panel, so Esc closes it first
   if (e.key === 'Escape') {
-    if (NBA.ask && NBA.ask.isOpen()) { NBA.ask.close(); return; }
     if (UI.drawer || UI.settingsOpen) { UI.closeAll(); return; }
+    if (NBA.ask && NBA.ask.isOpen()) { NBA.ask.close(); return; }
   }
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[role="button"][data-act]')) { e.preventDefault(); e.target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
-  if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#ask-input').focus(); }
+  if (e.key === '/' && !UI.drawer && !UI.settingsOpen && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#ask-input').focus(); }
 });
 // Emptying the video dialog stops the video and its sound
 function stopVid(d) { if (!d) return; if (d.open) d.close(); d.innerHTML = ''; }

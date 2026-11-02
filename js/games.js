@@ -88,8 +88,10 @@ V.games = arg => {
   NBA.use('players'); NBA.use('standings'); NBA.use('teamstats'); NBA.use('day:');
   resolvePicks(); resolveProps();
   const head = `<div class="sec-h"><h2>Games</h2><span class="sub">NBA stat games built from this season's live numbers. Your scores and picks are saved on this device.</span></div>`;
-  if (!players().length) return `<section class="sec">${head}${NBA.status('players').err ? '<p class="empty">Couldn\'t load player stats from ESPN. It will try again shortly.</p>' : '<p class="loading">Loading player stats…</p>'}</section>`;
-  const game = GAMES.find(g => g.id === arg);
+  const pl = NBA.data('players'), game = GAMES.find(g => g.id === arg);
+  // Pick'em only reads the scoreboards, so it never waits on player stats.
+  // An empty feed (before opening night) is ESPN's answer, not still loading.
+  if (!(pl && pl.length) && (!game || game.id !== 'pickem')) return `<section class="sec">${head}${pl ? '<p class="empty">No player stats yet this season. <a href="#games/pickem">Pick\'em</a> still works.</p>' : NBA.status('players').err ? '<p class="empty">Couldn\'t load player stats from ESPN. It will try again shortly.</p>' : '<p class="loading">Loading player stats…</p>'}</section>`;
   const tile = g => `<a class="card gm-tile${g.daily ? ' daily' : ''}" href="#games/${g.id}"><div class="gm-top"><span class="gm-ico">${g.ico}</span>${g.daily ? '<span class="gm-tag">Daily</span>' : ''}</div>
     <h3>${esc(g.name)}</h3><p>${esc(g.blurb)}</p><div class="gm-stat">${esc(g.status())}</div></a>`;
   if (!game) return `<section class="sec">${head}<div class="gm-tiles">${GAMES.map(tile).join('')}</div></section>`;
@@ -208,7 +210,8 @@ function hlRound(keep) {
   return null;
 }
 function hlView() {
-  if (!st.hl) { st.hl = hlRound(); st.hlStreak = 0; }
+  // A player who dropped out of a refreshed stats feed can't be shown, so deal a new round
+  if (!st.hl || !byId(st.hl.a) || !byId(st.hl.b)) { st.hl = hlRound(); st.hlStreak = 0; }
   const r = st.hl, a = r && byId(r.a), b = r && byId(r.b);
   const end = `<span class="gm-score">Streak <b>${st.hlStreak}</b> · Best <b>${G.hl.best}</b></span>`;
   if (!a || !b) return card('Higher or Lower', end, '<p class="empty">Not enough player data yet.</p>');

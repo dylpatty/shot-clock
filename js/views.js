@@ -5,7 +5,13 @@
 const NBA = window.NBA, UI = NBA.ui, st = UI.st;
 const { esc } = NBA;
 const V = NBA.views;
-Object.assign(st, { standMode: 'conf', tsSort: { k: 'ppg', desc: true }, psort: { k: 'pts', desc: true }, pq: '', pteam: '', plimit: 50, injStatus: 'all', injTeam: '' });
+Object.assign(st, { standMode: 'conf', tsSort: { k: 'ppg', desc: true }, psort: { k: 'pts', desc: true }, pq: '', pteam: '', plimit: 50, injStatus: 'all', injTeam: '', injShut: new Set() });
+// Teams folded shut in the injury report stay shut through repaints (the news headlines' "5m ago" changes every minute).
+// toggle doesn't bubble, hence the capture
+document.addEventListener('toggle', e => {
+  const d = e.target;
+  if (d.matches && d.matches('details.inj-team')) { if (d.open) st.injShut.delete(d.dataset.id); else st.injShut.add(d.dataset.id); }
+}, true);
 
 const loading = what => `<p class="loading">Loading ${what}…</p>`;
 const failed = what => `<p class="empty">Couldn't load ${what} from ESPN. It will try again shortly.</p>`;
@@ -69,6 +75,8 @@ const tipped = g => g.state === 'in' || (g.state === 'post' && !/postpon|cancel/
 function performerSlate(day) {
   const games = day ? day.games : [];
   const live = games.some(g => g.state === 'in');
+  // A picked day that's still loading says so, rather than "no games"
+  if (NBA.dayParam && !day) return { games: [], live: false, when: '', loading: true };
   if (NBA.dayParam || games.some(tipped)) return { games, live, when: NBA.dayParam ? '' : 'tonight' };
   // Which day is "today" isn't known until its scoreboard loads, so don't guess at last night before then
   if (!day) return { games: [], live: false, when: '', loading: true };
@@ -109,7 +117,7 @@ function perfBand(slate) {
   const rows = perfRows(slate.games, 'points');
   const label = `<div class="pb-label">${slate.live ? '<i class="dot blink"></i>' : ''}Top performers${slate.when ? `<small>${esc(slate.when)}</small>` : ''}</div>`;
   // Keeps the band's height while leaders load or before anyone has scored, so the page below doesn't jump
-  if (!rows.length) return `<div class="perf-band">${label}<div class="pb-empty">${slate.loading ? 'Loading leaders…' : slate.games.some(g => g.state !== 'pre') ? 'Leaders show up in a moment.' : slate.games.length ? 'Leaders show up once games tip off.' : 'No games in the last few nights.'}</div></div>`;
+  if (!rows.length) return `<div class="perf-band">${label}<div class="pb-empty">${slate.loading ? 'Loading leaders…' : slate.games.some(g => g.state !== 'pre') ? 'Leaders show up in a moment.' : slate.games.length ? 'Leaders show up once games tip off.' : slate.when === 'last night' ? 'No games in the last few nights.' : 'No games on this day.'}</div></div>`;
   // Its own action name: a repaint puts keyboard focus back on the first [data-act="game"] for that game,
   // and the band (hidden on desktop) comes before the game cards
   const run = copy => rows.map((x, i) => `<button class="pb-item" data-act="pbgame" data-id="${x.g.id}"${copy ? ' tabindex="-1"' : ''}><span class="pb-rk">${i + 1}</span>${UI.hs(x.l.headshot)}
@@ -279,7 +287,8 @@ function paintSeason() {
   const months = [...new Set(days.map(d => d.slice(0, 4) + d.slice(5, 7)))];
   // Live polls re-render every 10 s; only rebuild the season HTML (about a thousand tip times) when something in it changed.
   // A month refetch after its cache runs out changes the key too.
-  const key = [days[0], days.length, st.seasonMine, NBA.S.myTeam, NBA.T(NBA.S.myTeam).name, NBA.S.favorites.join(), NBA.S.tz, NBA.isDark(), NBA.S.spoilers, [...st.seasonReq].join(),
+  // The Canadian TV list (each row's service) counts too, so labels fill in when it loads or refreshes
+  const key = [days[0], days.length, st.seasonMine, NBA.S.myTeam, NBA.T(NBA.S.myTeam).name, NBA.S.favorites.join(), NBA.S.tz, NBA.isDark(), NBA.S.spoilers, [...st.seasonReq].join(), NBA.status('catv').t,
     ...months.map(ym => { const s = NBA.status('month:' + ym); return s.t + (s.err ? 'e' : ''); })].join('|');
   // _html is cleared when you leave the tab, so coming back always rebuilds
   if (el._seasonKey === key && el._html) {
@@ -326,13 +335,15 @@ let ruleTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(ruleTimer); ruleTimer = setTimeout(() => document.querySelectorAll('.days').forEach(ruleRows), 150); });
 NBA.after.schedule = (view, changed) => {
   // iPhone Safari doesn't hold the scroll when the games above change height. renderView keeps it when the frame
-  // itself was repainted (changed); otherwise only the parts below change, so measure here
-  const season = document.getElementById('season'), t0 = !changed && season ? season.getBoundingClientRect().top : 0;
+  // itself was repainted (changed); otherwise only the parts below change, so measure here: whichever of the rest of
+  // the season and the Upcoming list (right under the games) is being read
+  const season = document.getElementById('season'), up = view.querySelector('#sch-up');
+  const anchor = changed ? null : season && season.getBoundingClientRect().top < 0 ? season : up && up.getBoundingClientRect().top < 0 ? up : null;
+  const t0 = anchor ? anchor.getBoundingClientRect().top : 0;
   UI.paint(view.querySelector('#sch-main'), schParts.main);
-  const up = view.querySelector('#sch-up');
   if (UI.paint(up, schParts.up) || changed) up.querySelectorAll('.days').forEach(ruleRows);
   paintBand(); paintSeason();
-  if (t0 < 0) { const dy = season.getBoundingClientRect().top - t0; if (dy) window.scrollBy(0, dy); }
+  if (anchor) { const dy = anchor.getBoundingClientRect().top - t0; if (dy) window.scrollBy(0, dy); }
 };
 NBA.actions.seasonmine = a => {
   st.seasonMine = !!a.dataset.v;
@@ -427,7 +438,8 @@ NBA.actions.cal = a => {
   const d = calDialog();
   calYm = (NBA.dayParam ? NBA.isoFromParam(NBA.dayParam) : NBA.today).slice(0, 7);
   // On a wide screen the calendar drops down from the date; on a phone it sits in the middle of the screen
-  const r = a.getBoundingClientRect(), wide = matchMedia('(min-width:641px)').matches;
+  // A phone on its side is wide but short: it gets the centered calendar too, since the dropdown would run off the bottom
+  const r = a.getBoundingClientRect(), wide = matchMedia('(min-width:641px) and (min-height:600px)').matches;
   d.classList.toggle('anch', wide);
   d.style.top = wide ? `${r.bottom + scrollY + 8}px` : '';
   d.style.left = wide ? `${Math.max(12, Math.min(r.left + scrollX + r.width / 2 - 170, document.documentElement.clientWidth - 352))}px` : '';
@@ -469,7 +481,7 @@ V.standings = () => {
       <th class="x2" scope="col">PPG</th><th class="x2" scope="col">Opp</th><th class="x2" scope="col">Diff</th>
       ${hasBpi ? '<th class="x1" scope="col" title="ESPN BPI projected record">Proj</th><th class="x1" scope="col">Playoffs</th><th class="x2" scope="col">Title</th>' : ''}</tr></thead>
     <tbody>${rows.map((r, i) => `<tr class="click${fav.has(r.id) ? ' fav' : ''}${!opts.conf && r.seed === 6 ? ' cut' : ''}${!opts.conf && r.seed === 10 ? ' cut2' : ''}" data-act="team" data-id="${r.id}">
-      <td class="n">${opts.conf ? i + 1 : r.seed ?? ''}</td><td class="tm"><span>${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 22)}${esc(r.name)}</span></td>
+      <td class="n">${opts.conf ? i + 1 : r.seed ?? ''}</td><td class="tm"><span>${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 22)}<span class="full">${esc(r.name)}</span><span class="abbr">${esc(r.abbr)}</span></span></td>
       <td>${r.w}</td><td>${r.l}</td><td>${esc(r.pct)}</td><td>${esc(opts.gb ? opts.gb(r) : r.gb)}</td>${opts.conf ? `<td>${esc(r.conf)} ${r.seed ?? ''}</td>` : ''}
       <td class="x1">${esc(r.home)}</td><td class="x1">${esc(r.road)}</td><td>${esc(r.l10)}</td>
       ${NBA.S.spoilers ? '<td>–</td>' : `<td class="${/^W/.test(r.strk) ? 'w' : /^L/.test(r.strk) ? 'lo' : ''}">${esc(r.strk)}</td>`}
@@ -776,7 +788,7 @@ function injuryPanel(inj) {
     <span class="note">${total} players</span></div>`;
   const body = groups.length ? groups.map(g => {
     const t = NBA.T(g.teamId);
-    return `<details class="inj-team" open><summary>${UI.logo(t, 24)}${esc(t.full || g.teamName)}<span class="cnt">${g.list.length}</span></summary>
+    return `<details class="inj-team" data-id="${esc(g.teamId)}"${st.injShut.has(String(g.teamId)) ? '' : ' open'}><summary>${UI.logo(t, 24)}${esc(t.full || g.teamName)}<span class="cnt">${g.list.length}</span></summary>
       <ul class="inj">${g.list.map(i => `<li><span class="who2">${esc(i.name)}<small>${esc(i.pos || '')}</small></span>${statusPill(i.status)}
         <span class="what">${esc([i.side, i.type, i.detail].filter(Boolean).join(' '))}${i.ret ? ` · est. return ${esc(NBA.fmtDay(i.ret, { month: 'short', day: 'numeric' }))}` : ''}</span>
         ${i.short ? `<span class="cm" title="${esc(i.long || i.short)}">${esc(i.short)}</span>` : ''}</li>`).join('')}</ul></details>`;

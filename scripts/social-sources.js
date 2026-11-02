@@ -84,6 +84,9 @@ export async function readReddit({ get, prev = [], state = {}, now, log = () => 
   }
   const byId = new Map();
   posts.filter(keepPost).forEach(p => { const it = redditItem(p); const old = byId.get(it.id); if (!old || it.sf || !old.sf) byId.set(it.id, it); });
+  // Removals only show on a later read (usually the 4-hour one), so posts that now fail the filter leave the lists.
+  // A pinned one stays: the mods pin big news too
+  const gone = new Set(posts.filter(p => p && p.id && !p.stickied && !keepPost(p)).map(p => 'reddit:' + p.id));
   // Live comment counts: every comment since the last run, counted per post
   const counts = {};
   let since = state.commentsAt || Math.floor(now / 1000) - 1800, top = since;
@@ -101,6 +104,7 @@ export async function readReddit({ get, prev = [], state = {}, now, log = () => 
   const out = [];
   const all = new Map([...have].map(([k, v]) => [k, v]));
   byId.forEach((it, k) => all.set(k, Object.assign({}, all.get(k) || {}, it, { top: (all.get(k) || {}).top, seen: (all.get(k) || {}).seen })));
+  gone.forEach(k => all.delete(k));
   all.forEach((it, k) => {
     const n = counts[k.slice(7)] || 0;
     const seen = (it.seen || 0) + n;
@@ -120,7 +124,7 @@ export async function readReddit({ get, prev = [], state = {}, now, log = () => 
     } catch (e) { /* replies are a nice-to-have */ }
     await sleep(900);
   }
-  return { items: out, state: { commentsAt: top } };
+  return { items: out, state: { commentsAt: top }, gone: [...gone] };
 }
 
 /* ---------- X ---------- */
@@ -207,8 +211,9 @@ export const rssIds = xml => [...String(xml || '').matchAll(/<guid[^>]*>(\d{10,2
 /* Each run: the widget timelines while X allows (it stops at its first refusal), a third of the accounts through the
    mirrors (spread across them in turn, skipping any that fails), the searches (two pages each, on the mirrors that
    search), then counts and media for every new post (newest searches first) and fresh counts for the biggest recent
-   ones. extra: post ids found elsewhere (r/nba links). Returns the posts and how many of each step worked */
-export async function readX({ get, prev = [], now, extra = [], log = () => {}, maxNew = 260, maxRefresh = 60 }) {
+   ones. extra: post ids found elsewhere (r/nba links); slot: which third of the accounts, counted run by run by the caller.
+   Returns the posts and how many of each step worked */
+export async function readX({ get, prev = [], now, extra = [], log = () => {}, maxNew = 260, maxRefresh = 60, slot = Math.floor(now / 600000) % 3 }) {
   const found = new Map();
   const keep = it => it && !it.sensitive && now - it.time < 30 * 3600000 && (X_NBA_ONLY.has(it.author.handle.slice(1).toLowerCase()) || NBA_WORDS.test(it.text || ''));
   let tl = 0;
@@ -237,7 +242,6 @@ export async function readX({ get, prev = [], now, extra = [], log = () => {}, m
     return null;
   };
   // The accounts: a third of the list per run
-  const slot = Math.floor(now / 600000) % 3;
   const accounts = X_ACCOUNTS.filter((_, i) => i % 3 === slot);
   let acc = 0;
   for (const u of accounts) {
