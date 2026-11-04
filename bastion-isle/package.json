@@ -1,0 +1,14 @@
+{
+  "name": "bastion-isle",
+  "private": true,
+  "type": "module",
+  "description": "Bastion Isle: a 3D hex-tile island city builder and coastal defence game",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --minify --format=iife --target=es2020 --outfile=dist/bastion.js",
+    "dev": "esbuild src/main.js --bundle --sourcemap --format=iife --target=es2020 --outfile=dist/bastion.js --watch=forever --servedir=. --serve=8080"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "three": "0.170.0"
+  }
+}
