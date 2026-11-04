@@ -15,6 +15,14 @@ export const isWater = (t) => t <= T.SHALLOW;
 export const isLand = (t) => t >= T.SAND;
 export const isWalkable = (t) => t >= T.SAND && t !== T.MOUNTAIN;
 
+// Lot flags (W.flags) and service coverage bits (W.cover)
+export const LF = {
+  POWER: 1, WATER: 2, ROAD: 4, ABANDONED: 8, BUILDING: 16, SHELTER: 32, RUBBLE: 64, UNDERSTAFFED: 128,
+  NO_POWER_ICON: 256, NO_WATER_ICON: 512, NO_ROAD_ICON: 1024,
+};
+export const CV = { FIRE: 1, POLICE: 2, HEALTH: 4, SCHOOL: 8, PARK: 16, PLAZA: 32, AA: 64, NOISE1: 128, NOISE2: 256 };
+export const ZONE = { NONE: 0, R: 1, C: 2, I: 3 };
+
 // All map data lives in flat typed arrays indexed by tile number
 export const W = {
   R: 0, count: 0, seed: 0,
@@ -28,6 +36,10 @@ export const W = {
   center: 0,
   land: [], coast: [], edge: [], landing: [], shore: [],
   version: 0,  // bumped whenever terrain or roads change (minimap, connectivity)
+  // zoned lots (see SPEC.md section 1)
+  zone: null, lvl: null, occ: null, lotHp: null, fire: null, prog: null, flags: null, lv: null, poll: null,
+  cover: null, style: null, lotT: null, timer: null,
+  lotVersion: 0, lotDirty: [],
 };
 
 export function tileIndex(q, r) {
@@ -61,7 +73,7 @@ export function countNeighbours(i, pred) {
   return n;
 }
 
-export function generateWorld(seed, R = 24) {
+export function generateWorld(seed, R = 32) {
   W.R = R; W.seed = seed;
   const coords = [];
   for (let q = -R; q <= R; q++) {
@@ -75,6 +87,11 @@ export function generateWorld(seed, R = 24) {
   W.x = new Float32Array(n); W.z = new Float32Array(n); W.h = new Float32Array(n);
   W.type = new Uint8Array(n); W.bld = new Int32Array(n); W.road = new Uint8Array(n);
   W.conn = new Uint8Array(n); W.ruin = new Uint8Array(n);
+  W.zone = new Uint8Array(n); W.lvl = new Uint8Array(n); W.occ = new Uint8Array(n); W.lotHp = new Uint16Array(n);
+  W.fire = new Uint8Array(n); W.prog = new Uint8Array(n); W.flags = new Uint16Array(n); W.lv = new Uint8Array(n);
+  W.poll = new Uint8Array(n); W.cover = new Uint16Array(n); W.style = new Uint8Array(n);
+  W.lotT = new Float32Array(n).fill(-1); W.timer = new Float32Array(n);
+  W.lotVersion = 0; W.lotDirty = [];
   W.nbr = new Int32Array(n * 6);
   W.lookup = new Int32Array((2 * R + 1) * (2 * R + 1)).fill(-1);
   for (let i = 0; i < n; i++) {
@@ -92,7 +109,7 @@ export function generateWorld(seed, R = 24) {
   const nE = makeNoise(rand), nM = makeNoise(rand), nR = makeNoise(rand), nW = makeNoise(rand);
   const elev = new Float32Array(n), moist = new Float32Array(n), ridge = new Float32Array(n);
 
-  let islandR = R * 1.5 * 0.6;
+  let islandR = R * 1.5 * 0.62;
   let land = 0;
   for (let attempt = 0; attempt < 6; attempt++) {
     land = 0;
@@ -106,8 +123,8 @@ export function generateWorld(seed, R = 24) {
       ridge[i] = 1 - Math.abs(fbm(nR, x * 0.065, z * 0.065, 4)) * 2.2;
       if (elev[i] > 0) land++;
     }
-    if (land < 420) islandR *= 1.08;
-    else if (land > 900) islandR *= 0.93;
+    if (land < 1000) islandR *= 1.06;
+    else if (land > 1500) islandR *= 0.95;
     else break;
   }
 
@@ -118,7 +135,7 @@ export function generateWorld(seed, R = 24) {
     for (let i = 0; i < n; i++) {
       if (elev[i] <= 0) { W.type[i] = T.DEEP; continue; }
       nL++;
-      const nearCentre = hexDist(W.q[i], W.r[i], 0, 0) <= 2;
+      const nearCentre = hexDist(W.q[i], W.r[i], 0, 0) <= 3;
       let t = T.GRASS;
       if (!nearCentre) {
         if (ridge[i] > thM && elev[i] > 0.42) t = T.MOUNTAIN;
@@ -131,7 +148,7 @@ export function generateWorld(seed, R = 24) {
     let ok = true;
     if (nF < nL * 0.16) { thF -= 0.07; ok = false; } else if (nF > nL * 0.34) { thF += 0.06; ok = false; }
     if (nH < nL * 0.07) { thH -= 0.05; ok = false; } else if (nH > nL * 0.18) { thH += 0.03; ok = false; }
-    if (nMt < nL * 0.02) { thM -= 0.025; ok = false; } else if (nMt > nL * 0.07) { thM += 0.015; ok = false; }
+    if (nMt < nL * 0.015) { thM -= 0.025; ok = false; } else if (nMt > nL * 0.05) { thM += 0.015; ok = false; }
     if (ok) break;
   }
 
@@ -154,7 +171,7 @@ export function generateWorld(seed, R = 24) {
   // Beaches along low coast
   for (let i = 0; i < n; i++) {
     if (!isLand(W.type[i]) || W.type[i] === T.MOUNTAIN) continue;
-    if (hexDist(W.q[i], W.r[i], 0, 0) <= 2) continue;
+    if (hexDist(W.q[i], W.r[i], 0, 0) <= 3) continue;
     let water = 0;
     for (let d = 0; d < 6; d++) { const j = W.nbr[i * 6 + d]; if (j < 0 || !isLand(W.type[j])) water++; }
     if (water > 0 && (elev[i] < 0.3 || W.type[i] !== T.HILLS) && hash2(i, seed) < 0.82) W.type[i] = T.SAND;
@@ -173,22 +190,21 @@ export function generateWorld(seed, R = 24) {
   }
   for (let i = 0; i < n; i++) if (!isLand(W.type[i])) W.type[i] = dist[i] <= 2 ? T.SHALLOW : T.DEEP;
 
-  // Heights, stepped a little for a terraced look
+  // Heights: few distinct levels so most neighbours share a height and the ground reads as continuous
   for (let i = 0; i < n; i++) {
     const t = W.type[i];
-    const v = hash2(i, seed + 7) - 0.5;
+    const v = hash2(i, seed + 7);
     let h;
     switch (t) {
       case T.DEEP: h = -1.4; break;
       case T.SHALLOW: h = -0.5; break;
-      case T.SAND: h = 0.16 + v * 0.04; break;
-      case T.GRASS: h = 0.3 + Math.max(0, elev[i] - 0.3) * 0.22 + v * 0.05; break;
-      case T.FOREST: h = 0.32 + Math.max(0, elev[i] - 0.3) * 0.22 + v * 0.05; break;
-      case T.HILLS: h = 0.62 + Math.max(0, ridge[i] - thH) * 2 + v * 0.08; break;
-      case T.MOUNTAIN: h = 1.05 + Math.max(0, ridge[i] - thM) * 9 + v * 0.15; break;
+      case T.SAND: h = 0.15; break;
+      case T.GRASS:
+      case T.FOREST: h = elev[i] > 0.62 && hexDist(W.q[i], W.r[i], 0, 0) > 3 ? 0.48 : 0.3; break;
+      case T.HILLS: h = ridge[i] > thH + (thM - thH) * 0.5 ? 0.84 : 0.66; break;
+      case T.MOUNTAIN: h = Math.min(3.0, 1.2 + Math.max(0, ridge[i] - thM) * 14 + v * 0.5); break;
     }
-    if (t >= T.SAND && t <= T.HILLS) h = Math.round(h / 0.06) * 0.06;
-    W.h[i] = Math.min(h, 2.4);
+    W.h[i] = h;
   }
 
   rebuildLists();
