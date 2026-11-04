@@ -5,6 +5,13 @@ import { hash2 } from './rng.js';
 import { buildModels, C } from './models.js';
 import { BUILDINGS } from './defs.js';
 import { G, SETTINGS } from './state.js';
+import { Pipeline } from './gfx/post.js';
+import { envFromHDR, makeSky, imageTexture } from './gfx/env.js';
+import { makeWaterMaterial } from './gfx/water.js';
+import { Lighting } from './gfx/lighting.js';
+import hdrDay from '../assets/hdri/quarry_01_1k.hdr';
+import hdrNight from '../assets/hdri/moonless_golf_1k.hdr';
+import waterNormals from '../assets/tex/waternormals.jpg';
 
 export const R = {
   renderer: null, scene: null, camera: null, sun: null, M: null,
@@ -105,48 +112,6 @@ function hexRingGeo(inner, outer) {
 
 // ------------------------------------------------------------------ water
 
-const waterVert = /* glsl */`
-varying vec3 vWorld;
-void main() {
-  vec4 w = modelMatrix * vec4(position, 1.0);
-  vWorld = w.xyz;
-  gl_Position = projectionMatrix * viewMatrix * w;
-}`;
-
-const waterFrag = /* glsl */`
-uniform float uTime;
-uniform sampler2D uDist;
-uniform vec2 uMapMin;
-uniform float uMapSize;
-uniform float uMaxDist;
-uniform vec3 uShallow, uDeep, uSky, uFoam, uFogColor, uSunDir;
-uniform float uFogNear, uFogFar;
-varying vec3 vWorld;
-void main() {
-  vec2 uv = (vWorld.xz - uMapMin) / uMapSize;
-  float d = texture2D(uDist, uv).r * uMaxDist;
-  float t = uTime;
-  vec2 p = vWorld.xz;
-  float nx = sin(p.x * 1.7 + t * 1.3) * 0.5 + sin(p.y * 2.3 - t * 1.1 + p.x * 0.7) * 0.35 + sin((p.x + p.y) * 4.1 + t * 2.2) * 0.15;
-  float nz = cos(p.y * 1.5 - t * 1.2) * 0.5 + cos(p.x * 2.1 + t * 0.9 - p.y * 0.6) * 0.35 + cos((p.x - p.y) * 3.7 - t * 2.0) * 0.15;
-  vec3 N = normalize(vec3(nx * 0.09, 1.0, nz * 0.09));
-  vec3 V = normalize(cameraPosition - vWorld);
-  float depthMix = smoothstep(0.0, 7.0, d);
-  vec3 col = mix(uShallow, uDeep, depthMix);
-  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-  col = mix(col, uSky, fres * 0.55);
-  vec3 H = normalize(V + uSunDir);
-  col += pow(max(dot(N, H), 0.0), 180.0) * 0.9 * vec3(1.0, 0.95, 0.85);
-  float wave = 0.5 + 0.5 * sin(d * 7.0 - t * 2.4 + nx * 1.5);
-  float foam = (1.0 - smoothstep(0.0, 0.5, d)) * 0.85 + (1.0 - smoothstep(0.35, 1.3, d)) * smoothstep(0.62, 0.95, wave) * 0.5;
-  col = mix(col, uFoam, clamp(foam, 0.0, 1.0));
-  float fogD = length(vWorld - cameraPosition);
-  col = mix(col, uFogColor, smoothstep(uFogNear, uFogFar, fogD));
-  gl_FragColor = vec4(col, 1.0);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-}`;
-
 const MAP_MIN = -52, MAP_SIZE = 104, MAX_DIST = 9, TEX = 256;
 
 export function buildWaterTexture() {
@@ -179,7 +144,7 @@ export function buildWaterTexture() {
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.needsUpdate = true;
   R.waterTex = tex;
-  if (R.water) R.water.material.uniforms.uDist.value = tex;
+  if (R.water) R.water.material.userData.uniforms.uDist.value = tex;
 }
 
 // ------------------------------------------------------------------ health bars
@@ -227,27 +192,28 @@ class HealthBars extends Pool {
 // ------------------------------------------------------------------ setup
 
 export function initRenderer(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !!SETTINGS.msaa, powerPreference: 'high-performance', stencil: false });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false, depth: true });
   renderer.setPixelRatio(1);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.info.autoReset = false;
   R.renderer = renderer;
 
   const scene = new THREE.Scene();
-  const fogCol = new THREE.Color(0xa8d4e8);
-  scene.background = fogCol;
-  scene.fog = new THREE.Fog(fogCol, 95, 270);
+  const fogCol = new THREE.Color(0xb7d3e3);
+  scene.fog = new THREE.Fog(fogCol, 110, 420);
+  scene.environment = envFromHDR(renderer, hdrDay);
+  scene.environmentIntensity = 0.9;
   R.scene = scene;
+  R.sky = makeSky();
+  scene.add(R.sky);
 
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 900);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 2600);
   R.camera = camera;
 
-  const hemi = new THREE.HemisphereLight(0xd6ecff, 0x7d6c52, 1.55);
+  const hemi = new THREE.HemisphereLight(0xd6ecff, 0x7d6c52, 0.35);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff0d8, 2.7);
+  const sun = new THREE.DirectionalLight(0xfff0d8, 3.2);
   sun.position.set(-30, 52, 24);
   sun.target.position.set(0, 0, 0);
   sun.castShadow = true;
@@ -257,17 +223,19 @@ export function initRenderer(canvas) {
   sun.shadow.normalBias = 0.035;
   scene.add(sun, sun.target);
   R.sun = sun;
+  R.sky.material.uniforms.sunPosition.value.copy(sun.position).normalize();
+  R.post = new Pipeline(renderer, scene, camera);
   applyShadowSetting();
 
   R.M = buildModels();
   const M = R.M;
-  const lit = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const lit = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.0 });
   R.lit = lit;
   const glow = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
   const additive = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
 
   // terrain
-  const terrain = new THREE.InstancedMesh(hexPrismGeo(), new THREE.MeshLambertMaterial({ vertexColors: true }), 4000);
+  const terrain = new THREE.InstancedMesh(hexPrismGeo(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }), 4000);
   terrain.count = 0;
   terrain.frustumCulled = false;
   terrain.receiveShadow = true; terrain.castShadow = true;
@@ -276,25 +244,18 @@ export function initRenderer(canvas) {
   R.terrain = terrain;
 
   // water
-  const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(1600, 1600).rotateX(-Math.PI / 2),
-    new THREE.ShaderMaterial({
-      vertexShader: waterVert, fragmentShader: waterFrag,
-      uniforms: {
-        uTime: { value: 0 }, uDist: { value: null },
-        uMapMin: { value: new THREE.Vector2(MAP_MIN, MAP_MIN) }, uMapSize: { value: MAP_SIZE }, uMaxDist: { value: MAX_DIST },
-        uShallow: { value: new THREE.Color(0x46c2c4) }, uDeep: { value: new THREE.Color(0x1a5f8e) },
-        uSky: { value: new THREE.Color(0xbfe4f4) }, uFoam: { value: new THREE.Color(0xf4fbfb) },
-        uFogColor: { value: fogCol }, uFogNear: { value: 95 }, uFogFar: { value: 270 },
-        uSunDir: { value: sun.position.clone().normalize() },
-      },
-    }),
-  );
+  const flatNormal = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+  flatNormal.needsUpdate = true;
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400).rotateX(-Math.PI / 2),
+    makeWaterMaterial({ normalMap: flatNormal, mapMin: MAP_MIN, mapSize: MAP_SIZE, maxDist: MAX_DIST }));
   water.position.y = -0.02;
+  water.receiveShadow = true;
   // drawn after the land so the depth test discards the sea hidden under the island before shading it
   water.renderOrder = 1;
   scene.add(water);
   R.water = water;
+  imageTexture(waterNormals, { srgb: false }).then((t) => { water.material.userData.uniforms.uNormal.value = t; });
+  R.light = new Lighting({ scene, sun, hemi, sky: R.sky, fog: scene.fog, envDay: scene.environment, envNight: envFromHDR(renderer, hdrNight) });
 
   const P = R.pools;
   const add = (key, geo, max, mat = lit, opts) => { P[key] = new Pool(geo, mat, max, opts); scene.add(P[key].mesh); };
@@ -302,7 +263,7 @@ export function initRenderer(canvas) {
   add('rock', M.rock, 1500);
   add('peak', M.peak, 600);
   // roads have no vertex colours, only per-instance ones
-  const plain = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const plain = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
   add('roadC', new THREE.CylinderGeometry(0.3, 0.3, 0.05, 6), 3000, plain, { cast: false });
   add('roadS', new THREE.BoxGeometry(1, 0.05, 1).translate(0, 0, 0.5), 12000, plain, { cast: false });
   add('rubble', M.rubble, 400, lit, { cast: false });
@@ -354,6 +315,7 @@ export function initRenderer(canvas) {
     R.ghosts[type] = g;
   }
 
+  R.post.build(SETTINGS.quality || 'high');
   window.addEventListener('resize', resize);
   resize();
 }
@@ -376,6 +338,7 @@ export function resize() {
   const h = Math.max(1, Math.floor(window.innerHeight * dpr * scale));
   R.width = w; R.height = h; R.pixelScale = dpr * scale;
   R.renderer.setSize(w, h, false);
+  if (R.post) R.post.setSize(w, h);
   R.camera.aspect = w / h;
   R.camera.updateProjectionMatrix();
 }

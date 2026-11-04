@@ -124,7 +124,7 @@ function warmUp() {
   for (const o of [R.hover, R.select, R.rangeRing, R.rangeFill]) { o.visible = true; o.position.set(0, -40, 0); }
   FX.explosion(0, -40, 0, 1, true);
   FX.flushFx();
-  R.renderer.render(R.scene, R.camera);
+  R.post.render(0);
   for (const k in P) { P[k].begin(); P[k].end(); }
   R.hb.begin(); R.hb.end();
   for (const k in R.ghosts) R.ghosts[k].visible = false;
@@ -321,11 +321,15 @@ function frame(now) {
   updateCamera(rdt);
   updatePointer();
   syncEntities();
-  R.water.material.uniforms.uTime.value = now / 1000;
+  R.water.material.userData.uniforms.uTime.value = now / 1000;
+  if (G.mode === 'play' && !G.paused && SETTINGS.dayNight !== false) G.tod = ((G.tod ?? 0.36) + (rdt * G.speed) / (SETTINGS.dayLength || 600)) % 1;
+  R.light.update(SETTINGS.dayNight === false ? 0.4 : (G.tod ?? 0.36));
+  R.water.material.userData.uniforms.uNight.value = R.light.night;
+  R.light.fitShadow(CAM.tx, CAM.tz, CAM.dist);
   flushFx();
   const t1 = performance.now();
   R.renderer.info.reset();
-  R.renderer.render(R.scene, R.camera);
+  R.post.render(rdt);
   const t2 = performance.now();
   updateHUD(rdt, perfText);
   perfReport(rdt, t1 - t0 + (performance.now() - t2), t2 - t1);
