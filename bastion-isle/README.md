@@ -1,5 +1,13 @@
 # Bastion Isle
 
+**New look:** a hand-crafted diorama island of chunky hex tiles with rocky cliff sides, lush meadows with flowers,
+dense pine forests, faceted grey mountains, golden beaches, crystal turquoise shallows with caustics and foam, and
+a lighthouse, lit by a free HDR sky with ambient occlusion and bloom. Photo textures are free CC0 assets
+(ambientCG, Poly Haven); see `assets/credits/`.
+
+The folders `src/sim`, `src/ui` and the extra modules in `src/gfx` hold an unfinished larger redesign
+(zoning, utilities, traffic) that is not part of the current build; the playable game is what `npm run build` bundles.
+
 A 3D hex-tile island city builder with coastal defence. Lay roads, grow a town, then fortify it against
 waves of gunboats, landing parties, destroyers, battleships, dive bombers, heavy bombers and strike jets.
 Survive 25 waves to win, then keep going in endless mode.

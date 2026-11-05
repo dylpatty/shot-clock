@@ -8,8 +8,6 @@
     "dev": "esbuild src/main.js --bundle --sourcemap --format=iife --target=es2020 --loader:.hdr=binary --loader:.jpg=binary --loader:.png=binary --loader:.glb=binary --outfile=dist/bastion.js --watch=forever --servedir=. --serve=8080"
   },
   "devDependencies": {
-    "@fontsource/barlow-semi-condensed": "5.3.0",
-    "@tabler/icons": "3.24.0",
     "esbuild": "0.28.2",
     "n8ao": "1.9.4",
     "postprocessing": "6.36.7",

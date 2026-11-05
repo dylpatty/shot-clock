@@ -53,7 +53,7 @@ export function updateCamera(dt) {
     if (keys.has('KeyQ')) g.yaw += dt * 1.6;
     if (keys.has('KeyE')) g.yaw -= dt * 1.6;
   }
-  const lim = 42;
+  const lim = 27;
   const r = Math.hypot(g.tx, g.tz);
   if (r > lim) { g.tx *= lim / r; g.tz *= lim / r; }
   g.dist = clamp(g.dist, MIN_D, MAX_D);

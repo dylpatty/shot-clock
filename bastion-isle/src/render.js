@@ -12,6 +12,11 @@ import { Lighting } from './gfx/lighting.js';
 import hdrDay from '../assets/hdri/quarry_01_1k.hdr';
 import hdrNight from '../assets/hdri/moonless_golf_1k.hdr';
 import waterNormals from '../assets/tex/waternormals.jpg';
+import texGrass from '../assets/tex/grass.jpg';
+import texSand from '../assets/tex/sand.jpg';
+import texRock from '../assets/tex/rock.jpg';
+import texCliff from '../assets/tex/cliff.jpg';
+import texCaustics from '../assets/tex/caustics.jpg';
 
 export const R = {
   renderer: null, scene: null, camera: null, sun: null, M: null,
@@ -77,7 +82,7 @@ export class Pool {
 
 // ------------------------------------------------------------------ geometry helpers
 
-function hexPrismGeo(bevel = 0.08, drop = 0.05, depth = 4) {
+function hexPrismGeo(bevel = 0.05, drop = 0.035, depth = 4) {
   const pos = [], col = [];
   const P = [], O = [], B = [];
   for (let i = 0; i < 6; i++) {
@@ -189,6 +194,51 @@ class HealthBars extends Pool {
   }
 }
 
+// Hex tiles textured like a painted diorama: grass/sand/rock photo textures on top (world-space UVs with macro
+// variation so repeats do not show), layered rock cliffs on the sides, darker towards the sea.
+const _white = new THREE.DataTexture(new Uint8Array([200, 200, 200, 255]), 1, 1); _white.needsUpdate = true;
+const TT = { tGrass: { value: _white }, tSand: { value: _white }, tRock: { value: _white }, tCliff: { value: _white } };
+function makeTerrainMaterial() {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, TT);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aType;\nvarying float vType;\nvarying vec3 vTW;\nvarying float vTop;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvType = aType;\nvTop = step(0.5, normal.y);\nvTW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D tGrass, tSand, tRock, tCliff;\nvarying float vType;\nvarying vec3 vTW;\nvarying float vTop;\nfloat tHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  int ty = int(vType + 0.5);
+  vec2 uv = vTW.xz * 0.42;
+  float macro = 0.82 + 0.36 * texture2D(tGrass, vTW.xz * 0.031 + 0.37).g;
+  vec3 tex;
+  if (vTop > 0.5) {
+    vec3 g = texture2D(tGrass, uv).rgb * vec3(1.0, 1.18, 0.6) * 1.35;
+    if (ty == 2) tex = texture2D(tSand, uv * 0.8).rgb * vec3(1.12, 1.04, 0.86);
+    else if (ty == 4) tex = g * vec3(0.72, 0.8, 0.62);
+    else if (ty == 5) tex = mix(g * 0.9, texture2D(tRock, uv * 0.7).rgb * 1.25, 0.5 + 0.3 * texture2D(tRock, uv * 0.13).r);
+    else if (ty == 6) tex = texture2D(tRock, uv * 0.7).rgb * 1.3;
+    else tex = g;
+    tex *= macro;
+  } else {
+    vec2 su = vec2((vTW.x + vTW.z) * 0.55, vTW.y * 0.8);
+    tex = texture2D(tCliff, su).rgb * 1.35;
+    if (ty == 2) tex = mix(tex, texture2D(tSand, su).rgb * 1.1, 0.55);
+  }
+  diffuseColor.rgb *= tex;
+}`);
+  };
+  m.customProgramCacheKey = () => 'bastion-terrain-diorama-v1';
+  return m;
+}
+function loadTerrainTextures() {
+  imageTexture(texGrass).then((t) => { TT.tGrass.value = t; });
+  imageTexture(texSand).then((t) => { TT.tSand.value = t; });
+  imageTexture(texRock).then((t) => { TT.tRock.value = t; });
+  imageTexture(texCliff).then((t) => { TT.tCliff.value = t; });
+}
+
 // ------------------------------------------------------------------ setup
 
 export function initRenderer(canvas) {
@@ -208,7 +258,7 @@ export function initRenderer(canvas) {
   R.sky = makeSky();
   scene.add(R.sky);
 
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 2600);
+  const camera = new THREE.PerspectiveCamera(36, 1, 0.5, 2600);
   R.camera = camera;
 
   const hemi = new THREE.HemisphereLight(0xd6ecff, 0x7d6c52, 0.35);
@@ -235,7 +285,10 @@ export function initRenderer(canvas) {
   const additive = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
 
   // terrain
-  const terrain = new THREE.InstancedMesh(hexPrismGeo(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }), 4000);
+  const terrain = new THREE.InstancedMesh(hexPrismGeo(), makeTerrainMaterial(), 4000);
+  const aType = new THREE.InstancedBufferAttribute(new Float32Array(4000), 1);
+  terrain.geometry.setAttribute('aType', aType);
+  R.terrainType = aType;
   terrain.count = 0;
   terrain.frustumCulled = false;
   terrain.receiveShadow = true; terrain.castShadow = true;
@@ -255,13 +308,19 @@ export function initRenderer(canvas) {
   scene.add(water);
   R.water = water;
   imageTexture(waterNormals, { srgb: false }).then((t) => { water.material.userData.uniforms.uNormal.value = t; });
+  imageTexture(texCaustics, { srgb: false }).then((t) => { water.material.userData.uniforms.uCaustics.value = t; });
+  loadTerrainTextures();
   R.light = new Lighting({ scene, sun, hemi, sky: R.sky, fog: scene.fog, envDay: scene.environment, envNight: envFromHDR(renderer, hdrNight) });
 
   const P = R.pools;
   const add = (key, geo, max, mat = lit, opts) => { P[key] = new Pool(geo, mat, max, opts); scene.add(P[key].mesh); };
   add('tree', M.tree, 6000);
-  add('rock', M.rock, 1500);
+  add('broadleaf', M.broadleaf, 1500);
+  add('rock', M.rock, 2500);
   add('peak', M.peak, 600);
+  add('flower', M.flower, 6000, lit, { cast: false });
+  add('tuft', M.tuft, 8000, lit, { cast: false });
+  add('lighthouse', M.lighthouse, 2);
   // roads have no vertex colours, only per-instance ones
   const plain = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
   add('roadC', new THREE.CylinderGeometry(0.3, 0.3, 0.05, 6), 3000, plain, { cast: false });
@@ -362,6 +421,8 @@ export function rebuildTerrain() {
   }
   t.count = n;
   t.instanceMatrix.needsUpdate = true;
+  for (const i of W.land) R.terrainType.array[landSlot[i]] = W.type[i];
+  R.terrainType.needsUpdate = true;
   recolorTerrain(null);
 }
 
@@ -371,11 +432,11 @@ export function recolorTerrain(dimFn) {
   const c = t.instanceColor.array;
   for (const i of W.land) {
     const k = landSlot[i] * 3;
-    _col.setHex(TERRAIN[W.type[i]].color);
-    let v = 0.92 + hash2(i, 3) * 0.16;
-    if (W.ruin[i]) v *= 0.7;
+    // the texture supplies the colour; the instance colour is a brightness multiplier (variation, ruins, tool dimming)
+    let v = 0.9 + hash2(i, 3) * 0.2;
+    if (W.ruin[i]) v *= 0.6;
     if (dimFn) v *= dimFn(i);
-    c[k] = _col.r * v; c[k + 1] = _col.g * v; c[k + 2] = _col.b * v * (W.type[i] === T.FOREST ? 0.9 : 1);
+    c[k] = v; c[k + 1] = v; c[k + 2] = v;
   }
   t.instanceColor.needsUpdate = true;
 }
@@ -383,25 +444,48 @@ export function recolorTerrain(dimFn) {
 const _trees = [];
 export function rebuildDecor() {
   const P = R.pools;
-  P.tree.begin(); P.rock.begin(); P.peak.begin();
+  P.tree.begin(); P.rock.begin(); P.peak.begin(); P.broadleaf.begin(); P.flower.begin(); P.tuft.begin(); P.lighthouse.begin();
+  const FLOWERS = [[1, 0.86, 0.25], [1, 1, 1], [0.95, 0.45, 0.65], [0.65, 0.5, 0.95], [1, 0.55, 0.25]];
   for (const i of W.land) {
     const t = W.type[i];
-    if (t === T.FOREST && !W.bld[i] && !W.road[i]) {
-      _trees.length = 0;
-      treesFor(i, _trees);
-      for (let k = 0; k < _trees.length; k += 5) {
-        const s = _trees[k + 3], v = 0.85 + _trees[k + 4] * 0.3;
-        P.tree.put(_trees[k], _trees[k + 1], _trees[k + 2], _trees[k + 4] * 6, s, s * (0.9 + _trees[k + 4] * 0.3), s, v, v, v);
+    const free = !W.bld[i] && !W.road[i];
+    const x0 = W.x[i], y0 = W.h[i], z0 = W.z[i];
+    const spot = (k, rad) => { const a = hash2(i, 100 + k) * 6.283, r = Math.sqrt(hash2(i, 200 + k)) * rad; return [x0 + Math.cos(a) * r, z0 + Math.sin(a) * r]; };
+    if (t === T.FOREST && free) {
+      // dense stand of tall pines
+      const n = 7 + Math.floor(hash2(i, 11) * 4);
+      for (let k = 0; k < n; k++) {
+        const [x, z] = spot(k, 0.78), s = 1.0 + hash2(i, 300 + k) * 0.75, v = 0.82 + hash2(i, 400 + k) * 0.3;
+        P.tree.put(x, y0, z, hash2(i, 500 + k) * 6, s, s * (0.9 + hash2(i, 600 + k) * 0.5), s, v, v, v);
       }
-    } else if (t === T.HILLS && !W.bld[i] && !W.road[i]) {
-      const a = hash2(i, 5) * 6.28;
-      P.rock.put(W.x[i] + Math.cos(a) * 0.35, W.h[i], W.z[i] + Math.sin(a) * 0.35, a, 1 + hash2(i, 6) * 0.6, 1 + hash2(i, 9), 1 + hash2(i, 6) * 0.6);
+    } else if (t === T.GRASS && free) {
+      // meadow: grass tufts, flower patches and the odd broadleaf tree
+      for (let k = 0; k < 9; k++) { const [x, z] = spot(k, 0.85); P.tuft.put(x, y0, z, k, 1.3, 1 + hash2(i, 700 + k), 1.3, 0.9, 1, 0.9); }
+      const fc = FLOWERS[Math.floor(hash2(i, 13) * FLOWERS.length)];
+      const nf = hash2(i, 14) < 0.55 ? 4 + Math.floor(hash2(i, 15) * 5) : 0;
+      for (let k = 0; k < nf; k++) { const [x, z] = spot(20 + k, 0.8); P.flower.put(x, y0, z, k, 1.4, 1.4, 1.4, fc[0], fc[1], fc[2]); }
+      if (hash2(i, 16) < 0.12) { const [x, z] = spot(40, 0.5), s = 1.1 + hash2(i, 17) * 0.5; P.broadleaf.put(x, y0, z, hash2(i, 18) * 6, s, s, s); }
+    } else if (t === T.HILLS && free) {
+      for (let k = 0; k < 3; k++) { const [x, z] = spot(50 + k, 0.7), s = 0.8 + hash2(i, 60 + k) * 1.1; P.rock.put(x, y0, z, hash2(i, 70 + k) * 6, s, s * (0.7 + hash2(i, 80 + k)), s); }
+      for (let k = 0; k < 4; k++) { const [x, z] = spot(90 + k, 0.85); P.tuft.put(x, y0, z, k, 1.1, 1, 1.1, 0.85, 0.9, 0.7); }
+    } else if (t === T.SAND && free) {
+      if (hash2(i, 19) < 0.3) { const [x, z] = spot(55, 0.6), s = 0.5 + hash2(i, 20) * 0.6; P.rock.put(x, y0, z, hash2(i, 21) * 6, s, s * 0.6, s); }
     } else if (t === T.MOUNTAIN) {
-      const s = 0.85 + hash2(i, 7) * 0.4;
-      P.peak.put(W.x[i], W.h[i], W.z[i], 0, s, s * (0.8 + hash2(i, 8) * 0.9), s);
+      const s = 0.95 + hash2(i, 7) * 0.35;
+      P.peak.put(x0, y0, z0, hash2(i, 9) * 6, s, s * (0.85 + hash2(i, 8) * 0.7), s);
     }
   }
-  P.tree.end(); P.rock.end(); P.peak.end();
+  // a lighthouse on the outermost shallows, facing the open sea
+  let lh = -1, ld = -1;
+  for (let i = 0; i < W.count; i++) {
+    if (W.type[i] !== T.SHALLOW) continue;
+    let landN = 0;
+    for (let d = 0; d < 6; d++) { const j = W.nbr[i * 6 + d]; if (j >= 0 && W.type[j] >= T.SAND) landN++; }
+    const dd = Math.hypot(W.x[i], W.z[i]);
+    if (landN === 0 && dd > ld && hash2(i, 33) < 0.5) { ld = dd; lh = i; }
+  }
+  if (lh >= 0) P.lighthouse.put(W.x[lh], -0.05, W.z[lh], 0.6, 1, 1, 1);
+  P.tree.end(); P.rock.end(); P.peak.end(); P.broadleaf.end(); P.flower.end(); P.tuft.end(); P.lighthouse.end();
 }
 
 export function rebuildRoads() {

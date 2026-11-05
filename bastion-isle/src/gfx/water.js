@@ -11,11 +11,14 @@ export function makeWaterMaterial({ normalMap, mapMin, mapSize, maxDist }) {
     uMapMin: { value: new THREE.Vector2(mapMin, mapMin) },
     uMapSize: { value: mapSize },
     uMaxDist: { value: maxDist },
-    uShallow: { value: new THREE.Color(0x2fb3b6) },
-    uDeep: { value: new THREE.Color(0x0b3f63) },
+    uShallow: { value: new THREE.Color(0x38c9c4) },
+    uDeep: { value: new THREE.Color(0x0d4f80) },
+    uSand: { value: new THREE.Color(0xcdbf92) },
+    uCaustics: { value: new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1) },
     uFoam: { value: new THREE.Color(0xf2f8f8) },
     uNight: { value: 0 },
   };
+  uniforms.uCaustics.value.needsUpdate = true;
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
@@ -25,7 +28,8 @@ export function makeWaterMaterial({ normalMap, mapMin, mapSize, maxDist }) {
       .replace('#include <common>', /* glsl */`#include <common>
 varying vec3 vWPos;
 uniform float uTime, uMapSize, uMaxDist, uNight;
-uniform sampler2D uNormal, uDist;
+uniform sampler2D uNormal, uDist, uCaustics;
+uniform vec3 uSand;
 uniform vec2 uMapMin;
 uniform vec3 uShallow, uDeep, uFoam;
 float gFoam;`)
@@ -34,7 +38,11 @@ float gFoam;`)
   vec2 duv = (vWPos.xz - uMapMin) / uMapSize;
   float wd = texture2D(uDist, duv).r * uMaxDist;
   float t = uTime;
-  vec3 wcol = mix(uShallow, uDeep, smoothstep(0.0, 7.5, wd));
+  // clear shallows: sandy seabed fading to turquoise, then deep blue, with caustics dancing near the beach
+  vec3 wcol = mix(uSand, uShallow, smoothstep(0.0, 0.9, wd));
+  wcol = mix(wcol, uDeep, smoothstep(1.2, 7.0, wd));
+  float ca = texture2D(uCaustics, vWPos.xz * 0.33 + vec2(t * 0.025, t * 0.012)).r * texture2D(uCaustics, vWPos.xz * 0.27 - vec2(t * 0.018, -t * 0.02)).r;
+  wcol += vec3(0.55, 0.75, 0.7) * ca * 1.6 * (1.0 - smoothstep(0.4, 3.2, wd)) * (1.0 - uNight);
   float wave = 0.5 + 0.5 * sin(wd * 6.0 - t * 2.1 + sin(vWPos.x * 0.6 + t) * 0.9);
   float foam = (1.0 - smoothstep(0.0, 0.42, wd)) * 0.95
              + (1.0 - smoothstep(0.25, 1.5, wd)) * smoothstep(0.62, 0.96, wave) * 0.6;

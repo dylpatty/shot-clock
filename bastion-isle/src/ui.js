@@ -824,7 +824,7 @@ function updateHint() {
 
 // ------------------------------------------------------------------ minimap
 
-const MM_SCALE = 300 / 92;
+const MM_SCALE = 300 / 66;
 function mmPos(x, z) { return [150 + x * MM_SCALE, 150 + z * MM_SCALE]; }
 
 function drawMinimapBase() {

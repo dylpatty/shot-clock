@@ -513,23 +513,72 @@ function mTrooper(col) {
 
 // ---------------------------------------------------------------- props and projectiles
 
+// Tall layered pine: dark tiers, slightly irregular, like a dense coastal conifer forest
 function mTree() {
   const b = new MB();
-  b.cyl(0.035, 0.05, 0.14, 5, C.trunk);
-  b.cone(0.22, 0.34, 6, C.leaf, 0, 0.1, 0);
-  b.cone(0.16, 0.26, 6, C.leaf2, 0, 0.29, 0);
+  b.cyl(0.03, 0.05, 0.22, 5, C.trunk);
+  const tiers = [[0.3, 0.42, 0.14, 0x1d4a25], [0.24, 0.38, 0.36, 0x22552a], [0.17, 0.32, 0.57, 0x285f2f], [0.1, 0.24, 0.76, 0x2f6a35]];
+  for (const [r, h, y, col] of tiers) b.cone(r, h, 7, col, 0, y, 0, y * 3);
+  return b.geo();
+}
+// Round broadleaf tree for meadows
+function mBroadleaf() {
+  const b = new MB();
+  b.cyl(0.035, 0.05, 0.3, 5, C.trunk);
+  b.add(new THREE.IcosahedronGeometry(0.26, 0), 0x3c7d2e, 0, 0.48, 0, 0, 0, 0, 1, 0.9, 1);
+  b.add(new THREE.IcosahedronGeometry(0.19, 0), 0x5fae46, 0.12, 0.62, 0.05, 0.4, 0.3, 0);
+  b.add(new THREE.IcosahedronGeometry(0.17, 0), 0x468f36, -0.12, 0.56, -0.06, 0.2, 0.9, 0);
   return b.geo();
 }
 function mRock() {
   const b = new MB();
-  b.add(new THREE.DodecahedronGeometry(0.17, 0), C.rock, 0, 0.06, 0, 0, 0, 0, 1, 0.65, 1);
-  b.add(new THREE.DodecahedronGeometry(0.1, 0), C.rockDark, 0.18, 0.03, 0.1, 0, 0.5, 0, 1, 0.7, 1);
+  b.add(new THREE.DodecahedronGeometry(0.17, 0), 0x9a968e, 0, 0.06, 0, 0, 0, 0, 1, 0.65, 1);
+  b.add(new THREE.DodecahedronGeometry(0.1, 0), 0x7d7973, 0.18, 0.03, 0.1, 0, 0.5, 0, 1, 0.7, 1);
   return b.geo();
 }
+// Jagged faceted crag: several sharp peaks with displaced, flat-shaded faces (light granite, pale tips)
 function mPeak() {
   const b = new MB();
-  b.add(new THREE.CylinderGeometry(0.34, 0.86, 0.8, 6), C.rock, 0, 0.4, 0);
-  b.add(new THREE.ConeGeometry(0.34, 0.45, 6), C.snow, 0, 1.02, 0);
+  const peaks = [[0, 0, 1.0, 1.9], [0.38, 0.25, 0.62, 1.3], [-0.35, 0.2, 0.55, 1.15], [0.1, -0.42, 0.6, 1.25], [-0.2, -0.3, 0.45, 0.9]];
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (const [x, z, r, h] of peaks) {
+    const g = new THREE.ConeGeometry(r, h, 6, 3);
+    const pos = g.attributes.position;
+    for (let k = 0; k < pos.count; k++) {
+      const y = pos.getY(k);
+      if (y < h / 2 - 1e-3) { pos.setX(k, pos.getX(k) * (0.8 + rnd() * 0.45)); pos.setZ(k, pos.getZ(k) * (0.8 + rnd() * 0.45)); pos.setY(k, y + (rnd() - 0.5) * 0.12); }
+    }
+    b.add(g, 0x77726c, x, h / 2, z, 0, rnd() * 3, (rnd() - 0.5) * 0.15);
+    const tip = new THREE.ConeGeometry(r * 0.3, h * 0.28, 6);
+    b.add(tip, 0xb9b6b0, x, h * 0.86, z, 0, rnd() * 3, 0);
+  }
+  b.cyl(0.95, 1.0, 0.12, 6, 0x5f5a54);
+  return b.geo();
+}
+function mFlower() {
+  const b = new MB();
+  b.add(new THREE.IcosahedronGeometry(0.035, 0), 0xffffff, 0, 0.04, 0);
+  b.add(new THREE.IcosahedronGeometry(0.03, 0), 0xffffff, 0.06, 0.03, 0.03);
+  b.add(new THREE.IcosahedronGeometry(0.028, 0), 0xffffff, -0.04, 0.03, 0.05);
+  return b.geo();
+}
+function mTuft() {
+  const b = new MB();
+  for (let k = 0; k < 4; k++) b.add(new THREE.ConeGeometry(0.018, 0.12, 3), 0x6fa83f, Math.cos(k * 1.6) * 0.03, 0.05, Math.sin(k * 1.6) * 0.03, Math.cos(k) * 0.25, 0, Math.sin(k) * 0.25);
+  return b.geo();
+}
+// Red-and-white lighthouse on a rock islet
+function mLighthouse() {
+  const b = new MB();
+  b.add(new THREE.DodecahedronGeometry(0.75, 0), 0x6f6a63, 0, -0.1, 0, 0, 0, 0, 1.3, 0.55, 1.1);
+  b.cyl(0.6, 0.65, 0.12, 8, 0x9a958c, 0, 0.18, 0);
+  for (let k = 0; k < 5; k++) b.cyl(0.24 - k * 0.025, 0.26 - k * 0.025, 0.3, 10, k % 2 ? C.white : C.red, 0, 0.3 + k * 0.3, 0);
+  b.cyl(0.2, 0.2, 0.06, 10, C.dark, 0, 1.8, 0);
+  b.cyl(0.15, 0.15, 0.22, 10, 0xfff2b0, 0, 1.86, 0);
+  b.cone(0.2, 0.22, 10, C.red, 0, 2.08, 0);
+  b.box(0.3, 0.22, 0.25, C.white, 0.42, 0.28, 0.1);
+  b.gable(0.36, 0.3, 0.12, C.red, 0.42, 0.5, 0.1);
   return b.geo();
 }
 function mRubble() {
@@ -580,7 +629,7 @@ export function buildModels() {
     gunboat: mGunboat(), landing: mLanding(), destroyer: mDestroyer(), battleship: mBattleship(),
     fighter: mFighter(C.ePlane, C.ePlane2, C.eRed), bomber: mBomber(), jet: mJet(),
     infantry: mTrooper(C.eTroop), soldier: mTrooper(C.aTroop), ally_fighter: mFighter(C.aPlane, C.aPlane2, C.white),
-    tree: mTree(), rock: mRock(), peak: mPeak(), rubble: mRubble(), marker: mMarker(), arrow: mArrow(),
+    tree: mTree(), broadleaf: mBroadleaf(), rock: mRock(), peak: mPeak(), flower: mFlower(), tuft: mTuft(), lighthouse: mLighthouse(), rubble: mRubble(), marker: mMarker(), arrow: mArrow(),
     bomb: mBomb(), missileP: mMissileProj(C.blue), rocketP: mMissileProj(C.red),
   };
 }

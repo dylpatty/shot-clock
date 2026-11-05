@@ -167,7 +167,7 @@ export function spawnEnemy(type, angle, wave) {
     e.yaw = Math.atan2(-e.x, -e.z);
     if (def.troops) e.troops = def.troops + Math.floor((wave - 1) / 4);
   } else {
-    const r = 72;
+    const r = 52;
     e.x = Math.sin(angle) * r; e.z = Math.cos(angle) * r;
     e.alt = def.alt + rnd(0, 1.5);
     e.y = e.alt;
@@ -863,7 +863,7 @@ function leave(e, dt) {
   const l = Math.hypot(e.x, e.z) || 1;
   steerPlane(e, e.x + (e.x / l) * 50, e.z + (e.z / l) * 50, dt, e.def.turn, e.def.speed);
   holdAlt(e, e.alt + 2, dt);
-  if (l > 80) e.gone = true;
+  if (l > 60) e.gone = true;
 }
 
 function updateAttacker(e, dt, rockets) {
@@ -915,7 +915,7 @@ function updateBomber(e, dt) {
     if (Math.hypot(e.wpx - e.x, e.wpz - e.z) < 3) e.state = 'run';
   } else {
     steerPlane(e, e.exx, e.exz, dt, d.turn, d.speed);
-    if (Math.hypot(e.x, e.z) > 82) e.gone = true;
+    if (Math.hypot(e.x, e.z) > 62) e.gone = true;
   }
   holdAlt(e, e.alt, dt);
   e.cool -= dt;
@@ -1112,7 +1112,7 @@ function updateFighter(f, dt) {
     parkFighter(f);
     if (!home.connected) return;
     let threat = false;
-    for (const e of G.enemies) if (e.alive && (e.domain === 'air' || e.domain === 'sea') && Math.hypot(e.x, e.z) < 55) { threat = true; break; }
+    for (const e of G.enemies) if (e.alive && (e.domain === 'air' || e.domain === 'sea') && Math.hypot(e.x, e.z) < 42) { threat = true; break; }
     if (threat && G.time >= (home.nextLaunch || 0)) {
       home.nextLaunch = G.time + 1.2;
       f.state = 'takeoff'; f.t = 0; f.speed = 1.5;
@@ -1135,7 +1135,7 @@ function updateFighter(f, dt) {
     let best = null, bd = Infinity;
     for (const e of G.enemies) {
       if (!e.alive || (e.domain !== 'air' && e.domain !== 'sea')) continue;
-      if (Math.hypot(e.x, e.z) > 50) continue;
+      if (Math.hypot(e.x, e.z) > 40) continue;
       const dd = Math.hypot(e.x - f.x, e.z - f.z) * (e.domain === 'air' ? 0.5 : 1);
       if (dd < bd) { bd = dd; best = e; }
     }

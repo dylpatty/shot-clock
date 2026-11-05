@@ -62,7 +62,7 @@ function showIsland(seed) {
   rememberForests();
   refreshWorldVisuals();
   CAM.orbit = true;
-  CAM.g.tx = 0; CAM.g.tz = 0; CAM.g.dist = 62; CAM.g.tilt = 0.05;
+  CAM.g.tx = 0; CAM.g.tz = 2; CAM.g.dist = 34; CAM.g.tilt = -0.12;
 }
 
 function startGame(fromSave) {
@@ -78,7 +78,7 @@ function startGame(fromSave) {
   G.mode = 'play';
   CAM.orbit = false;
   CAM.g.yaw = Math.round(CAM.g.yaw / (Math.PI * 2)) * Math.PI * 2;
-  focus(G.hq.x, G.hq.z + 4, 30);
+  focus(G.hq.x, G.hq.z + 3, 24);
   CAM.g.tilt = 0;
   showHUD();
   sfx('click');

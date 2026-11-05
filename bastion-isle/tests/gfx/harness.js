@@ -17,7 +17,8 @@ import { Lighting } from '../../src/gfx/lighting.js';
 import { U, MAP_MIN, MAP_SIZE } from '../../src/gfx/uniforms.js';
 import { hexDist } from '../../src/hex.js';
 import { mulberry32 } from '../../src/rng.js';
-import hdrDay from '../../assets/hdri/quarry_01_1k.hdr';
+import hdrDay from '../../assets/hdri/sky_day_512.exr';
+import hdrGolden from '../../assets/hdri/industrial_sunset_02_puresky_1k.hdr';
 import hdrNight from '../../assets/hdri/moonless_golf_1k.hdr';
 
 const q = new URLSearchParams(location.search);
@@ -44,7 +45,7 @@ H.init = async function ({ seed = +(q.get('seed') || 7), city = true } = {}) {
   renderer.debug.checkShaderErrors = true; // the harness wants errors
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xbcd8ea, 120, 420);
-  scene.environment = envFromHDR(renderer, hdrDay);
+  scene.environment = envFromHDR(renderer, hdrDay, true);
   const sky = makeSky(); scene.add(sky);
   const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 2600);
   const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x6b604e, 0.4); scene.add(hemi);
@@ -53,7 +54,7 @@ H.init = async function ({ seed = +(q.get('seed') || 7), city = true } = {}) {
   sun.shadow.mapSize.set(2048, 2048);
   scene.add(sun, sun.target);
   Object.assign(H, { renderer, scene, camera, sun, hemi, sky });
-  H.light = new Lighting({ scene, sun, hemi, sky, fog: scene.fog, envDay: scene.environment, envNight: envFromHDR(renderer, hdrNight) });
+  H.light = new Lighting({ scene, sun, hemi, sky, fog: scene.fog, envDay: scene.environment, envGolden: envFromHDR(renderer, hdrGolden), envNight: envFromHDR(renderer, hdrNight) });
   H.post = new Pipeline(renderer, scene, camera);
   H.post.build(H.quality);
   const resize = () => {
