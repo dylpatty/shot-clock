@@ -369,7 +369,7 @@ export function econTick() {
   G.effFood = foodJobs > 0 ? Math.min(1, G.pop / foodJobs) : 1;
   G.eff = otherJobs > 0 ? Math.min(1, Math.max(0, G.pop - foodJobs) / otherJobs) : 1;
 
-  const rates = { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 };
+  const rates = { food: 0, wood: 0, stone: 0, iron: 0, gold: 0, science: 0 };
   for (const b of G.buildings) {
     if (!b.connected || !b.prod) continue;
     const f = staffing(b);
@@ -455,7 +455,7 @@ export function resetState(seed) {
   G.time = 0; G.speed = 1; G.paused = false;
   G.res = { food: 80, wood: 150, stone: 80, iron: 0, gold: 200, science: 0 };
   G.era = 0;
-  G.rates = { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 };
+  G.rates = { food: 0, wood: 0, stone: 0, iron: 0, gold: 0, science: 0 };
   G.pop = 8; G.housing = 10; G.jobs = 0; G.eff = 1; G.effFood = 1; G.starving = false; G.growT = 0; G.econT = 0;
   G.buildings = []; G.byId = new Map(); G.nextId = 1; G.hq = null;
   G.enemies = []; G.allies = []; G.projectiles = [];
@@ -522,7 +522,7 @@ export function loadGame() {
     b.yaw = yaw;
     b.born = -10;
   }
-  G.res = { ...G.res, ...data.res };
+  G.res = { ...G.res, ...data.res }; if (!(G.res.science >= 0)) G.res.science = 0;
   G.pop = data.pop;
   G.research = data.research || {};
   G.era = data.era || 0;
