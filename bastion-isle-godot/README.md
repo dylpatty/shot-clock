@@ -4,7 +4,15 @@ A hex-island city builder with tower-defence raids, built from the ground up in 
 You found a medieval settlement on a lush island and carry it through five ages - Medieval, Renaissance,
 Industrial, Modern and Atomic - while the Grey Armada raids you from the sea and, later, from the sky.
 
-## Open and play
+## Play on Windows (no install)
+
+Download the Windows package (a folder with `Bastion Isle.exe` and `Bastion Isle.pck`), extract it and double-click
+`Bastion Isle.exe`. The .exe is the official, code-signed Godot 4.3 program renamed; Godot automatically runs the
+`.pck` that has the same name and sits next to it, so the game starts directly and Smart App Control allows it.
+To rebuild the pack: `godot --headless --path . --export-pack "Windows Desktop" "Bastion Isle.pck"`
+(no export templates needed), then put it beside a renamed copy of `Godot_v4.3-stable_win64.exe`.
+
+## Open and play (editor)
 
 1. Install **Godot 4.3-stable** (standard build, not .NET): https://godotengine.org/download/archive/4.3-stable/
 2. Start Godot, choose **Import**, and select `project.godot` in this folder (`bastion-isle-godot/`).
