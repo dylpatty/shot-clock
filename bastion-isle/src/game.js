@@ -1,5 +1,5 @@
 import { W, T, isLand, isWater, isWalkable, generateWorld, countNeighbours, tileDist } from './world.js';
-import { BUILDINGS, BUILD_TYPES, RES, ROAD_COST, RESEARCH_BY_ID, computeMods, FIRST_WAVE_DELAY } from './defs.js';
+import { BUILDINGS, BUILD_TYPES, RES, ROAD_COST, RESEARCH_BY_ID, computeMods, FIRST_WAVE_DELAY , ERAS, enemyEra } from './defs.js';
 import { G, notify } from './state.js';
 import { DIR_X, DIR_Z } from './hex.js';
 import { initPath } from './path.js';
@@ -58,8 +58,35 @@ export function levelCostFor(b) {
 }
 
 export function isUnlocked(type) {
-  const req = BUILDINGS[type].requires;
-  return !req || (G.research[req] || 0) > 0;
+  const d = BUILDINGS[type];
+  if ((d.era || 0) > (G.era || 0)) return false;
+  return !d.requires || (G.research[d.requires] || 0) > 0;
+}
+export function lockReason(type) {
+  const d = BUILDINGS[type];
+  if ((d.era || 0) > (G.era || 0)) return `Requires the ${ERAS[d.era].name} (advance your age with science)`;
+  if (d.requires && !(G.research[d.requires] > 0)) return `Requires research: ${RESEARCH_BY_ID[d.requires].name}`;
+  return null;
+}
+
+// ---- ages: science buys the next age, which strengthens every weapon
+export function nextEraCost() { const n = (G.era || 0) + 1; return n < ERAS.length ? ERAS[n].science : null; }
+export function advanceEra() {
+  const cost = nextEraCost();
+  if (cost == null) return 'You have reached the final age';
+  if (G.res.science < cost) return `Needs ${cost} science`;
+  G.res.science -= cost;
+  G.era = (G.era || 0) + 1;
+  refreshStats();
+  notify(`Your people enter the ${ERAS[G.era].name}! Weapons are stronger and new defences unlock.`, 'good');
+  return null;
+}
+// damage multiplier from your age and from how far you trail the raiders
+export function eraPower() {
+  const mine = G.era || 0;
+  const theirs = enemyEra(G.wave.state === 'prep' ? G.wave.n : G.wave.current);
+  const gap = theirs - mine;
+  return (1 + 0.45 * mine) * (gap > 0 ? Math.pow(0.6, gap) : 1);
 }
 
 // Why a building cannot go on a tile, or null if it can
@@ -78,7 +105,7 @@ export function placeProblem(type, i) {
     if (type === 'dock') return 'Docks go on beach or grass';
     return 'Wrong terrain';
   }
-  if (!isUnlocked(type)) return `Requires research: ${RESEARCH_BY_ID[def.requires].name}`;
+  if (!isUnlocked(type)) return lockReason(type);
   if (def.unique && G.buildings.some((b) => b.type === type)) return 'Only one can be built';
   if (def.coastal && !countNeighbours(i, (tt) => isWater(tt))) return 'Must touch the sea';
   if (def.needsAdj === 'forest' && !countNeighbours(i, (tt) => tt === T.FOREST)) return 'Needs a forest beside it';
@@ -282,7 +309,7 @@ export function weaponStats(b) {
   const w = b.def.weapon;
   const m = G.mod;
   const L = b.level - 1;
-  let dmg = w.dmg * m.dmg * (1 + 0.35 * L);
+  let dmg = w.dmg * m.dmg * (1 + 0.35 * L) * eraPower();
   let range = w.range * m.range * (1 + 0.08 * L);
   let rate = w.rate * m.rate * (1 + 0.1 * L);
   let splash = w.splash || 0;
@@ -310,7 +337,8 @@ function computeProd(b) {
   const m = G.mod, i = b.tile, L = 1 + 0.35 * (b.level - 1);
   const nb = (pred) => countNeighbours(i, pred);
   switch (b.type) {
-    case 'hq': return { food: 8 };
+    case 'hq': return { food: 8, science: 3 };
+    case 'library': return { science: 10 * L };
     case 'farm': return { food: 30 * L * m.food };
     case 'dock': return { food: (16 + 2 * nb((t) => isWater(t))) * L * m.food };
     case 'lumber': return { wood: (6 + 6 * nb((t) => t === T.FOREST)) * L * m.prod };
@@ -374,7 +402,7 @@ export function econTick() {
   } else {
     G.growT = 0;
   }
-  if (Math.abs(prevEff - G.eff) > 0.001) refreshWeaponStats();
+  refreshWeaponStats(); // staffing and the enemy's age both change weapon strength
 }
 
 function refreshWeaponStats() {
@@ -425,7 +453,8 @@ export function buyResearch(id) {
 export function resetState(seed) {
   G.seed = seed;
   G.time = 0; G.speed = 1; G.paused = false;
-  G.res = { food: 80, wood: 150, stone: 80, iron: 0, gold: 200 };
+  G.res = { food: 80, wood: 150, stone: 80, iron: 0, gold: 200, science: 0 };
+  G.era = 0;
   G.rates = { food: 0, wood: 0, stone: 0, iron: 0, gold: 0 };
   G.pop = 8; G.housing = 10; G.jobs = 0; G.eff = 1; G.effFood = 1; G.starving = false; G.growT = 0; G.econT = 0;
   G.buildings = []; G.byId = new Map(); G.nextId = 1; G.hq = null;
@@ -464,7 +493,7 @@ export function saveGame() {
   // forests cleared by building are remembered so the island matches on load
   for (let i = 0; i < W.count; i++) if (W.type[i] === T.GRASS && W._origForest && W._origForest[i]) forest.push(i);
   const data = {
-    v: 1, seed: G.seed, time: G.time, res: G.res, pop: G.pop, research: G.research, stats: G.stats, victory: G.victory,
+    v: 1, era: G.era || 0, seed: G.seed, time: G.time, res: G.res, pop: G.pop, research: G.research, stats: G.stats, victory: G.victory,
     wave: { n: G.wave.n, timer: G.wave.timer, plan: G.wave.plan },
     buildings: G.buildings.map((b) => [b.type, b.tile, b.level, Math.round(b.hp / b.maxHp * 1000) / 1000, Math.round(b.yaw * 1000) / 1000]),
     roads, ruins, cleared: forest,
@@ -496,6 +525,7 @@ export function loadGame() {
   G.res = { ...G.res, ...data.res };
   G.pop = data.pop;
   G.research = data.research || {};
+  G.era = data.era || 0;
   G.stats = { ...G.stats, ...data.stats };
   G.victory = !!data.victory;
   G.wave = { n: data.wave.n, state: 'prep', timer: data.wave.timer, elapsed: 0, plan: data.wave.plan, queue: [], current: 0 };

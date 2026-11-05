@@ -55,8 +55,8 @@ export class Pipeline {
       this.bloom = new BloomEffect({ mipmapBlur: true, levels: p.bloomLevels, luminanceThreshold: 0.92, luminanceSmoothing: 0.25, intensity: 0.85, radius: 0.72 });
       fx.push(this.bloom);
     } else this.bloom = null;
-    this.grade = new HueSaturationEffect({ saturation: 0.16 });
-    this.contrast = new BrightnessContrastEffect({ contrast: 0.06 });
+    this.grade = new HueSaturationEffect({ saturation: 0.3 });
+    this.contrast = new BrightnessContrastEffect({ brightness: 0.02, contrast: 0.1 });
     fx.push(new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }), this.contrast, this.grade, new VignetteEffect({ offset: 0.32, darkness: 0.38 }));
     composer.addPass(new EffectPass(this.camera, ...fx));
     // anti-aliasing on the final tone-mapped image

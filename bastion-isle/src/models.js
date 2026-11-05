@@ -622,7 +622,7 @@ function mMissileProj(col) {
 export function buildModels() {
   return {
     hq: mHQ(), house: mHouse(1), house2: mHouse(2), farm: mFarm(), dock: mDock(), lumber: mLumber(), quarry: mQuarry(),
-    mine: mMine(), market: mMarket(), college: mCollege(), barracks: mBarracks(),
+    mine: mMine(), market: mMarket(), college: mCollege(), library: mCollege(), barracks: mBarracks(),
     mg: mMG(), mg_head: mMGHead(), coastal: mCoastal(), coastal_head: mCoastalHead(),
     flak: mFlak(), flak_head: mFlakHead(), missile: mMissile(), missile_head: mMissileHead(),
     radar: mRadar(), radar_head: mRadarHead(), airfield: mAirfield(),

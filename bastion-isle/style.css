@@ -298,3 +298,10 @@ table.keys td:first-child { color: var(--gold); white-space: nowrap; font-weight
   #wavebox { width: 17rem; }
   #infobox { width: 18rem; }
 }
+
+#wb-era { font-size: 0.85rem; margin-bottom: 0.45rem; }
+.era-row { display: flex; justify-content: space-between; }
+.era-row span { color: var(--dim); }
+.era-row b.bad { color: var(--bad); }
+.era-warn { color: var(--bad); font-weight: 600; margin-top: 0.2rem; }
+#wb-age { width: 100%; margin-bottom: 0.35rem; }

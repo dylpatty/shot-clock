@@ -214,7 +214,7 @@ function makeTerrainMaterial() {
   float macro = 0.82 + 0.36 * texture2D(tGrass, vTW.xz * 0.031 + 0.37).g;
   vec3 tex;
   if (vTop > 0.5) {
-    vec3 g = texture2D(tGrass, uv).rgb * vec3(1.0, 1.18, 0.6) * 1.35;
+    vec3 g = texture2D(tGrass, uv).rgb * vec3(1.08, 1.26, 0.5) * 1.42;
     if (ty == 2) tex = texture2D(tSand, uv * 0.8).rgb * vec3(1.12, 1.04, 0.86);
     else if (ty == 4) tex = g * vec3(0.72, 0.8, 0.62);
     else if (ty == 5) tex = mix(g * 0.9, texture2D(tRock, uv * 0.7).rgb * 1.25, 0.5 + 0.3 * texture2D(tRock, uv * 0.13).r);

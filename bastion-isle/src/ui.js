@@ -1,9 +1,10 @@
 import { G, SETTINGS, saveSettings, MSG } from './state.js';
-import { BUILDINGS, BUILD_ORDER, BUILD_TYPES, RES, RES_NAME, RESEARCH, RESEARCH_BY_ID, ENEMIES, ROAD_COST, VICTORY_WAVE } from './defs.js';
+import { BUILDINGS, BUILD_ORDER, BUILD_TYPES, RES, RES_NAME, RESEARCH, RESEARCH_BY_ID, ENEMIES, ROAD_COST, VICTORY_WAVE , ERAS, enemyEra, eraName } from './defs.js';
 import { W, T, TERRAIN, isLand } from './world.js';
 import {
   canAfford, levelCostFor, upgrade, bulldoze, rebuildRuin, buyResearch, isUnlocked, placeProblem, roadProblem,
   housingOf, jobsOf, saveGame, hasSave, scaleCost, previewProd, staffing, TRADES, trade,
+  lockReason, advanceEra, nextEraCost,
 } from './game.js';
 import { setTool, mouse, CAM, focus, roadPreviewCost, hooks } from './input.js';
 import { callWaveEarly, compass, fighterCap, barracksCap, enemiesAlive } from './combat.js';
@@ -16,6 +17,7 @@ const ICON = {
   stone: '<svg viewBox="0 0 24 24"><path d="M2.5 17.5l3-8.5 6.5-4.5 7 3 2.5 8.5-5 4.5H7.5z" fill="#b0aca3"/><path d="M12 4.5l-2.2 7.8 10.6 3.3M9.8 12.3l-4.3 5" stroke="#807b73" stroke-width="1.3" fill="none"/></svg>',
   iron: '<svg viewBox="0 0 24 24"><path d="M3 17.5l3.2-8h11.6l3.2 8z" fill="#7f97ad"/><path d="M6.2 9.5h11.6l1.6 3.8H4.6z" fill="#bccbd9"/><path d="M8 7l2-3h4l2 3z" fill="#9fb3c6"/></svg>',
   gold: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="#f2c94c"/><circle cx="12" cy="12" r="6.6" fill="none" stroke="#c4952a" stroke-width="1.6"/><path d="M12 7.6v8.8" stroke="#c4952a" stroke-width="2"/></svg>',
+  science: '<svg viewBox="0 0 24 24"><path d="M9 2h6v2h-1v5l6 10c.8 1.4-.2 3-1.8 3H5.8c-1.6 0-2.6-1.6-1.8-3l6-10V4H9z" fill="#c9e3f2"/><path d="M6.5 16h11l1.6 2.8c.3.6-.1 1.2-.7 1.2H5.6c-.6 0-1-.6-.7-1.2z" fill="#7cc8ff"/></svg>',
   pop: '<svg viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="4.2" fill="#a9cdff"/><path d="M3.5 22c0-5.4 3.8-8.6 8.5-8.6s8.5 3.2 8.5 8.6z" fill="#a9cdff"/></svg>',
   road: '<svg viewBox="0 0 24 24"><path d="M8 2L3 22h18L16 2z" fill="#c9b48b"/><path d="M12 4v3M12 10v3M12 16v4" stroke="#fff" stroke-width="1.6"/></svg>',
   bulldoze: '<svg viewBox="0 0 24 24"><rect x="3" y="11" width="12" height="6" rx="1" fill="#e2a73a"/><rect x="6" y="6" width="6" height="5" fill="#e2a73a"/><rect x="7" y="7" width="4" height="3" fill="#9fd2ec"/><path d="M15 9l5 2v8h-5" fill="#888"/><circle cx="6" cy="19" r="2" fill="#333"/><circle cx="12" cy="19" r="2" fill="#333"/></svg>',
@@ -56,6 +58,8 @@ export function initUI(handlers) {
       <div id="wb-timer">2:30</div>
       <div id="wb-bar"><div></div></div>
       <div id="wb-intel"></div>
+      <div id="wb-era"></div>
+      <button id="wb-age" class="btn small">Advance age (G)</button>
       <button id="wb-early" class="btn small">Send it now <span></span> (N)</button>
     </div>
     <div id="speedbox">
@@ -91,6 +95,7 @@ export function initUI(handlers) {
   }
   $('#menu-btn').addEventListener('click', () => openPause());
   $('#wb-early').addEventListener('click', () => sendEarly());
+  $('#wb-age').addEventListener('click', () => doAdvanceEra());
   for (const b of root.querySelectorAll('#buildbox .tabs button')) {
     b.addEventListener('click', () => { setCategory(b.dataset.cat); sfx('click'); });
   }
@@ -137,7 +142,7 @@ function buildList() {
     const d = BUILDINGS[type];
     return `<button class="bbtn" data-type="${type}" data-tip="b-${type}">
       <img src="${UI.thumbs[type] || ''}" alt="">
-      <div class="bb-txt"><div class="bb-name">${d.name}</div><div class="bb-cost">${costHTML(d.cost)}</div></div>
+      <div class="bb-txt"><div class="bb-name">${eraName(type, G.era || 0, d.name)}</div><div class="bb-cost">${costHTML(d.cost)}</div></div>
       <kbd>${(k + 1) % 10}</kbd><i class="lock">🔒</i></button>`;
   }).join('');
   for (const b of list.querySelectorAll('.bbtn')) {
@@ -153,7 +158,7 @@ function setCategory(cat) {
 }
 
 function pickBuilding(type) {
-  if (!isUnlocked(type)) { toast(`Research ${RESEARCH_BY_ID[BUILDINGS[type].requires].name} first (T)`, 'bad'); sfx('error'); return; }
+  if (!isUnlocked(type)) { toast(lockReason(type), 'bad'); sfx('error'); return; }
   if (BUILDINGS[type].unique && G.buildings.some((b) => b.type === type)) { toast('Only one can be built', 'bad'); sfx('error'); return; }
   toggleTool({ kind: 'build', type });
 }
@@ -197,8 +202,8 @@ function tipFor(key) {
       extra = `<div class="tip-stats"><span>Damage ${Math.round(w.dmg * G.mod.dmg)}${w.splash ? ' (area)' : ''}</span><span>Range ${(w.range * G.mod.range).toFixed(1)}</span><span>Rate ${(w.rate * G.mod.rate).toFixed(2)}/s</span><span>Hits: ${tg}</span></div>`;
     }
     if (d.jobs) extra += `<div class="tip-sub">Workers: ${d.jobs}</div>`;
-    const req = d.requires && !isUnlocked(type) ? `<div class="tip-bad">Requires research: ${RESEARCH_BY_ID[d.requires].name}</div>` : '';
-    return `<div class="tip-title">${d.name}</div><div>${d.desc}</div>${extra}<div class="tip-cost">${costHTML(d.cost)}</div>${req}`;
+    const req = !isUnlocked(type) ? `<div class="tip-bad">${lockReason(type)}</div>` : '';
+    return `<div class="tip-title">${eraName(type, G.era || 0, d.name)}</div><div>${d.desc}</div>${extra}<div class="tip-cost">${costHTML(d.cost)}</div>${req}`;
   }
   if (key === 'tool-road') return `<div class="tip-title">Road</div><div>Click and drag to lay a road. Buildings only work when a road links them to the Town Hall.</div><div class="tip-cost">${costHTML(ROAD_COST)} per tile</div>`;
   if (key === 'tool-bulldoze') return '<div class="tip-title">Bulldoze</div><div>Click or drag to demolish buildings, roads and rubble. Buildings refund half their cost.</div>';
@@ -307,7 +312,7 @@ function renderInfo() {
   } else {
     const b = s, d = b.def;
     box.innerHTML = `
-      <div class="ip-head"><img src="${UI.thumbs[b.type] || ''}"><div><div class="ip-name">${d.name}</div><div class="ip-sub" data-k="lvl"></div></div><button class="ip-x" data-act="close">✕</button></div>
+      <div class="ip-head"><img src="${UI.thumbs[b.type] || ''}"><div><div class="ip-name">${eraName(b.type, G.era || 0, d.name)}</div><div class="ip-sub" data-k="lvl"></div></div><button class="ip-x" data-act="close">✕</button></div>
       <div class="hpbar"><div data-k="hpfill"></div><span data-k="hptext"></span></div>
       <div class="ip-status" data-k="status"></div>
       <div class="ip-stats" data-k="stats"></div>
@@ -529,6 +534,8 @@ const HELP = `
       <p><b>Roads</b> connect everything: a building only works if it sits beside a road that leads back to the Town Hall.</p>
       <p><b>Houses</b> bring residents who pay taxes in gold, eat food and work in your buildings. If there are more jobs than people, everything slows down.</p>
       <p><b>Farms</b> and <b>docks</b> feed people. <b>Lumber camps</b> want forest next to them, <b>quarries</b> want hills or mountains, <b>iron mines</b> go on hills.</p>
+      <h3>Ages</h3>
+      <p>You begin in the <b>Stone Age</b>. Every 3 waves the raiders arrive from a later age: canoes and tribal warriors, then longships, galleons, ironclads and finally nuclear jets. Build <b>Libraries</b> and staff them with workers to produce <b>science</b>, then press <b>G</b> to advance your own age. Each age makes every weapon stronger and unlocks new defences (cannons, flak, radar, missiles, airfields). Fall behind the raiders' age and your defences barely scratch them.</p>
       <h3>Defence</h3>
       <p><b>MG nests</b> stop landing troops. <b>Coastal guns</b> outrange ships. <b>Flak</b> shoots down aircraft. <b>Barracks</b> train marines who hunt landing parties.</p>
       <p>Build a <b>War College</b> to research better weapons, <b>Radar</b>, <b>Missile batteries</b> and an <b>Airfield</b> of interceptors. Select any building to upgrade it.</p>
@@ -550,6 +557,7 @@ const HELP = `
         <tr><td>U</td><td>Upgrade selected</td></tr>
         <tr><td>T</td><td>Research</td></tr>
         <tr><td>N</td><td>Send the next wave now (bonus gold)</td></tr>
+        <tr><td>G</td><td>Advance to the next age (costs science)</td></tr>
         <tr><td>Space</td><td>Pause</td></tr>
         <tr><td>+ / −</td><td>Game speed</td></tr>
         <tr><td>H</td><td>Jump to the Town Hall</td></tr>
@@ -666,6 +674,11 @@ function updateSpeedButtons() {
   $('#paused-banner').classList.toggle('hidden', !(G.paused && !UI.modal));
 }
 
+function doAdvanceEra() {
+  const p = advanceEra();
+  if (p) { toast(p, 'bad'); sfx('error'); } else { sfx('upgrade'); buildList(); }
+}
+
 function sendEarly() {
   const g = callWaveEarly();
   if (g) { toast(`Wave called early: +${g} gold`, 'good'); sfx('click'); }
@@ -703,6 +716,7 @@ function onKey(e) {
     if (G.selected && G.selected.def) infoAction('demolish'); else toggleTool({ kind: 'bulldoze' });
   } else if (k === 'KeyT') openResearch();
   else if (k === 'KeyN') sendEarly();
+  else if (k === 'KeyG') doAdvanceEra();
   else if (k === 'KeyU') { if (G.selected && G.selected.def && G.selected.def.upgradeCost) infoAction('upgrade'); }
   else if (k === 'Tab') setCategory(UI.cat === 'city' ? 'military' : 'city');
   else if (k === 'KeyH' || k === 'Home') { if (G.hq) focus(G.hq.x, G.hq.z + 3); }
@@ -756,6 +770,15 @@ export function updateHUD(dt, perf) {
   const w = G.wave;
   const hasRadar = G.buildings.some((b) => b.type === 'radar' && b.connected);
   setText($('#wb-name'), `Wave ${w.state === 'prep' ? w.n : w.current}`);
+  {
+    const mine = G.era || 0, theirs = enemyEra(w.state === 'prep' ? w.n : w.current), cost = nextEraCost();
+    const gap = theirs - mine;
+    setHTML($('#wb-era'), `<div class="era-row"><span>Your age</span><b>${ERAS[mine].name}</b></div><div class="era-row"><span>Raiders</span><b class="${gap > 0 ? 'bad' : ''}">${ERAS[theirs].name}</b></div>` +
+      (gap > 0 ? `<div class="era-warn">You are ${gap} age${gap > 1 ? 's' : ''} behind: your weapons hit at ${Math.round(Math.pow(0.6, gap) * 100)}%</div>` : ''));
+    const ab = $('#wb-age');
+    ab.disabled = cost == null || G.res.science < cost;
+    setText(ab, cost == null ? 'Final age reached' : `Advance to ${ERAS[mine + 1].name} · ${cost} science (G)`);
+  }
   setText($('#wb-goal'), G.victory ? 'endless' : `of ${VICTORY_WAVE}`);
   const bar = $('#wb-bar div');
   const early = $('#wb-early');
@@ -768,7 +791,7 @@ export function updateHUD(dt, perf) {
     let intel = '';
     if (plan) {
       if (hasRadar) {
-        intel = Object.keys(plan.counts).map((t) => `<span class="ei ${ENEMIES[t].domain}">${plan.counts[t]}× ${ENEMIES[t].name}</span>`).join('');
+        intel = Object.keys(plan.counts).map((t) => `<span class="ei ${ENEMIES[t].domain}">${plan.counts[t]}× ${eraName(t, enemyEra(w.n), ENEMIES[t].name)}</span>`).join('');
       } else {
         let sea = 0, air = 0;
         for (const t in plan.counts) (ENEMIES[t].domain === 'air' ? (air += plan.counts[t]) : (sea += plan.counts[t]));

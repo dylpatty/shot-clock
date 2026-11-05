@@ -1,7 +1,33 @@
 import { T } from './world.js';
 
-export const RES = ['food', 'wood', 'stone', 'iron', 'gold'];
-export const RES_NAME = { food: 'Food', wood: 'Wood', stone: 'Stone', iron: 'Iron', gold: 'Gold' };
+export const RES = ['food', 'wood', 'stone', 'iron', 'gold', 'science'];
+export const RES_NAME = { food: 'Food', wood: 'Wood', stone: 'Stone', iron: 'Iron', gold: 'Gold', science: 'Science' };
+
+// Ages. You start in the Stone Age; raiders advance one age every 3 waves. Science buys your next age, which
+// strengthens every weapon. Falling behind the enemy's age cripples your defences.
+export const ERAS = [
+  { name: 'Stone Age', science: 0 }, { name: 'Bronze Age', science: 60 }, { name: 'Iron Age', science: 140 },
+  { name: 'Medieval', science: 260 }, { name: 'Renaissance', science: 420 }, { name: 'Industrial', science: 640 },
+  { name: 'Modern', science: 920 }, { name: 'Atomic', science: 1300 },
+];
+export const enemyEra = (wave) => Math.min(ERAS.length - 1, Math.floor((Math.max(1, wave) - 1) / 3));
+const ERA_NAMES = {
+  mg: ['Spear Wall', 'Archer Post', 'Archer Tower', 'Crossbow Tower', 'Musket Post', 'Gatling Nest', 'MG Nest', 'Laser Turret'],
+  coastal: ['Sling Pit', 'Catapult', 'Ballista', 'Trebuchet', 'Cannon Battery', 'Coastal Gun', 'Coastal Gun', 'Railgun'],
+  barracks: ['Warband Hut', 'Spear Barracks', 'Legion Barracks', 'Knights Hall', 'Musketeer Barracks', 'Rifle Barracks', 'Marine Barracks', 'Exo-Trooper Barracks'],
+  gunboat: ['War Canoe', 'Raider Galley', 'Bireme', 'Longship', 'Caravel', 'Gunboat', 'Patrol Boat', 'Hover Gunship'],
+  landing: ['Raft', 'Reed Boat', 'Troop Galley', 'Landing Longship', 'Landing Boat', 'Landing Craft', 'Landing Craft', 'Assault Hover'],
+  destroyer: ['War Galley', 'War Galley', 'Trireme', 'Cog Warship', 'Galleon', 'Ironclad', 'Destroyer', 'Stealth Destroyer'],
+  battleship: ['Flagship', 'Flagship', 'Quinquereme', 'Great Ship', 'Ship of the Line', 'Dreadnought', 'Battleship', 'Nuclear Carrier'],
+  fighter: ['', '', '', '', '', 'Biplane', 'Dive Bomber', 'Jet Fighter'],
+  bomber: ['', '', '', '', '', 'Zeppelin', 'Heavy Bomber', 'Nuclear Bomber'],
+  jet: ['', '', '', '', '', 'Strike Plane', 'Strike Jet', 'Nuclear Jet'],
+  infantry: ['Tribal Raider', 'Bronze Warrior', 'Legionary', 'Knight', 'Musketeer', 'Rifleman', 'Marine', 'Exo-Trooper'],
+};
+export function eraName(key, era, fallback) {
+  const l = ERA_NAMES[key];
+  return (l && l[Math.min(era, l.length - 1)]) || fallback;
+}
 
 const BUILDABLE = [T.SAND, T.GRASS, T.FOREST, T.HILLS];
 const FLAT = [T.SAND, T.GRASS, T.FOREST];
@@ -49,6 +75,11 @@ export const BUILDINGS = {
     name: 'Market', cat: 'city', cost: { wood: 30, stone: 20, gold: 40 }, hp: 200, jobs: 2, terrain: BUILDABLE, radius: 7.5,
     desc: 'Houses within reach pay 50% more tax. Traders here sell wood, stone, iron and food for gold.',
   },
+  library: {
+    name: 'Library', cat: 'city', cost: { wood: 30, stone: 15, gold: 10 }, hp: 200, jobs: 3, terrain: BUILDABLE, maxLevel: 3,
+    upgradeCost: (l) => ({ wood: 30 * l, stone: 30 * l, gold: 25 * l }),
+    desc: 'Scholars produce 10 science a minute (+35% per upgrade). Science advances your age; keep up with the raiders.',
+  },
   college: {
     name: 'War College', cat: 'city', cost: { wood: 50, stone: 50, gold: 120 }, hp: 400, jobs: 3, terrain: BUILDABLE, unique: true,
     desc: 'Unlocks military research (press T). Only one can be built.',
@@ -61,13 +92,13 @@ export const BUILDINGS = {
     desc: 'Rapid fire at short range. Shreds landing troops and small boats, and can harass low aircraft.',
   },
   coastal: {
-    name: 'Coastal Gun', cat: 'military', cost: { wood: 10, stone: 35, gold: 50 }, hp: 420, jobs: 2, terrain: BUILDABLE, maxLevel: 3,
+    era: 1, name: 'Coastal Gun', cat: 'military', cost: { wood: 10, stone: 35, gold: 50 }, hp: 420, jobs: 2, terrain: BUILDABLE, maxLevel: 3,
     upgradeCost: (l) => ({ stone: 40 * l, iron: 15 * l, gold: 40 * l }),
     weapon: { kind: 'shell', range: 13, dmg: 70, rate: 1 / 3, splash: 1.6, targets: { sea: 1, ground: 0.8 }, headY: 0.32, muzzle: 0.85, aim: 0.25 },
     desc: 'Heavy artillery. Long range shells that hit ships and troops on the beach. Cannot hit aircraft.',
   },
   flak: {
-    name: 'Flak Cannon', cat: 'military', cost: { stone: 30, iron: 15, gold: 40 }, hp: 300, jobs: 2, terrain: BUILDABLE, maxLevel: 3,
+    era: 5, name: 'Flak Cannon', cat: 'military', cost: { stone: 30, iron: 15, gold: 40 }, hp: 300, jobs: 2, terrain: BUILDABLE, maxLevel: 3,
     upgradeCost: (l) => ({ stone: 30 * l, iron: 25 * l, gold: 40 * l }),
     weapon: { kind: 'flak', range: 11, dmg: 22, rate: 1.1, splash: 2.1, targets: { air: 1 }, headY: 0.3, muzzle: 0.5, aim: 0.5 },
     desc: 'Anti-aircraft gun. Its airburst shells damage every plane caught in the blast.',
@@ -79,18 +110,18 @@ export const BUILDINGS = {
     desc: 'Trains marines (4, +2 per upgrade) that hunt down enemy landing parties near the barracks.',
   },
   radar: {
-    name: 'Radar Station', cat: 'military', cost: { stone: 40, iron: 30, gold: 60 }, hp: 250, jobs: 2, terrain: BUILDABLE, requires: 'radar', radius: 11,
+    era: 5, name: 'Radar Station', cat: 'military', cost: { stone: 40, iron: 30, gold: 60 }, hp: 250, jobs: 2, terrain: BUILDABLE, requires: 'radar', radius: 11,
     weapon: null, spin: true, headY: 0.55,
     desc: 'Weapons within reach get +20% range. Reveals what every raid is bringing and where it will come from.',
   },
   missile: {
-    name: 'Missile Battery', cat: 'military', cost: { stone: 40, iron: 60, gold: 120 }, hp: 360, jobs: 3, terrain: BUILDABLE, requires: 'rocketry', maxLevel: 3,
+    era: 6, name: 'Missile Battery', cat: 'military', cost: { stone: 40, iron: 60, gold: 120 }, hp: 360, jobs: 3, terrain: BUILDABLE, requires: 'rocketry', maxLevel: 3,
     upgradeCost: (l) => ({ stone: 30 * l, iron: 50 * l, gold: 80 * l }),
     weapon: { kind: 'missile', range: 17, dmg: 130, rate: 0.25, splash: 1.2, targets: { air: 1, sea: 1 }, headY: 0.28, muzzle: 0.3, aim: 0.6 },
     desc: 'Guided missiles with the longest reach on the island. Hits ships and aircraft.',
   },
   airfield: {
-    name: 'Airfield', cat: 'military', cost: { wood: 60, stone: 80, iron: 50, gold: 150 }, hp: 520, jobs: 6, terrain: FLAT, requires: 'aviation', maxLevel: 3,
+    era: 5, name: 'Airfield', cat: 'military', cost: { wood: 60, stone: 80, iron: 50, gold: 150 }, hp: 520, jobs: 6, terrain: FLAT, requires: 'aviation', maxLevel: 3,
     upgradeCost: (l) => ({ stone: 60 * l, iron: 60 * l, gold: 100 * l }),
     units: 3,
     desc: 'Home to interceptor fighters (3, +1 per upgrade) that chase down bombers and strafe ships.',
@@ -98,7 +129,7 @@ export const BUILDINGS = {
 };
 
 export const BUILD_ORDER = {
-  city: ['house', 'farm', 'dock', 'lumber', 'quarry', 'mine', 'market', 'college'],
+  city: ['house', 'farm', 'dock', 'lumber', 'quarry', 'mine', 'library', 'market', 'college'],
   military: ['mg', 'coastal', 'flak', 'barracks', 'radar', 'missile', 'airfield'],
 };
 export const BUILD_TYPES = Object.keys(BUILDINGS);
@@ -108,11 +139,11 @@ export const ROAD_COST = { gold: 2 };
 export const ENEMIES = {
   gunboat: { name: 'Gunboat', domain: 'sea', hp: 80, speed: 2.6, turn: 1.6, range: 7, dmg: 8, rate: 0.7, splash: 0.7, bounty: 8, cost: 6, minWave: 1, weight: 3, radius: 0.6 },
   landing: { name: 'Landing Craft', domain: 'sea', hp: 110, speed: 2.2, turn: 1.4, troops: 3, bounty: 10, cost: 8, minWave: 1, weight: 2.2, radius: 0.6 },
-  destroyer: { name: 'Destroyer', domain: 'sea', hp: 460, speed: 1.8, turn: 0.9, range: 11, dmg: 32, rate: 0.33, splash: 1.1, bounty: 30, cost: 22, minWave: 5, weight: 1.6, radius: 1.0 },
+  destroyer: { name: 'Destroyer', domain: 'sea', hp: 460, speed: 1.8, turn: 0.9, range: 11, dmg: 32, rate: 0.33, splash: 1.1, bounty: 30, cost: 22, minWave: 7, weight: 1.6, radius: 1.0 },
   battleship: { name: 'Battleship', domain: 'sea', hp: 2000, speed: 1.1, turn: 0.5, range: 15, dmg: 55, rate: 0.5, splash: 1.5, bounty: 200, cost: 110, minWave: 10, weight: 0, radius: 1.5 },
-  fighter: { name: 'Dive Bomber', domain: 'air', hp: 70, speed: 7, turn: 1.4, alt: 5, bombs: 2, bombDmg: 55, splash: 1.3, bounty: 12, cost: 8, minWave: 3, weight: 2.4, radius: 0.6 },
-  bomber: { name: 'Heavy Bomber', domain: 'air', hp: 340, speed: 4.4, turn: 0.5, alt: 8, bombs: 8, bombDmg: 36, splash: 1.4, bounty: 40, cost: 30, minWave: 7, weight: 1.1, radius: 1.2 },
-  jet: { name: 'Strike Jet', domain: 'air', hp: 150, speed: 12, turn: 1.3, alt: 6, rockets: 4, rocketDmg: 40, splash: 1.0, bounty: 30, cost: 26, minWave: 12, weight: 1.3, radius: 0.6 },
+  fighter: { name: 'Dive Bomber', domain: 'air', hp: 70, speed: 7, turn: 1.4, alt: 5, bombs: 2, bombDmg: 55, splash: 1.3, bounty: 12, cost: 8, minWave: 16, weight: 2.4, radius: 0.6 },
+  bomber: { name: 'Heavy Bomber', domain: 'air', hp: 340, speed: 4.4, turn: 0.5, alt: 8, bombs: 8, bombDmg: 36, splash: 1.4, bounty: 40, cost: 30, minWave: 19, weight: 1.1, radius: 1.2 },
+  jet: { name: 'Strike Jet', domain: 'air', hp: 150, speed: 12, turn: 1.3, alt: 6, rockets: 4, rocketDmg: 40, splash: 1.0, bounty: 30, cost: 26, minWave: 22, weight: 1.3, radius: 0.6 },
   infantry: { name: 'Marine Raider', domain: 'ground', hp: 35, speed: 1.3, range: 2.4, dmg: 5, rate: 1, bounty: 2, radius: 0.3 },
 };
 
