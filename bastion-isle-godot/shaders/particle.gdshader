@@ -1,0 +1,31 @@
+// Camera-facing soft particles. INSTANCE_CUSTOM = colour + alpha. Mix (smoke) or add (fire, flashes).
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, blend_mix;
+
+uniform float softness = 1.0;
+uniform float additive = 0.0;
+
+varying vec4 pc;
+
+void vertex() {
+	pc = INSTANCE_CUSTOM;
+	float s = length(MODEL_MATRIX[0].xyz);
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);
+	MODELVIEW_MATRIX = MODELVIEW_MATRIX * mat4(vec4(s, 0.0, 0.0, 0.0), vec4(0.0, s, 0.0, 0.0), vec4(0.0, 0.0, s, 0.0), vec4(0.0, 0.0, 0.0, 1.0));
+}
+
+void fragment() {
+	vec2 p = UV * 2.0 - 1.0;
+	float r = length(p);
+	float a = 1.0 - smoothstep(0.35 * softness, 1.0, r);
+	float lumpy = 0.85 + 0.15 * sin(atan(p.y, p.x) * 5.0 + pc.a * 9.0);
+	a *= smoothstep(1.0, 0.6, r / lumpy);
+	vec3 c = pc.rgb;
+	if (additive > 0.5) {
+		ALBEDO = c * a * pc.a;
+		ALPHA = a * pc.a * 0.0 + a * pc.a;
+	} else {
+		ALBEDO = c * (0.85 + 0.15 * (1.0 - r));
+		ALPHA = a * pc.a;
+	}
+}
