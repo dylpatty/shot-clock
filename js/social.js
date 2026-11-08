@@ -438,13 +438,24 @@ NBA.pollHooks.push({ run: () => UI.route().tab === 'social' ? NBA.need('social')
     dy = 0;
   };
   addEventListener('touchstart', e => { if (e.touches.length === 1 && startOk(e.target)) { y0 = e.touches[0].clientY; dy = 0; mouse = false; } }, { passive: true });
-  addEventListener('touchmove', e => {
+  const move = e => {
     if (y0 == null || mouse) return;
     dy = e.touches[0].clientY - y0;
     if (dy <= 0 || scrollY > 0) { dy = 0; show(0); return; }
     if (e.cancelable) e.preventDefault(); // hold the page still (no rubber band) while pulling
     show(dy);
-  }, { passive: false });
+  };
+  // A touchmove listener that can cancel makes the browser wait on it before every scroll, so it's only there on the
+  // Social tab: on every other tab (the Schedule above all) a finger scrolls the page straight away
+  let bound = false;
+  const sync = () => {
+    if (onTab() === bound) return;
+    bound = !bound;
+    if (bound) addEventListener('touchmove', move, { passive: false });
+    else removeEventListener('touchmove', move);
+  };
+  addEventListener('hashchange', () => setTimeout(sync, 0));
+  NBA.socialPull = sync;
   addEventListener('touchend', end, { passive: true });
   addEventListener('touchcancel', () => { dy = 0; end(); }, { passive: true });
   // Every press starts clean: a drag whose click never came (its card was repainted away) can't eat the next click
@@ -463,6 +474,7 @@ NBA.pollHooks.push({ run: () => UI.route().tab === 'social' ? NBA.need('social')
 /* Show more as the end of the list comes into view */
 let io = null;
 NBA.after.social = view => {
+  NBA.socialPull(); // pull-to-refresh's touch listener goes on with the tab (and comes off with it)
   const s = view.querySelector('.soc-sentinel');
   if (!('IntersectionObserver' in window)) return;
   if (io) io.disconnect();
