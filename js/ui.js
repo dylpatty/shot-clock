@@ -313,9 +313,14 @@ function renderView() {
 }
 // Each part renders on its own, so one that throws on odd ESPN data can't leave the page frozen or stop an open game updating
 const safe = (name, f) => { try { f(); return false; } catch (e) { console.error(name, e); return true; } };
+// Up to this width the game window (and a player card) fills the whole screen, the same breakpoint as the stylesheet
+const FULL = matchMedia('(max-width:760px)');
 NBA.render = () => {
   safe('header', () => { renderHeader(); renderTabs(); renderTitle(); });
-  if (safe('view', renderView)) {
+  // A page nobody can see isn't rebuilt on every live poll: under a full-screen game window it waits, and closing the
+  // window paints it (UI.closeAll). The window loads what it needs itself, so nothing in it depends on the page
+  const covered = UI.drawer && FULL.matches;
+  if (!covered && safe('view', renderView)) {
     UI.paint($('#view'), `<section class="sec"><p class="empty">Something in ESPN's data broke this page. It will try again on the next refresh.</p></section>`);
     UI.paint($('#season'), ''); UI.paint($('#pband'), '');
   }
@@ -337,6 +342,10 @@ function lock(on) {
   if (on !== b.classList.contains('locked')) b.style.paddingRight = on ? Math.max(0, innerWidth - document.documentElement.clientWidth) + 'px' : '';
   b.classList.toggle('locked', on);
   $('#scrim').hidden = !on;
+  // The scrim stops the mouse but not the Tab key: the page behind an open game or Settings is made inert, so Tab stays
+  // in the window and Enter can't change the tab underneath it. The windows, the scrim and the video player are siblings
+  // of these, so they stay usable (older browsers ignore inert, which is no worse than before)
+  ['#top', '#pband', '#view', '#season', '#ask-panel', 'footer.foot'].forEach(s => { const n = $(s); if (n) n.inert = on; });
 }
 UI.closeAll = fromHistory => {
   const had = UI.drawer || UI.settingsOpen;
@@ -345,6 +354,8 @@ UI.closeAll = fromHistory => {
   lock(false);
   if (UI.histPushed) { UI.histPushed = false; if (fromHistory !== true) history.back(); }
   if (had && UI.lastFocus instanceof Node && document.contains(UI.lastFocus)) UI.lastFocus.focus();
+  // The page under a full-screen window waited (see NBA.render): it catches up as soon as the window closes
+  if (had) NBA.changed();
 };
 /* The game view takes a history entry, so the browser's back button or a phone's back swipe closes it */
 window.addEventListener('popstate', () => { if (UI.drawer || UI.settingsOpen) UI.closeAll(true); else UI.histPushed = false; });
@@ -574,7 +585,7 @@ function renderDrawer() {
   }
   // Matchup is there before tip-off, and stays for a game that tips off while it's open on that tab
   const tabs = [...(state === 'pre' || d.tab === 'preview' ? [['preview', 'Matchup']] : []), ['box', 'Box score'], ['team', 'Team stats'], ['plays', 'Plays'], ['wp', 'Win chance']];
-  html += `<div class="dtabs dpad" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-act="dtab" data-v="${k}" aria-selected="${d.tab === k}">${l}</button>`).join('')}</div>`;
+  const tabBar = `<div class="dtabs dpad" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-act="dtab" data-v="${k}" aria-selected="${d.tab === k}">${l}</button>`).join('')}</div>`;
   // The win chance chart is drawn at the pane's real width, so its labels keep their size on a phone. The width
   // ends up in the HTML, so a rotation redraws it on the next render
   WP.W = Math.max(280, Math.min(1100, Math.round(el.clientWidth - (innerWidth <= 640 ? 28 : 44))));
@@ -586,22 +597,39 @@ function renderDrawer() {
   else if (d.tab === 'team') pane = paneTeam(data);
   else if (d.tab === 'plays') pane = panePlays(d, data);
   else pane = paneWp(data);
-  html += `<div class="pane dpad" role="tabpanel">${pane}</div>`;
   // Postgame interviews and related videos from YouTube (or the run-up, before tip-off), under the box score and the
   // other tabs: js/videos.js
-  if (away && home && NBA.gameVideos && !pp) html += NBA.gameVideos({ id: d.id, date: (data && data.date) || (g && g.date), away, home }, state);
+  const vids = away && home && NBA.gameVideos && !pp ? NBA.gameVideos({ id: d.id, date: (data && data.date) || (g && g.date), away, home }, state) : '';
   const top = el.scrollTop;
-  // Live refreshes rebuild the tables, so keep each one scrolled sideways where it was (not on a freshly opened game)
-  const xs = el._html ? [...el.querySelectorAll('.tblwrap')].map(w => w.scrollLeft) : [];
-  if (UI.paint(el, html)) {
-    el.querySelectorAll('.tblwrap').forEach((w, i) => { if (xs[i]) w.scrollLeft = xs[i]; });
+  // The window is painted in parts, so a live poll rebuilds only what changed (the score at the top and the open tab),
+  // not the tab bar or the row of video stills. openGame and drawerback clear el._html, which puts in a fresh frame
+  UI.paint(el, DR_FRAME);
+  const [pTop, pTabs, pPane, pVids] = ['#dr-top', '#dr-tabs', '#dr-pane', '#dr-vids'].map(s => el.querySelector(s));
+  if (!pPane) return;
+  paintPart(pTop, html, d.id);
+  paintPart(pTabs, tabBar, d.id);
+  // A finger scrubbing the win chance chart keeps it (see bindWp); letting go paints what came in meanwhile
+  const held = d.tab === 'wp' && UI.wpHold && pPane.contains(UI.wpHold);
+  if (!held && paintPart(pPane, pane, d.id + '/' + d.tab)) {
     // On a phone, stay on the team being looked at
-    const bs = el.querySelector('.box-swipe');
+    const bs = pPane.querySelector('.box-swipe');
     if (bs && d.boxIdx) bs.scrollLeft = d.boxIdx * bs.clientWidth;
-    // Setting scrollTop stops an iPhone flick mid-glide, so only put it back if the repaint moved it
-    if (el.scrollTop !== top) el.scrollTop = top;
     if (data && d.tab === 'wp') bindWp(data);
   }
+  UI.paint(pVids, vids);
+  // Setting scrollTop stops an iPhone flick mid-glide, so only put it back if the repaint moved it
+  if (el.scrollTop !== top) el.scrollTop = top;
+}
+// The game window's parts. display:contents keeps the close bar and the tab bar sticking to the window as they did
+const DR_FRAME = '<div class="dr-part" id="dr-top"></div><div class="dr-part" id="dr-tabs"></div><div class="pane dpad" id="dr-pane" role="tabpanel"></div><div class="dr-part" id="dr-vids"></div>';
+// Live refreshes rebuild a part's tables (the line score, the box score), so each keeps its sideways scroll, as long as
+// the part still shows the same thing (key: the game, and for the pane its tab)
+function paintPart(n, html, key) {
+  const xs = n._key === key ? [...n.querySelectorAll('.tblwrap')].map(w => w.scrollLeft) : [];
+  n._key = key;
+  if (!UI.paint(n, html)) return false;
+  n.querySelectorAll('.tblwrap').forEach((w, i) => { if (xs[i]) w.scrollLeft = xs[i]; });
+  return true;
 }
 /* Before tip-off: ESPN's predictor, each side's last 5, the season series, team leaders, injuries, the line and
    the preview story, all from the game's summary. A part ESPN hasn't posted is left out */
@@ -626,14 +654,34 @@ function paneMatchup(data, g) {
       const m = NBA.masked(x.id, x.date);
       return `<button class="mx-g ${m ? '' : x.res === 'W' ? 'w' : x.res === 'L' ? 'lo' : ''}" data-act="game" data-id="${esc(x.id)}"${m || x.my == null ? '' : ` title="${esc(`${x.res} ${x.my}-${x.their}`)}"`}><b>${m ? '•' : esc(x.res)}</b><small>${x.at === '@' ? '@' : 'vs'} ${esc(x.opp)}</small></button>`;
     };
-    out.push(`<div class="mx-sec"><h3 class="bx-team">Last 5 games</h3>${l5.map(([t, x]) => `<div class="mx-row">${tag(t)}<div class="mx-pills">${x.games.map(pill).join('')}</div></div>`).join('')}</div>`);
+    // Rest: the days since each side's latest game (the list runs oldest first), by Eastern date like the schedule
+    const rest = x => {
+      const last = x.games.reduce((m, e) => { const dd = e.date ? NBA.etDay(e.date) : ''; return dd > m ? dd : m; }, '');
+      const days = last && data.date ? Math.round((NBA.dateOfIso(NBA.etDay(data.date)) - NBA.dateOfIso(last)) / 864e5) : 0;
+      if (days < 1) return '';
+      const txt = days === 1 ? '2nd night of a back-to-back' : days >= 4 ? '3+ days of rest' : `${days - 1} day${days > 2 ? 's' : ''} of rest`;
+      return `<p class="mx-rest${days === 1 ? ' b2b' : ''}">${txt}</p>`;
+    };
+    out.push(`<div class="mx-sec"><h3 class="bx-team">Last 5 games</h3>${l5.map(([t, x]) => `<div class="mx-row">${tag(t)}<div class="mx-pills">${x.games.map(pill).join('')}</div></div>${rest(x)}`).join('')}</div>`);
   }
   const s = p.series;
   if (s && (s.summary || s.total)) {
     // Before the first meeting the summary ('Series starts 11/1') gives nothing away
     const txt = NBA.S.spoilers && s.done ? `${s.done} of ${s.total} meetings played` : s.summary || `${s.done} of ${s.total} meetings played`;
-    out.push(`<div class="mx-sec"><h3 class="bx-team">Season series</h3><p class="note">${esc(txt)}</p></div>`);
+    // The other meetings, each opening its game. In spoiler mode a played one stays a dot until it's opened, as strict
+    // as the line above (a meeting a week old would give away who leads); ones still to come show their date
+    const meet = e => {
+      const when = e.date ? NBA.fmtDate(e.date, { month: 'short', day: 'numeric' }) : '', where = e.home.abbr ? 'at ' + e.home.abbr : '';
+      const w = e.away.winner ? e.away : e.home.winner ? e.home : null, l = w === e.away ? e.home : e.away;
+      const res = !e.done ? '' : w ? `${w.abbr} ${w.score}-${l.score}` : `${e.away.score}-${e.home.score}`;
+      const hide = e.done && NBA.S.spoilers && !UI.st.revealed.has(e.id);
+      return `<button class="mx-g mx-mt" data-act="game" data-id="${esc(e.id)}"${res && !hide ? ` title="${esc(`${res}, ${when}`)}"` : ''}><b>${e.done ? (hide ? '•' : esc(res)) : esc(when)}</b><small>${esc(e.done ? [when, where].filter(Boolean).join(' · ') : where)}</small></button>`;
+    };
+    const games = s.games || [];
+    out.push(`<div class="mx-sec"><h3 class="bx-team">${s.type === 'playoff' ? 'Playoff series' : 'Season series'}</h3><p class="note">${esc(txt)}</p>${games.length ? `<div class="mx-pills mx-meet">${games.map(meet).join('')}</div>` : ''}</div>`);
   }
+  const tape = taleOfTape(data);
+  if (tape) out.push(`<div class="mx-sec"><h3 class="bx-team">Tale of the tape</h3>${tape}</div>`);
   const ld = per(p.leaders).filter(([, x]) => x.list.length);
   if (ld.length) {
     const unit = { points: 'PPG', rebounds: 'RPG', assists: 'APG' };
@@ -651,6 +699,45 @@ function paneMatchup(data, g) {
   }
   if (p.article) out.push(`<div class="mx-sec"><a class="ext" href="${esc(p.article.href)}" target="_blank" rel="noopener">Preview: ${esc(p.article.headline)} ↗</a></div>`);
   return out.length ? `<div class="mx">${out.join('')}</div>` : `<p class="empty">ESPN hasn't posted a preview for this game yet.</p>`;
+}
+/* The two teams' seasons side by side before tip-off (the Team stats tab is empty until then): ratings and shooting
+   with each team's league rank, then the records that matter here. Left out until the team stats or standings load */
+const TAPE = [['net', 'Net rating', v => (v > 0 ? '+' : '') + NBA.fix(v)], ['ortg', 'Offensive rating'], ['drtg', 'Defensive rating'],
+  ['pace', 'Pace', null, true], ['tpp', '3-point %', v => NBA.fix(v) + '%'], ['rpg', 'Rebounds'], ['tov', 'Turnovers']];
+function taleOfTape(data) {
+  const A = data.away, H = data.home;
+  if (!A || !H) return '';
+  const [ca, ch] = NBA.tones(A, H);
+  // Values come in escaped; better: -1 away, 1 home, 0 neither
+  const row = (label, va, vh, wa, wh, better) => `<div class="cmp-row"><div class="cmp-lbl">${label}</div>
+    <div class="cmp-bars"><span class="v${better < 0 ? ' b' : ''}">${va}</span>
+    <div class="hbar l"><i style="width:${wa.toFixed(1)}%;background:${ca}"></i></div>
+    <div class="hbar"><i style="width:${wh.toFixed(1)}%;background:${ch}"></i></div>
+    <span class="v${better > 0 ? ' b' : ''}">${vh}</span></div></div>`;
+  const ts = NBA.use('teamstats') || [], ta = ts.find(t => t.id === A.id), th = ts.find(t => t.id === H.id);
+  const rows = [];
+  // Bars are league rank (longer is better); each team's ranks already treat fewer turnovers and points allowed as better
+  if (ta && th && ta.rank && th.rank) TAPE.forEach(([k, label, fmt, neutral]) => {
+    const ra = ta.rank[k], rh = th.rank[k];
+    if (!ra || !rh || !Number.isFinite(ta[k]) || !Number.isFinite(th[k])) return;
+    const v = (t, r) => `${esc((fmt || NBA.fix)(t[k]))}<small>${NBA.ord(r)}</small>`;
+    rows.push(row(esc(label), v(ta, ra), v(th, rh), (31 - ra) / 30 * 100, (31 - rh) / 30 * 100, neutral || ra === rh ? 0 : ra < rh ? -1 : 1));
+  });
+  // Records from the standings: overall, then the away side on the road against the home side at home
+  const st = (NBA.use('standings') || []).flatMap(c => c.rows), sa = st.find(r => r.id === A.id), sh = st.find(r => r.id === H.id);
+  const pct = s => { const m = /^(\d+)-(\d+)$/.exec(s || ''); return m && +m[1] + +m[2] ? +m[1] / (+m[1] + +m[2]) : null; };
+  const rec = (label, a, h) => {
+    const pa = pct(a), ph = pct(h);
+    if (pa == null || ph == null) return;
+    rows.push(row(label, esc(a), esc(h), pa * 100, ph * 100, pa === ph ? 0 : pa > ph ? -1 : 1));
+  };
+  if (sa && sh) {
+    rec('Record', `${sa.w}-${sa.l}`, `${sh.w}-${sh.l}`);
+    rec(`${esc(A.abbr)} on the road · ${esc(H.abbr)} at home`, sa.road, sh.home);
+  }
+  if (!rows.length) return '';
+  return `<div class="cmp tape"><div class="cmp-head"><span></span><span>${esc(A.abbr)}</span><span>${esc(H.abbr)}</span><span></span></div>${rows.join('')}</div>
+    <p class="note">The better side is bold. Under each stat is the team's league rank, which its bar shows: longer is better (for pace, faster), so fewer turnovers and a lower defensive rating rank higher. Record bars show winning percentage.</p>`;
 }
 function paneBox(d, data) {
   const S = NBA.S;
@@ -735,29 +822,45 @@ function panePlays(d, data) {
     ${!d.showAll && total > 60 ? `<button class="btn" data-act="allplays">Show all ${total} plays</button>` : ''}`;
 }
 const WP = { W: 640, H: 230, l: 44, r: 64, t: 14, b: 26 };
-function wpGeom(n) {
+/* The chart runs on the game clock: 12-minute quarters across the width, and 5 minutes more for each overtime played.
+   A live game's line stops partway, with what's left of the game still empty. Each point takes its play's time; one
+   without a usable play or clock keeps the time before it, and time never runs backwards */
+const perStart = p => p <= 4 ? (p - 1) * 720 : 2880 + (p - 5) * 300;
+function wpTimes(data) {
+  const pm = new Map(data.plays.map(p => [p.id, p]));
+  let t = 0, top = 4;
+  const ts = data.wp.map(w => {
+    const pl = pm.get(String(w.playId));
+    const m = pl && /^(\d+):(\d+(?:\.\d+)?)$|^(\d+(?:\.\d+)?)$/.exec(pl.clock), per = pl && pl.period;
+    if (m && per > 0) {
+      const left = m[3] != null ? +m[3] : +m[1] * 60 + +m[2];
+      t = Math.max(t, perStart(per) + Math.max(0, (per <= 4 ? 720 : 300) - left));
+      top = Math.max(top, per);
+    }
+    return t;
+  });
+  return { ts, pm, T: perStart(top + 1), periods: top };
+}
+function wpGeom(T) {
   return {
-    x: i => WP.l + (n <= 1 ? 0 : i / (n - 1)) * (WP.W - WP.l - WP.r),
+    x: s => WP.l + Math.min(1, s / T) * (WP.W - WP.l - WP.r),
     y: v => WP.t + (1 - v) * (WP.H - WP.t - WP.b),
   };
 }
 function paneWp(data) {
   const pts = data.wp;
   if (!pts || pts.length < 2) return `<p class="empty">The win chance chart starts once the game is underway.</p>`;
-  const n = pts.length, { x, y } = wpGeom(n);
-  const pm = new Map(data.plays.map(p => [p.id, p]));
+  const n = pts.length, { ts, T, periods } = wpTimes(data), { x, y } = wpGeom(T);
   const [ca, ch] = NBA.tones(data.away, data.home);
-  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.homeWinPercentage).toFixed(1)}`).join('');
-  const area = `${line}L${x(n - 1).toFixed(1)},${y(.5).toFixed(1)}L${x(0).toFixed(1)},${y(.5).toFixed(1)}Z`;
-  let seps = '', prev = null;
-  pts.forEach((p, i) => {
-    const per = (pm.get(String(p.playId)) || {}).period;
-    if (per && per !== prev) {
-      if (prev !== null) seps += `<line class="sep" x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${WP.t}" y2="${WP.H - WP.b}"/>`;
-      seps += `<text class="ax" x="${(x(i) + 4).toFixed(1)}" y="${WP.H - 8}">${NBA.perLabel(per)}</text>`;
-      prev = per;
-    }
-  });
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(ts[i]).toFixed(1)},${y(p.homeWinPercentage).toFixed(1)}`).join('');
+  const area = `${line}L${x(ts[n - 1]).toFixed(1)},${y(.5).toFixed(1)}L${x(ts[0]).toFixed(1)},${y(.5).toFixed(1)}Z`;
+  // Every quarter is marked from the start, so the empty part of a live game's chart shows how much is left
+  let seps = '';
+  for (let p = 1; p <= periods; p++) {
+    const sx = x(perStart(p));
+    if (p > 1) seps += `<line class="sep" x1="${sx.toFixed(1)}" x2="${sx.toFixed(1)}" y1="${WP.t}" y2="${WP.H - WP.b}"/>`;
+    seps += `<text class="ax" x="${(sx + 4).toFixed(1)}" y="${WP.H - 8}">${NBA.perLabel(p)}</text>`;
+  }
   const lastV = pts[n - 1].homeWinPercentage, homeLeads = lastV >= .5;
   const endPct = Math.round((homeLeads ? lastV : 1 - lastV) * 100), endTeam = homeLeads ? data.home.abbr : data.away.abbr;
   const desc = `${data.state === 'post' ? 'Final' : 'Current'} win chance: ${endTeam} ${endPct}%`;
@@ -774,37 +877,58 @@ function paneWp(data) {
       <text class="ax" x="4" y="${y(.75) + 4}">75%</text><text class="ax" x="4" y="${y(.5) + 4}">50%</text><text class="ax" x="4" y="${y(.25) + 4}">75%</text>
       <text class="axb" x="4" y="${WP.H - WP.b - 2}">${esc(data.away.abbr)}</text>
       <path class="ln" d="${line}"/>
-      <circle class="end" cx="${x(n - 1).toFixed(1)}" cy="${y(lastV).toFixed(1)}" r="5"/>
-      <text class="axb" x="${(x(n - 1) + 9).toFixed(1)}" y="${(y(lastV) + 4).toFixed(1)}">${esc(endTeam)} ${endPct}%</text>
+      <circle class="end" cx="${x(ts[n - 1]).toFixed(1)}" cy="${y(lastV).toFixed(1)}" r="5"/>
+      <text class="axb" x="${(x(ts[n - 1]) + 9).toFixed(1)}" y="${(y(lastV) + 4).toFixed(1)}">${esc(endTeam)} ${endPct}%</text>
       <line class="hx" id="wphx" y1="${WP.t}" y2="${WP.H - WP.b}" visibility="hidden"/>
       <circle class="end" id="wpdot" r="5" visibility="hidden"/>
     </svg><div class="wptip" id="wptip" hidden></div></div>
     <p class="note">${esc(desc)}. Shaded above the dashed line favors ${esc(data.home.abbr)}, below favors ${esc(data.away.abbr)}. Hover or drag across the chart to see each play.</p>`;
 }
+/* Live polls replace the chart. On an iPhone a drag stays with the SVG it started on, so a finger that's down holds the
+   pane (UI.wpHold, checked in renderDrawer) until it lifts or the page takes over the gesture for a scroll. A mouse
+   needs no hold, since its next move finds the new chart, but the hover line is put back where the pointer rests */
+let wpAt = null;
 function bindWp(data) {
   const svg = $('#wpsvg'), tip = $('#wptip'), hx = $('#wphx'), dot = $('#wpdot');
   if (!svg) return;
-  const pts = data.wp, n = pts.length, { x, y } = wpGeom(n);
-  const pm = new Map(data.plays.map(p => [p.id, p]));
+  const pts = data.wp, n = pts.length, { ts, pm, T } = wpTimes(data), { x, y } = wpGeom(T);
+  // The point nearest in game time; of several at the same moment (free throws), the last
+  const near = s => {
+    let lo = 0, hi = n;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (ts[m] <= s) lo = m + 1; else hi = m; }
+    let i = lo - 1;
+    if (lo < n && (i < 0 || ts[lo] - s < s - ts[i])) { i = lo; while (i + 1 < n && ts[i + 1] === ts[i]) i++; }
+    return Math.max(0, i);
+  };
   const show = e => {
     const r = svg.getBoundingClientRect();
+    if (!r.width) return;
     const sx = (e.clientX - r.left) / r.width * WP.W;
-    const i = Math.max(0, Math.min(n - 1, Math.round((sx - WP.l) / (WP.W - WP.l - WP.r) * (n - 1))));
-    const p = pts[i], pl = pm.get(String(p.playId)) || {};
+    const i = near((sx - WP.l) / (WP.W - WP.l - WP.r) * T);
+    const p = pts[i], pl = pm.get(String(p.playId)) || {}, px0 = x(ts[i]);
     const v = p.homeWinPercentage, lead = v >= .5 ? data.home.abbr : data.away.abbr, pct = Math.round((v >= .5 ? v : 1 - v) * 100);
-    hx.setAttribute('x1', x(i)); hx.setAttribute('x2', x(i)); hx.setAttribute('visibility', 'visible');
-    dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(v)); dot.setAttribute('visibility', 'visible');
+    hx.setAttribute('x1', px0); hx.setAttribute('x2', px0); hx.setAttribute('visibility', 'visible');
+    dot.setAttribute('cx', px0); dot.setAttribute('cy', y(v)); dot.setAttribute('visibility', 'visible');
     tip.innerHTML = `<b>${esc(lead)} ${pct}% · ${pl.period ? NBA.perLabel(pl.period) + ' ' + esc(pl.clock) : ''}</b>${esc(pl.text || '')}${pl.away != null ? ` <span>(${esc(pl.away)}–${esc(pl.home)})</span>` : ''}`;
     tip.hidden = false;
-    const px = x(i) / WP.W * r.width, half = tip.offsetWidth / 2;
+    const px = px0 / WP.W * r.width, half = tip.offsetWidth / 2;
     tip.style.left = Math.max(half, Math.min(r.width - half, px)) + 'px';
     if (v >= .5) { tip.style.top = 'auto'; tip.style.bottom = (WP.b / WP.H * r.height + 4) + 'px'; }
     else { tip.style.top = '4px'; tip.style.bottom = 'auto'; }
   };
   const hide = () => { tip.hidden = true; hx.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); };
-  svg.addEventListener('pointermove', show);
-  svg.addEventListener('pointerdown', show);
-  svg.addEventListener('pointerleave', hide);
+  const letGo = () => { if (UI.wpHold !== svg) return; UI.wpHold = null; NBA.changed(); };
+  svg.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') wpAt = { clientX: e.clientX, clientY: e.clientY }; show(e); });
+  svg.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') UI.wpHold = svg; show(e); });
+  svg.addEventListener('pointerup', letGo);
+  svg.addEventListener('pointercancel', () => { hide(); letGo(); });
+  svg.addEventListener('pointerleave', () => { wpAt = null; hide(); letGo(); });
+  // A mouse resting on the old chart: show the play under it on this one (unless it has since moved off)
+  if (wpAt) {
+    const r = svg.getBoundingClientRect();
+    if (wpAt.clientX >= r.left && wpAt.clientX <= r.right && wpAt.clientY >= r.top && wpAt.clientY <= r.bottom) show(wpAt);
+    else wpAt = null;
+  }
 }
 
 /* ---------- settings ---------- */
@@ -812,6 +936,8 @@ UI.openSettings = opener => {
   UI.lastFocus = opener || document.activeElement;
   UI.drawer = null; UI.drawerBack = null; $('#drawer').hidden = true;
   UI.settingsOpen = true; UI.resetArmed = false;
+  // Its own history entry, like a game's: the browser's or the mouse's Back button closes Settings and stays on this tab
+  if (!UI.histPushed) { history.pushState({ nbaSettings: 1 }, ''); UI.histPushed = true; }
   $('#settings').hidden = false; lock(true);
   $('#settings')._html = null;
   renderSettings();
@@ -885,7 +1011,11 @@ UI.applyLook = applyLook;
 const darkMq = matchMedia('(prefers-color-scheme: dark)');
 if (darkMq.addEventListener) darkMq.addEventListener('change', () => { if (NBA.S.theme === 'system') { applyLook(); NBA.changed(); } });
 function repaintAll() {
-  document.querySelectorAll('#view, #tabbar, #drawer, #settings').forEach(el => { el._html = null; });
+  document.querySelectorAll('#view, #tabbar, #settings').forEach(el => { el._html = null; });
+  // A game window repaints part by part and keeps its frame, so focus stays on the button just pressed (Key stats / All
+  // stats); a player card repaints whole
+  const dr = $('#drawer'), parts = dr.querySelectorAll('.dr-part, #dr-pane');
+  if (parts.length) parts.forEach(n => { n._html = null; }); else dr._html = null;
   NBA.render();
 }
 

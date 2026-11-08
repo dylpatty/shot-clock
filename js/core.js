@@ -467,14 +467,16 @@ function parseSummary(j, id) {
     box, tstats, plays, wp: j.winprobability || [], injuries,
     link: link ? link.href : `https://www.espn.com/nba/game/_/gameId/${id}`,
     recap: art && art.type === 'Recap' ? { headline: art.headline || '', description: art.description || '' } : null,
-    preview: parsePreview(j),
+    preview: parsePreview(j, id),
   };
 }
 /* The pre-game matchup from the same summary: ESPN's predictor, each team's last five games, the season series,
    team leaders, the line and the preview article. Any part ESPN hasn't posted is null or empty */
-function parsePreview(j) {
+function parsePreview(j, id) {
   const art = j.article, pr = j.predictor;
-  const ss = j.seasonseries || [], s = ss.find(x => x.type === 'season') || ss[0];
+  // A playoff game's series is the playoff one; the regular season's otherwise
+  const ss = j.seasonseries || [], po = j.header && j.header.season && j.header.season.type === 3;
+  const s = (po && ss.find(x => x.type === 'playoff')) || ss.find(x => x.type === 'season') || ss[0];
   const p = (j.pickcenter || [])[0];
   return {
     pred: pr && pr.homeTeam ? { home: parseFloat(pr.homeTeam.gameProjection), away: parseFloat((pr.awayTeam || {}).gameProjection) } : null,
@@ -486,7 +488,12 @@ function parsePreview(j) {
         return { id: String(e.id), date: e.gameDate, res: e.gameResult || '', at: e.atVs || '', opp: (e.opponent && e.opponent.abbreviation) || '', my: home ? e.homeTeamScore : e.awayTeamScore, their: home ? e.awayTeamScore : e.homeTeamScore };
       }) };
     }),
-    series: s ? { summary: s.summary || '', total: s.totalCompetitions || 0, done: (s.events || []).filter(e => e.statusType && e.statusType.completed).length } : null,
+    // games: the other meetings in the series (not this one), each side with its score and whether it won
+    series: s ? { type: s.type || '', summary: s.summary || '', total: s.totalCompetitions || 0, done: (s.events || []).filter(e => e.statusType && e.statusType.completed).length,
+      games: (s.events || []).filter(e => String(e.id) !== String(id)).map(e => {
+        const side = ha => { const c = (e.competitors || []).find(x => x.homeAway === ha) || {}, t = c.team || {}; return { id: String(t.id || ''), abbr: t.abbreviation || '', score: c.score ?? '', winner: !!c.winner }; };
+        return { id: String(e.id), date: e.date || '', done: !!(e.statusType && e.statusType.completed), away: side('away'), home: side('home') };
+      }) } : null,
     leaders: (j.leaders || []).map(t => ({
       teamId: String(t.team && t.team.id),
       list: (t.leaders || []).filter(c => /^(points|rebounds|assists)PerGame$/.test(c.name)).map(c => {
