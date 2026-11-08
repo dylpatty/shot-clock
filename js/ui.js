@@ -84,6 +84,53 @@ UI.skel = {
   // The Matchup tab and the other game tabs: a few sections, each a heading over a couple of rows
   secs: n => `<span class="sr">Loading game…</span><div class="mx" aria-hidden="true">${Array.from({ length: n }, () => `<div class="mx-sec"><h3 class="bx-team">${sk('38%')}</h3>${UI.skel.rows(2)}</div>`).join('')}</div>`,
 };
+/* ESPN's live win chance as a slim bar in the two teams' colors. Spans only, so it also fits inside a button (Home's
+   live panel) */
+UI.wpBar = g => {
+  const hw = Math.round(g.homeWin * 100), aw = 100 - hw, [ca, ch] = NBA.tones(g.away, g.home);
+  return `<span class="wp" role="img" aria-label="Win chance: ${esc(g.away.abbr)} ${aw}%, ${esc(g.home.abbr)} ${hw}%">
+    <span class="wpbar"><span style="flex:${aw};background:${ca}"></span><span style="flex:${hw};background:${ch}"></span></span>
+    <span class="wplab"><span>${esc(g.away.abbr)} ${aw}%</span><span class="mut">Win chance</span><span>${esc(g.home.abbr)} ${hw}%</span></span></span>`;
+};
+/* The injury report for one game. ESPN's call for the next game (fs: OUT, GTD, OFS) beats the status, which can be left
+   over from an earlier game. The team's update ('Embiid (foot) is probable for Sunday's game') adds its word only when
+   it names this game's day: many are about another game, or name none */
+const ET_WEEKDAY = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'America/New_York' });
+const INJ_WORD = /\b(probable|questionable|doubtful|available|will play|ruled out)\b/i;
+UI.injWord = (i, g) => {
+  const c = String((i && i.short) || ''), day = g && g.date ? ET_WEEKDAY.format(new Date(g.date)) : '';
+  return day && (c.includes(day + "'s") || c.includes(day + '’s')) ? ((INJ_WORD.exec(c) || [])[1] || '').toLowerCase() : '';
+};
+// 'out' (for this game or the season), 'gtd' (a game-time call) or '' (not listed)
+UI.injCall = (i, word) => word === 'ruled out' || i.fs === 'OUT' || i.fs === 'OFS' ? 'out' : i.fs === 'GTD' ? 'gtd' : /out|suspen/i.test(i.status || '') ? 'out' : i.status ? 'gtd' : '';
+/* Who's missing a game that hasn't tipped off, for its card: per team, players ruled out for it first, then game-time
+   calls with the day's word ('Embiid (probable)'), then anyone out for the season, at most 3 names and +N. With the
+   season stats loaded (never fetched for this: the feed is big) it keeps to players scoring 8+ a game, so a two-way
+   player doesn't crowd out a starter; without them it names only players ruled out for this game. Within 36 hours of
+   tip-off, once the report has loaded */
+let absMemo = { inj: null };
+UI.absences = g => {
+  const inj = NBA.data('injuries'), pl = NBA.data('players');
+  if (!inj || g.state !== 'pre' || new Date(g.date) - Date.now() > 36 * 3600000) return '';
+  // Cards repaint every 10 s during games, so each game's row is worked out once per report
+  if (absMemo.inj !== inj || absMemo.pl !== pl) absMemo = { inj, pl, ppg: pl ? new Map(pl.map(p => [p.id, p.pts || 0])) : null, m: new Map() };
+  const { ppg, m } = absMemo;
+  if (m.has(g.id)) return m.get(g.id);
+  const side = t => {
+    const tm = inj.find(x => x.teamId === t.id);
+    const rank = x => x.call === 'gtd' ? 1 : x.i.fs === 'OFS' ? 2 : 0;
+    const list = (tm ? tm.list : []).map(i => { const word = UI.injWord(i, g); return { i, word, call: UI.injCall(i, word), pts: ppg ? ppg.get(i.id) || 0 : 0 }; })
+      .filter(x => x.call && (ppg ? x.pts >= 8 : x.call === 'out' && x.i.fs !== 'OFS'))
+      .sort((a, b) => (rank(a) - rank(b)) || b.pts - a.pts);
+    if (!list.length) return null;
+    const txt = list.slice(0, 3).map(x => NBA.surname(x.i.name) + (x.call === 'out' ? '' : ` (${x.word || 'GTD'})`)).join(', ') + (list.length > 3 ? ` +${list.length - 3}` : '');
+    return { html: `<b>${esc(t.abbr)}</b> ${esc(txt)}`, text: `${t.abbr} ${txt}` };
+  };
+  const parts = [side(g.away), side(g.home)].filter(Boolean);
+  const html = parts.length ? `<div class="last outs"><span class="lbl">Injuries</span><span title="${esc(parts.map(p => p.text).join(' · '))}">${parts.map(p => p.html).join(' · ')}</span></div>` : '';
+  m.set(g.id, html);
+  return html;
+};
 
 UI.gameCard = (g, big) => {
   const S = NBA.S, perLabel = NBA.perLabel;
@@ -91,7 +138,8 @@ UI.gameCard = (g, big) => {
   const pp = g.state === 'post' && g.completed === false;
   const hide = S.spoilers && g.state !== 'pre' && !pp && !UI.st.revealed.has(g.id);
   const showQ = S.card.quarters && g.state !== 'pre' && !pp;
-  const nq = showQ ? Math.max(4, g.away.lines.length, g.home.lines.length) : 0;
+  // A hidden game always shows four quarters: overtime columns would say it was tied after regulation
+  const nq = showQ ? (hide ? 4 : Math.max(4, g.away.lines.length, g.home.lines.length)) : 0;
   const cols = `minmax(0,1fr)${nq ? ` repeat(${nq},minmax(1.8em,auto))` : ''} auto`;
   const head = nq ? `<span></span>${Array.from({ length: nq }, (_, i) => `<span class="hd">${i < 4 ? i + 1 : perLabel(i + 1)}</span>`).join('')}<span class="hd" style="text-align:right">T</span>` : '';
   // A hidden game hides the records too: after the final they already count tonight's result
@@ -106,14 +154,21 @@ UI.gameCard = (g, big) => {
     return `<div class="team${lost ? ' lost' : ''}">${UI.logo(t, big ? 40 : 30)}
       <span class="tn"><span class="ab">${esc(t.abbr)}${fav}<span class="rec">${hide ? '' : esc(t.record)}</span></span></span></div>${qs}<span class="sc${lost ? ' lostsc' : ''}${bump}">${score}</span>${ldr}`;
   };
+  // A live game in the clutch (4th quarter or overtime, 5:00 or less, within 5) or in overtime gets a pill after the
+  // clock, and a clutch one glows. Both say how close it is, so a hidden game gets neither
+  const heat = hide ? null : NBA.heat(g);
   let status;
-  if (g.state === 'in') status = `<span class="st-live"><i class="dot blink"></i>${esc(NBA.detail(g))}</span>`;
+  // A hidden game says only Live or Final: the clock ('3:12 - OT'), 'Final/OT' or a late end time would give away overtime
+  if (g.state === 'in') status = `<span class="st-live"><i class="dot blink"></i>${esc(hide ? 'Live' : NBA.detail(g))}${heat ? `<b class="heat${heat.clutch ? ' hot' : ''}">${esc(heat.label)}</b>` : ''}</span>`;
   else if (g.state === 'pre') status = `<span>${esc(UI.tipTime(g))}</span>`;
+  else if (hide) status = '<span>Final</span>';
   else {
     const sum = NBA.data('summary:' + g.id);
     status = `<span>${esc(g.detail)}${sum && sum.ended ? ' · ended ' + esc(NBA.fmtTime(sum.ended)) : ''}</span>`;
   }
-  const started = !pp && g.state !== 'pre' && !/TBD/i.test(g.detail) ? 'Started ' + NBA.fmtTime(g.date) : '';
+  // Only finished games say when they started: on a live card the corner is better left to the Canadian TV label,
+  // and the scheduled time isn't the real tip anyway
+  const started = !pp && g.state === 'post' && !/TBD/i.test(g.detail) ? 'Started ' + NBA.fmtTime(g.date) : '';
   // Top right: where the game streams in Canada (Prime Video, Sportsnet+, TSN, NBA TV Canada or League Pass), blank if
   // unknown. It never shrinks; the start time and note before it are cut short first on a narrow card
   const ca = NBA.caTv(g), lead = [started, g.note].filter(Boolean).join(' · ');
@@ -121,15 +176,13 @@ UI.gameCard = (g, big) => {
   let extra = '';
   if (hide) extra = `<button class="chip reveal" data-act="reveal" data-id="${g.id}">Show score</button>`;
   else {
-    if (g.state === 'in' && S.card.winprob && g.homeWin != null) {
-      const hw = Math.round(g.homeWin * 100), aw = 100 - hw;
-      const [ca, ch] = NBA.tones(g.away, g.home);
-      extra += `<div class="wp" aria-label="Win chance: ${esc(g.away.abbr)} ${aw}%, ${esc(g.home.abbr)} ${hw}%">
-        <div class="wpbar"><span style="flex:${aw};background:${ca}"></span><span style="flex:${hw};background:${ch}"></span></div>
-        <div class="wplab"><span>${esc(g.away.abbr)} ${aw}%</span><span class="mut">Win chance</span><span>${esc(g.home.abbr)} ${hw}%</span></div></div>`;
-    }
-    if (g.state === 'pre' && (g.odds || g.venue)) {
-      extra += `<div class="pre-meta">${g.odds && g.odds.details ? `<span>Line <b>${esc(g.odds.details)}</b></span>` : ''}${g.odds && g.odds.ou ? `<span>O/U <b>${esc(g.odds.ou)}</b></span>` : ''}${g && g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
+    if (g.state === 'in' && S.card.winprob && g.homeWin != null) extra += UI.wpBar(g);
+    if (g.state === 'pre') {
+      // A team that also plays the day before (B2B) leads, since that's when stars sit; it shows before a line is posted too
+      const meta = [g.away, g.home].filter(t => NBA.restTag(g, t)).map(t => `<span class="tag b2b" title="${esc(t.name || t.abbr)}: second night of a back-to-back">${esc(t.abbr)} B2B</span>`).join('')
+        + (g.odds && g.odds.details ? `<span>Line <b>${esc(g.odds.details)}</b></span>` : '') + (g.odds && g.odds.ou ? `<span>O/U <b>${esc(g.odds.ou)}</b></span>` : '') + (g.venue ? `<span>${esc(g.venue)}</span>` : '');
+      if (meta) extra += `<div class="pre-meta">${meta}</div>`;
+      extra += UI.absences(g);
     }
     if (S.card.lastplay) {
       if (g.state === 'in' && g.lastPlay) extra += `<div class="last"><span class="lbl">Last play</span><span title="${esc(g.lastPlay)}">${esc(g.lastPlay)}</span></div>`;
@@ -138,8 +191,8 @@ UI.gameCard = (g, big) => {
     const chip = UI.fullChip(g);
     if (chip) extra += `<div class="g-hl">${chip}</div>`;
   }
-  const label = `${g.away.full} at ${g.home.full}, ${g.state === 'pre' ? UI.tipTime(g) : NBA.detail(g)}`;
-  return `<div class="game${big ? ' big' : ''}${UI.isFav(g) ? ' fav' : ''}${UI.isMine(g) ? ' mine' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(label)}">
+  const label = `${g.away.full} at ${g.home.full}, ${g.state === 'pre' ? UI.tipTime(g) : hide ? (g.state === 'in' ? 'live' : 'final') : NBA.detail(g)}${heat ? ', ' + heat.label : ''}`;
+  return `<div class="game${big ? ' big' : ''}${heat && heat.clutch ? ' clutch' : ''}${UI.isFav(g) ? ' fav' : ''}${UI.isMine(g) ? ' mine' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(label)}">
     <div class="g-top">${status}<span class="g-right">${right}</span></div>
     <div class="ls" style="grid-template-columns:${cols}">${head}${row(g.away)}${row(g.home)}</div>${extra}</div>`;
 };
@@ -149,16 +202,19 @@ UI.line = g => {
   const hide = NBA.S.spoilers && g.state !== 'pre' && !pp && !UI.st.revealed.has(g.id);
   let time;
   if (g.state === 'pre') time = `${esc(/TBD/i.test(g.detail) ? 'TBD' : NBA.fmtTime(g.date))}<small>${esc((NBA.caTv(g) || {}).short || '')}</small>`;
-  else if (g.state === 'in') time = `<span class="st-live"><i class="dot blink"></i>Live</span><small>${esc(NBA.detail(g))}</small>`;
+  // Hidden: no clock under Live (it can read OT) but where it streams, and Final rather than 'Final/OT'
+  else if (g.state === 'in') time = `<span class="st-live"><i class="dot blink"></i>Live</span><small>${esc(hide ? (NBA.caTv(g) || {}).short || '' : NBA.detail(g))}</small>`;
   else if (pp) time = esc(g.detail || 'Postponed');
-  else time = `${esc(g.detail || 'Final')}<small>Started ${esc(NBA.fmtTime(g.date))}</small>`;
+  else time = `${esc(hide ? 'Final' : g.detail || 'Final')}<small>Started ${esc(NBA.fmtTime(g.date))}</small>`;
   const side = (t, home) => {
     const sc = g.state !== 'pre' && !pp && !hide ? `<span class="ln-score">${esc(t.score)}</span>` : '';
     const name = `<b><span class="full">${esc(t.name || t.abbr)}</span><span class="abbr">${esc(t.abbr)}</span></b>`;
     const rec = `<small>${hide ? '' : esc(t.record)}</small>`;
+    // Second night of a back-to-back; the stylesheet keeps it to rows wide enough for it (not phones)
+    const b2b = g.state === 'pre' && NBA.restTag(g, t) ? `<span class="tag b2b" title="Second night of a back-to-back">B2B</span>` : '';
     return home
-      ? `<span class="ln-team home">${sc}${rec}${name}${UI.logo(t, 26)}</span>`
-      : `<span class="ln-team away">${UI.logo(t, 26)}${name}${rec}${sc}</span>`;
+      ? `<span class="ln-team home">${sc}${rec}${b2b}${name}${UI.logo(t, 26)}</span>`
+      : `<span class="ln-team away">${UI.logo(t, 26)}${name}${b2b}${rec}${sc}</span>`;
   };
   return `<li class="line${UI.isFav(g) ? ' fav' : ''}${UI.isMine(g) ? ' mine' : ''}" role="button" tabindex="0" data-act="game" data-id="${g.id}" aria-label="${esc(g.away.full)} at ${esc(g.home.full)}">
     <span class="ln-time">${time}</span>${side(g.away, false)}<span class="ln-at">@</span>${side(g.home, true)}<span class="ln-odds">${esc(UI.oddsText(g.odds))}</span></li>`;
@@ -304,7 +360,30 @@ function renderHeader() {
     <select id="team-pick" data-ch="myTeam" title="Favorite team">${teams.length
       ? teams.map(t => `<option value="${t.id}" ${t.id === NBA.S.myTeam ? 'selected' : ''}>${esc(t.name || t.full)}</option>`).join('')
       : `<option value="${esc(NBA.S.myTeam)}">${esc(mt.name || 'Warriors')}</option>`}</select></span>`);
+  renderScorebug();
   renderUpdated();
+}
+/* Your team's game, pinned under the tab bar while it's on, so the score is there on Social, Videos or Stats too. A final
+   stays up for 15 minutes when this page saw it end. Not on Home, the Schedule or the team's own page, which already
+   lead with it (and the Schedule's height stays put for its scroll). One line of fixed height, so it never changes
+   the header's height between polls. Spoiler mode: the teams and 'Live' only, no score or win chance */
+function renderScorebug() {
+  const el = $('#scorebug');
+  if (!el) return;
+  const { tab, arg } = UI.route(), id = NBA.S.myTeam, today = NBA.data('day:');
+  const g = today && today.games.find(x => (x.away.id === id || x.home.id === id)
+    && (x.state === 'in' || (NBA.isFinal(x) && Date.now() - (NBA.endedAt.get(x.id) || 0) < 15 * 60000)));
+  if (!g || tab === 'home' || tab === 'myteam' || tab === 'schedule' || (tab === 'teams' && arg === id)) { UI.paint(el, ''); return; }
+  const live = g.state === 'in', hide = NBA.S.spoilers && !UI.st.revealed.has(g.id), me = g.home.id === id ? g.home : g.away;
+  const sc = t => hide ? '' : `<b class="sb-sc${live && NBA.bumps.has(g.id + ':' + t.id) ? ' bump' : ''}${!live && t.winner === false ? ' lostsc' : ''}">${esc(t.score)}</b>`;
+  const st = hide ? (live ? 'Live' : 'Final') : live ? NBA.detail(g) : g.detail || 'Final';
+  // Your side's chance to win, from ESPN's live model (it says who leads, so it hides with the score)
+  const wp = live && !hide && g.homeWin != null ? Math.round((me.home ? g.homeWin : 1 - g.homeWin) * 100) : null;
+  UI.paint(el, `<button class="sb${live ? ' live' : ''}" data-act="game" data-id="${g.id}" aria-label="${esc(`${g.away.full || g.away.abbr} at ${g.home.full || g.home.abbr}, ${hide ? st : `${g.away.abbr} ${g.away.score}, ${g.home.abbr} ${g.home.score}, ${st}`}. Open the game`)}">
+    <span class="sb-tm">${UI.logo(g.away, 20)}<span class="sb-ab">${esc(g.away.abbr)}</span>${sc(g.away)}</span>
+    <span class="sb-st">${live ? '<i class="dot blink"></i>' : ''}${esc(st)}</span>
+    <span class="sb-tm">${sc(g.home)}<span class="sb-ab">${esc(g.home.abbr)}</span>${UI.logo(g.home, 20)}</span>
+    ${wp != null ? `<span class="sb-wp" title="Win chance">${esc(me.abbr)} ${wp}%</span>` : ''}</button>`);
 }
 /* The header speaks up when ESPN can't be reached, or when the scores haven't refreshed for a while (after a resume,
    or a poll that stalls). Runs every second, so it touches the DOM only when something changed */
@@ -322,7 +401,36 @@ function renderUpdated() {
   if (rs.getPropertyValue('--strip-h') !== sh) rs.setProperty('--strip-h', sh);
   // Stops the live dots blinking while the scores on screen may be old
   document.documentElement.classList.toggle('stale', stale || (NBA.failing && age > 30000));
+  renderAlert();
 }
+/* A close game anywhere in the league (NBA.alerts, from the scoreboard poll: turning clutch, tied at the end of the 4th,
+   going to overtime) shows for 8 seconds in a banner under the header, with where it streams in Canada so you know where
+   to switch; a tap opens it. It's timed by the 1-second tick above, waits while a game, settings, a video or search is
+   open, and is dropped once it's 2 minutes old, if the game has cooled off, if that game is already open, or if its
+   score is hidden in spoiler mode. The text is built from the latest scores each time */
+let alertCur = null;
+const ALERT_TITLE = { crunch: 'Crunch time', toOT: 'Tied at the end of the 4th', ot: 'Overtime' };
+function renderAlert() {
+  const el = $('#alert');
+  if (!el) return;
+  const now = Date.now(), held = UI.busy();
+  const gameOf = id => ((NBA.data('day:') || {}).games || []).find(x => x.id === id);
+  const ok = a => { const g = gameOf(a.id); return g && NBA.heat(g) && !(NBA.S.spoilers && !UI.st.revealed.has(a.id)) && !(UI.drawer && openGameId() === a.id) ? g : null; };
+  if (alertCur && (now - alertCur.shown > 8000 || !ok(alertCur))) alertCur = null;
+  if (!alertCur && !held) {
+    // Newest first; anything older than 2 minutes is no longer news
+    while (NBA.alerts.length) { const a = NBA.alerts.pop(); if (now - a.t < 120000 && ok(a)) { alertCur = { id: a.id, shown: now }; break; } }
+  }
+  const g = alertCur && !held ? ok(alertCur) : null;
+  el.hidden = !g;
+  if (!g) { UI.paint(el, ''); return; }
+  const h = NBA.heat(g), ca = NBA.caTv(g);
+  const title = h.kind === 'toOT' && h.per > 4 ? `Tied at the end of ${h.per === 5 ? 'OT' : (h.per - 4) + 'OT'}` : h.kind === 'ot' && h.per > 5 ? `${h.per - 4}OT` : ALERT_TITLE[h.kind];
+  const line = [`${g.away.abbr} ${g.away.score}, ${g.home.abbr} ${g.home.score}`, NBA.detail(g), ca && ca.short].filter(Boolean).join(' · ');
+  UI.paint(el, `<button class="al-go" data-act="game" data-id="${g.id}">${UI.logo(g.away, 26)}${UI.logo(g.home, 26)}<span class="al-txt"><b><i class="dot blink"></i>${esc(title)}</b><span>${esc(line)}</span></span></button>
+    <button class="ib al-x" data-act="alertx" aria-label="Dismiss">${UI.I.close}</button>`);
+}
+NBA.actions.alertx = () => { alertCur = null; NBA.alerts.length = 0; renderAlert(); };
 let lastTab = null, lastRoute = null;
 function renderView() {
   const { tab, arg } = UI.route();
@@ -490,10 +598,12 @@ UI.ownsSwipe = el => !!(el && el.closest && el.closest('[data-noswipe], input, t
 })();
 /* Touch screens: a quick sideways swipe anywhere else on the page moves to the next or previous tab, so the tab bar
    needn't be reached. Nothing happens while a game, settings, a video, the calendar or search is open */
+// Something on top of the page (a game, settings, a video, the calendar or search); the close-game alert waits for it too
+UI.busy = () => !!(UI.drawer || UI.settingsOpen || ($('#vid') && $('#vid').open) || ($('#calpop') && $('#calpop').open)
+    || document.documentElement.classList.contains('srch') || (NBA.ask && NBA.ask.isOpen()));
 (() => {
   let x0 = 0, y0 = 0, t0 = 0, armed = false;
-  const busy = () => UI.drawer || UI.settingsOpen || ($('#vid') && $('#vid').open) || ($('#calpop') && $('#calpop').open)
-    || document.documentElement.classList.contains('srch') || (NBA.ask && NBA.ask.isOpen());
+  const busy = UI.busy;
   addEventListener('touchstart', e => {
     armed = false;
     if (e.touches.length !== 1 || busy()) return;
@@ -786,7 +896,12 @@ function paneMatchup(data, g) {
   }
   const inj = per(data.injuries);
   if (inj.length) {
-    out.push(`<div class="mx-sec"><h3 class="bx-team">Injury report</h3><div class="mx-lead">${inj.map(([t, x]) => `<div>${teamHd(t)}<ul class="inj2">${x.list.map(i => `<li><b>${esc(i.name)}</b> <span class="mut">${esc(i.status)}${i.type ? ' · ' + esc(i.type) : ''}</span></li>`).join('')}</ul></div>`).join('')}</div></div>`);
+    // ESPN's call for this game (Out, Game-time decision), and the team's word for this game's day ('probable') from
+    // the league-wide report, which has the updates the game's own list leaves out
+    const rep = NBA.use('injuries') || [], when = { date: data.date || (g && g.date) };
+    const word = (tid, i) => { const r = ((rep.find(x => x.teamId === tid) || {}).list || []).find(x => x.name === i.name); return r ? UI.injWord(r, when) : ''; };
+    const call = i => ({ OUT: 'Out', GTD: 'Game-time decision', OFS: 'Out for the season' })[i.fs] || i.status;
+    out.push(`<div class="mx-sec"><h3 class="bx-team">Injury report</h3><div class="mx-lead">${inj.map(([t, x]) => `<div>${teamHd(t)}<ul class="inj2">${x.list.map(i => { const w = word(t.id, i); return `<li><b>${esc(i.name)}</b> <span class="mut">${esc(call(i))}${w ? ` (${esc(w)})` : ''}${i.type ? ' · ' + esc(i.type) : ''}</span></li>`; }).join('')}</ul></div>`).join('')}</div></div>`);
   }
   // The line, unless the odds strip above the tabs already shows it
   const pk = p.pick, ml = v => v === '' || v == null ? '' : (+v > 0 ? '+' : '') + v;
