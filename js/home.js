@@ -454,7 +454,7 @@ function topMovement(ids) {
 }
 /* The Home headline reacts to your team first, then the calendar, then the clock.
    Results stay out of it while spoiler mode is on. */
-const clockSecs = c => { const s = String(c || ''); if (s.includes(':')) { const [m, x] = s.split(':'); return +m * 60 + parseFloat(x); } return parseFloat(s); };
+const clockSecs = NBA.clockSecs;
 // 'Jaren Jackson Jr.' is Jackson, not Jr.
 const surname = n => { const w = String(n || '').trim().split(/\s+/); return w.length > 2 && /^(?:jr|sr|ii|iii|iv)\.?$/i.test(w[w.length - 1]) ? w[w.length - 2] : w[w.length - 1]; };
 const dayKeyOf = iso => iso === NBA.today ? 'day:' : 'day:' + NBA.paramOf(iso);

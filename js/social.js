@@ -230,7 +230,9 @@ function gameChips(it) {
   const games = day.games.filter(g => t.teams.some(x => x.id === g.away.id || x.id === g.home.id)).slice(0, 2);
   return games.map(g => {
     const hide = NBA.S.spoilers && !st.revealed.has(g.id);
-    const s = g.state === 'pre' ? NBA.fmtTime(g.date) : g.state === 'in' ? (hide ? 'Live' : `${g.away.score}-${g.home.score} · ${NBA.detail(g)}`) : (hide ? 'Final' : `${g.away.score}-${g.home.score} · Final`);
+    // A postponed or canceled game is 'post' without being completed: no score and no 'Final'
+    const s = g.state === 'post' && g.completed === false ? g.detail || 'Postponed' : g.state === 'pre' ? UI.tipTime(g)
+      : g.state === 'in' ? (hide ? 'Live' : `${g.away.score}-${g.home.score} · ${NBA.detail(g)}`) : (hide ? 'Final' : `${g.away.score}-${g.home.score} · Final`);
     return `<button class="sp-game${g.state === 'in' ? ' live' : ''}" data-act="game" data-id="${g.id}">${g.state === 'in' ? '<i class="dot blink"></i>' : ''}${UI.logo(g.away, 16)}${esc(g.away.abbr)} @ ${UI.logo(g.home, 16)}${esc(g.home.abbr)}<span>${esc(s)}</span></button>`;
   }).join('');
 }

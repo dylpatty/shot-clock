@@ -224,6 +224,8 @@ NBA.spoils = text => SPOIL_RE.test(String(text || ''));
 NBA.masked = (id, date) => !!NBA.S.spoilers && !(NBA.ui && NBA.ui.st.revealed.has(String(id))) && Date.now() - new Date(date).getTime() < 2 * 864e5;
 // ESPN sends '0.0 - 2nd' at the end of a period
 NBA.detail = g => String((g && g.detail) || '').replace(/^0\.0 - (\S+)/i, 'End of $1');
+// A game clock as seconds left in the period: '7:55', or '37.1' in the last minute
+NBA.clockSecs = c => { const s = String(c || ''); if (s.includes(':')) { const [m, x] = s.split(':'); return +m * 60 + parseFloat(x); } return parseFloat(s); };
 NBA.fmtDur = s => { const t = Math.round(s) || 0; return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 
 /* ---------- full game highlights ---------- */
@@ -425,9 +427,12 @@ function parseSummary(j, id) {
       score: scoreOf(c), home: c.homeAway === 'home', winner: c.winner,
       record: ((c.record || []).find(r => r.type === 'total') || (c.record || [])[0] || {}).summary || '',
       lines: (c.linescores || []).map(l => l.displayValue ?? l.value),
+      // ESPN's ball-possession flag (false for both teams outside live play)
+      poss: c.possession === true,
     };
   });
   const away = teams.find(t => !t.home) || teams[0], home = teams.find(t => t.home) || teams[1];
+  const st = comp.status || { type: {} }, live = st.type.state === 'in';
   const box = ((j.boxscore && j.boxscore.players) || []).map(p => {
     const s = (p.statistics || [])[0] || {};
     return {
@@ -435,7 +440,11 @@ function parseSummary(j, id) {
       players: (s.athletes || []).map(a => ({
         id: String(a.athlete.id), name: a.athlete.shortName || a.athlete.displayName, full: a.athlete.displayName,
         pos: a.athlete.position && a.athlete.position.abbreviation, starter: a.starter,
+        // dnp: no line in the box score (other code counts on that). Mid-game, a bench player who hasn't checked in
+        // has no stats either but isn't a DNP: only didNotPlay marks a real one (ESPN gives every player a 'reason').
+        // active marks the five on the floor, but only while live: on a final it's just the closing five
         dnp: a.didNotPlay || !(a.stats && a.stats.length), reason: a.reason || '', stats: a.stats || [],
+        yet: live && !a.didNotPlay && !(a.stats && a.stats.length), onCourt: live && !!a.active, ejected: !!a.ejected,
       })),
     };
   });
@@ -443,10 +452,11 @@ function parseSummary(j, id) {
     const m = {}; (t.statistics || []).forEach(x => { m[x.name] = x.displayValue; });
     return { teamId: String(t.team.id), m };
   });
-  const st = comp.status || { type: {} };
+  // type ('Full Timeout', 'Shooting Foul'...) feeds the live strip's timeouts and team fouls (NBA.liveSit)
   const plays = (j.plays || []).map(p => ({
     id: String(p.id), text: p.text || '', clock: p.clock ? p.clock.displayValue : '', period: p.period ? p.period.number : 0,
     away: p.awayScore, home: p.homeScore, scoring: !!p.scoringPlay, teamId: p.team ? String(p.team.id) : '', wall: p.wallclock || '',
+    type: (p.type && p.type.text) || '',
   }));
   // A score still blank after the quarter scores is read from the latest play
   const lp = plays[plays.length - 1];
@@ -464,6 +474,8 @@ function parseSummary(j, id) {
   return {
     id, date: comp.date, away, home, state: st.type.state, completed: st.type.completed, detail: st.type.shortDetail || st.type.detail || '',
     ended: st.type.state === 'post' ? lastWall || '' : '',
+    // The period and its clock in seconds, while live (a final's status has neither)
+    period: st.period || 0, clockS: st.displayClock != null && st.displayClock !== '' ? NBA.clockSecs(st.displayClock) : null,
     box, tstats, plays, wp: j.winprobability || [], injuries,
     link: link ? link.href : `https://www.espn.com/nba/game/_/gameId/${id}`,
     recap: art && art.type === 'Recap' ? { headline: art.headline || '', description: art.description || '' } : null,
@@ -499,6 +511,65 @@ function parsePreview(j) {
     article: art && art.type !== 'Recap' && art.links && art.links.web ? { headline: art.headline || '', href: art.links.web.href } : null,
   };
 }
+/* One walk over a game summary's scoring plays: ties (a basket that levels it, not the 0-0 start), lead changes, the
+   biggest run of unanswered points and the run going on now ({ teamId, n, from, to } with from/to the first and last
+   scoring plays). Kept per summary, which is a new object on every refetch, so a 10 s live repaint doesn't redo it */
+const FLOW = new WeakMap();
+NBA.gameFlow = s => {
+  if (!s || !s.plays || !s.away || !s.home) return null;
+  if (FLOW.has(s)) return FLOW.get(s);
+  let pa = 0, ph = 0, lead = 0, ties = 0, changes = 0, run = null, best = null;
+  for (const p of s.plays) {
+    if (!p.scoring) continue;
+    const a = +p.away, h = +p.home;
+    if (!Number.isFinite(a) || !Number.isFinite(h)) continue;
+    const da = a - pa, dh = h - ph;
+    pa = a; ph = h;
+    if ((da > 0) === (dh > 0)) continue; // nothing scored (or a score correction)
+    const teamId = da > 0 ? s.away.id : s.home.id, n = da > 0 ? da : dh;
+    // best can be the same object as run, so a run that keeps growing keeps best up to date
+    if (run && run.teamId === teamId) { run.n += n; run.to = p; } else run = { teamId, n, from: p, to: p };
+    if (!best || run.n > best.n) best = run;
+    const l = Math.sign(a - h);
+    if (!l) ties++;
+    else { if (lead && l !== lead) changes++; lead = l; }
+  }
+  const f = { ties, changes, best, cur: run };
+  FLOW.set(s, f);
+  return f;
+};
+/* While a game is live: each team's timeouts left, its fouls this period, whether it is in the penalty (so the other
+   team shoots on its next common foul) and whether it has the ball, worked out from the summary's plays: ESPN's own
+   header fields for these come zeroed. NBA rules: 7 timeouts a game, no more than 4 in the 4th and 2 after its 3:00
+   mark, 2 in each overtime with none carried over. A coach's challenge that wins keeps its timeout. A team is in the
+   penalty at 4 fouls in a quarter (3 in overtime), or after its foul to give in the last 2:00 of any period. Offensive
+   fouls and technicals aren't team fouls. Between periods (clock 0.0) the fouls are left out and the timeouts are the
+   ones for the next period. Returns null unless live; { away, home } of { to, fouls, pen, poss } */
+NBA.liveSit = s => {
+  if (!s || s.state !== 'in' || !s.period || !s.away || !s.home || !s.plays) return null;
+  const brk = s.clockS === 0, per = brk ? s.period + 1 : s.period, clk = brk ? (per > 4 ? 300 : 720) : s.clockS;
+  // 0.0 left in the 4th or an overtime and not tied: the game is over, ESPN just hasn't called it final yet
+  if (brk && s.period >= 4 && +s.away.score !== +s.home.score) return null;
+  // Possession is trusted only when exactly one team has it
+  const poss = s.away.poss !== s.home.poss;
+  const side = t => {
+    let reg = 0, q4 = 0, last3 = 0, ot = 0, fouls = 0, late = false;
+    for (const p of s.plays) {
+      if (p.teamId !== t.id) continue;
+      const to = /timeout/i.test(p.type) ? 1 : /coach's challenge \(overturned\)/i.test(p.type) ? -1 : 0;
+      if (to) {
+        if (p.period <= 4) { reg += to; if (p.period === 4) { q4 += to; if (NBA.clockSecs(p.clock) <= 180) last3 += to; } }
+        else if (p.period === per) ot += to;
+      } else if (!brk && p.period === per && /foul/i.test(p.type) && !/offensive|technical/i.test(p.type)) {
+        fouls++;
+        if (NBA.clockSecs(p.clock) <= 120) late = true;
+      }
+    }
+    const left = per > 4 ? 2 - ot : per === 4 ? Math.min(7 - reg, 4 - q4, Number.isFinite(clk) && clk <= 180 ? 2 - last3 : 9) : 7 - reg;
+    return { to: Math.max(0, left), fouls: brk ? null : fouls, pen: !brk && (fouls >= (per > 4 ? 3 : 4) || late), poss: poss && t.poss };
+  };
+  return { away: side(s.away), home: side(s.home) };
+};
 function parseGameLog(j) {
   const names = j.names || [];
   // Regular season, play-in and playoff games all count (ESPN lists each as its own season type); preseason does not

@@ -1193,6 +1193,15 @@ a.hchip,button.hchip{cursor:pointer}
   .box-swipe.fit .bx .pl .pp{display:none}
   .box-swipe.fit .bx .plink{display:inline-block;max-width:104px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 }
+/* Live adds a fouls column, so names and cells give up some room to keep the table inside the screen */
+@media (max-width:400px){
+  .box-swipe.fit.live .bx .plink{max-width:84px}
+  .box-swipe.fit.live .bx tbody th,.box-swipe.fit.live .bx td,.box-swipe.fit.live .bx thead th.pl,.box-swipe.fit.live .bx .sortb{padding-inline:3px}
+}
+@media (max-width:360px){
+  .box-swipe.fit.live .bx .plink{max-width:64px}
+  .box-swipe.fit.live .bx tbody th,.box-swipe.fit.live .bx td,.box-swipe.fit.live .bx thead th.pl,.box-swipe.fit.live .bx .sortb{padding-inline:2px}
+}
 /* The narrowest phones need tighter still to fit */
 @media (max-width:360px){
   .box-swipe.fit .bx{font-size:11px}
@@ -1219,6 +1228,20 @@ a.hchip,button.hchip{cursor:pointer}
 @media (max-width:400px){.dr-score{grid-template-columns:minmax(0,1fr) minmax(0,1fr);row-gap:8px}.dr-status{grid-column:1/-1;grid-row:1;justify-content:center}}
 .dr-status.live{color:var(--live)}
 @media (max-width:520px){.dr-team img{width:36px;height:36px}.dr-team .sc{font-size:34px}.dr-team{gap:8px}.dr-team .ab{font-size:22px}}
+/* The live strip under the score: each side's timeouts and fouls under its own team, the run in the middle */
+.dr-live{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:-4px 0 10px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.dl-side{display:flex;min-width:0}
+.dl-side.home{justify-content:flex-end}
+.dl-bits{display:inline-flex;align-items:center;gap:4px 8px;flex-wrap:wrap;min-width:0}
+.dl-side.home .dl-bits{flex-direction:row-reverse}
+.dl-bits b{color:var(--ink);font-weight:800}
+.dl-bonus{padding:1px 6px;border-radius:999px;background:var(--warn-soft);color:var(--warn);font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.dl-ball{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+.dl-run{font-weight:800;color:var(--accent);white-space:nowrap;text-align:center}
+/* Narrow phones: like the clock above, the run gets its own row, so each side has room for its bonus on one line */
+@media (max-width:420px){.dr-live{grid-template-columns:minmax(0,1fr) minmax(0,1fr);row-gap:4px}.dl-run{grid-column:1/-1;grid-row:2}.dl-run:empty{display:none}}
+.dr-ca{justify-content:center;padding-bottom:10px}
+.dr-pp{justify-content:center;padding-bottom:6px}
 .lsx{border-collapse:collapse;margin:0 auto 6px;font-variant-numeric:tabular-nums;font-size:13px}
 .lsx th,.lsx td{padding:4px 10px;text-align:center}
 .lsx th{font-size:10px;font-weight:800;letter-spacing:.07em;color:var(--muted)}
@@ -1248,6 +1271,14 @@ a.hchip,button.hchip{cursor:pointer}
 .bx tr.sub th{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);text-align:left;background:var(--card-2);padding:5px 8px}
 .bx tr.sub th:first-child{position:sticky;left:0}
 .bx td.pts{font-weight:800}
+/* Live: a bar on the name of each player on the floor (no extra width), and personal fouls in amber for foul trouble,
+   red once he's fouled out or been ejected. The key under the box scores explains them */
+.bx tr.on th.pl{box-shadow:inset 3px 0 0 var(--accent)}
+.bx td.ft,.bx-key .ft{color:var(--warn);font-weight:800}
+.bx td.fo,.bx-key .fo{color:var(--loss);font-weight:800}
+.bx-key{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;margin:-10px 0 0}
+.bx-key span{display:inline-flex;align-items:center;gap:5px}
+.bx-key .bx-on{width:3px;height:13px;border-radius:2px;background:var(--accent)}
 .bx tr.tot th,.bx tr.tot td{font-weight:800;border-bottom:0;border-top:1px solid var(--ink)}
 .dnp{font-size:12px;color:var(--muted);margin:8px 0 0}
 .inj2{list-style:none;margin:0;padding:0;font-size:13px;display:flex;flex-direction:column;gap:4px}
@@ -1351,6 +1382,12 @@ a.hchip,button.hchip{cursor:pointer}
 .vid-bar .ib{color:#fff;border-color:transparent;background:none}
 @media (hover:hover){.vid-bar .ib:hover{background:rgba(255,255,255,.14);border-color:transparent}}
 .cmp{display:flex;flex-direction:column;gap:12px}
+/* Team stats: lead changes, ties and the biggest run, above the bars */
+.cmp-flow{display:flex;justify-content:center;gap:8px;text-align:center}
+.cmp-flow > div{flex:1 1 0;min-width:0;max-width:220px;padding:10px 6px;border:1px solid var(--line);border-radius:12px;background:var(--card-2)}
+.cmp-flow b{display:block;font-family:var(--f-display);font-weight:800;font-size:22px;line-height:1.1;white-space:nowrap}
+.cmp-flow small{display:block;margin-top:3px;font-size:11px;color:var(--muted);line-height:1.3}
+.drawer.modal .cmp-flow{width:100%;max-width:1100px;margin-left:auto;margin-right:auto}
 .cmp-head{display:grid;grid-template-columns:3.8em 1fr 1fr 3.8em;gap:8px;font-family:var(--f-display);font-weight:800;font-size:18px}
 .cmp-head span:nth-child(3){text-align:right}
 .cmp-row{display:flex;flex-direction:column;gap:4px}

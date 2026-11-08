@@ -453,12 +453,14 @@ UI.ownsSwipe = el => !!(el && el.closest && el.closest('[data-noswipe], input, t
 
 /* ---------- game drawer ---------- */
 const BOX_COMPACT = ['minutes', 'points', 'rebounds', 'assists', 'fieldGoalsMade-fieldGoalsAttempted', 'threePointFieldGoalsMade-threePointFieldGoalsAttempted', 'plusMinus'];
+// [ESPN stat, label, made-attempted split, a percentage, fewer is better]. Technicals only show when someone has one
 const TEAM_STATS = [
   ['fieldGoalPct', 'Field goal %', 'fieldGoalsMade-fieldGoalsAttempted', true],
   ['threePointFieldGoalPct', '3-point %', 'threePointFieldGoalsMade-threePointFieldGoalsAttempted', true],
   ['freeThrowPct', 'Free throw %', 'freeThrowsMade-freeThrowsAttempted', true],
-  ['totalRebounds', 'Rebounds'], ['offensiveRebounds', 'Offensive rebounds'], ['assists', 'Assists'], ['steals', 'Steals'], ['blocks', 'Blocks'],
-  ['totalTurnovers', 'Turnovers', null, false, true], ['pointsInPaint', 'Points in the paint'], ['fastBreakPoints', 'Fast break points'], ['largestLead', 'Largest lead'],
+  ['totalRebounds', 'Rebounds'], ['offensiveRebounds', 'Offensive rebounds'], ['defensiveRebounds', 'Defensive rebounds'], ['assists', 'Assists'], ['steals', 'Steals'], ['blocks', 'Blocks'],
+  ['totalTurnovers', 'Turnovers', null, false, true], ['turnoverPoints', 'Points off turnovers'], ['pointsInPaint', 'Points in the paint'], ['fastBreakPoints', 'Fast break points'],
+  ['fouls', 'Fouls', null, false, true], ['technicalFouls', 'Technicals', null, false, true], ['largestLead', 'Largest lead'], ['leadPercentage', 'Time leading', null, true],
 ];
 function findGame(id) {
   for (const k of ['day:', 'day:' + NBA.dayParam]) { const d = NBA.data(k); const g = d && d.games.find(x => x.id === id); if (g) return g; }
@@ -471,9 +473,13 @@ function noteOpener(opener) {
 }
 UI.openGame = (id, opener) => {
   noteOpener(opener);
-  UI.st.revealed.add(id);
+  // Opening a game shows its score, so in spoiler mode it stays shown elsewhere too. Not for one opened before tip-off
+  // (to check the matchup or the channel): its result must stay hidden later. One whose state isn't known yet, or that
+  // tips off while open, is revealed by renderDrawer
+  const g0 = findGame(id), s0 = NBA.data('summary:' + id), st0 = (g0 && g0.state) || (s0 && s0.state);
+  if (st0 && st0 !== 'pre') UI.st.revealed.add(id);
   // The first tab is picked once the game's state is known: Matchup before tip-off, else Box score
-  UI.drawer = { id, tab: null, sort: null, scoringOnly: false, showAll: false, game: findGame(id) };
+  UI.drawer = { id, tab: null, sort: null, scoringOnly: false, showAll: false, game: g0 };
   UI.drawerBack = null;
   UI.settingsOpen = false; $('#settings').hidden = true;
   if (!UI.histPushed) { history.pushState({ nbaGame: id }, ''); UI.histPushed = true; }
@@ -514,7 +520,10 @@ NBA.pollHooks.push({
     const k = 'summary:' + gid, d = NBA.data(k), g = findGame(gid);
     // A game opened before tip-off is refetched once tip is near (or the scoreboard says it started), so it turns live on its own
     const tipping = d && d.state === 'pre' && ((g && g.state !== 'pre') || new Date(d.date) - Date.now() < 15 * 60000);
-    return (!d || d.state === 'in' || tipping) ? NBA.need(k, true) : null;
+    if (!d || d.state === 'in' || tipping) return NBA.need(k, true);
+    // After the final the summary's own schedule decides (every 5 min until ESPN posts the recap, then rarely), so a
+    // window left open on the final buzzer still gets the recap and ESPN's stat corrections
+    return d.state === 'post' ? NBA.need(k) : null;
   },
 });
 function renderDrawer() {
@@ -528,8 +537,13 @@ function renderDrawer() {
   const state = data ? data.state : g && g.state;
   // Postponed: 'post' without being completed, from the scoreboard game or the summary's own status
   const pp = state === 'post' && ((!!g && g.completed === false) || (!!data && data.completed === false));
-  // A cached summary can be hours old: if the scoreboard says the game has started, open on the box score
-  if (!d.tab && state) d.tab = state === 'pre' && !(g && g.state !== 'pre') ? 'preview' : 'box';
+  // The game's score is on screen from here on, so it counts as revealed: one opened from a team schedule or a player's
+  // log (state unknown until the summary loads), or one that tipped off while open. The next render finds it in the set
+  if (state && state !== 'pre' && !pp && !UI.st.revealed.has(d.id)) { UI.st.revealed.add(d.id); NBA.changed(); }
+  // A cached summary can be hours old: if the scoreboard says the game has started, open on the box score.
+  // A postponed game has no box score, plays or chart, only its matchup
+  if (pp) d.tab = 'preview';
+  else if (!d.tab && state) d.tab = state === 'pre' && !(g && g.state !== 'pre') ? 'preview' : 'box';
   const detail = data ? (data.state === 'pre' && data.date ? UI.tipTime({ date: data.date, detail: data.detail }) : NBA.detail(data)) : g ? (g.state === 'pre' ? UI.tipTime(g) : NBA.detail(g)) : '';
   const link = data ? data.link : g ? g.link : `https://www.espn.com/nba/game/_/gameId/${d.id}`;
   const title = away && home ? `${away.full || away.abbr} at ${home.full || home.abbr}` : 'Game';
@@ -540,6 +554,9 @@ function renderDrawer() {
       <div><div class="ab">${esc(t.abbr)}</div><div class="rec">${esc(t.record || '')}</div></div>
       <div class="sc${state === 'post' && !pp && t.winner === false ? ' lostsc' : ''}">${state === 'pre' || pp ? '' : esc(t.score)}</div></div>`;
     html += `<div class="dr-score dpad">${side(away, false)}<div class="dr-status${state === 'in' ? ' live' : ''}">${state === 'in' ? '<i class="dot blink"></i>' : ''}${esc(detail)}</div>${side(home, true)}</div>`;
+    if (state === 'in' && data) html += liveStrip(data);
+    // The status above already says postponed or canceled
+    if (pp) html += `<div class="dpad pre-meta dr-pp"><span>This game wasn't played</span></div>`;
     const nq = Math.max(away.lines.length, home.lines.length);
     if (nq && state !== 'pre' && !pp) {
       const cells = t => Array.from({ length: nq }, (_, i) => `<td>${esc(t.lines[i] ?? '')}</td>`).join('');
@@ -566,14 +583,18 @@ function renderDrawer() {
     }
     // A game opened from a team schedule may not be on a loaded scoreboard; the summary has its date and teams too
     const ca = NBA.caTv(g || data);
+    // Where to watch in Canada, linked straight to the game's page on that service when the NBA lists one
+    const caLinks = () => `<span>Watch in Canada <b>${ca.items.map(s => s.link ? `<a class="ca-link" href="${esc(s.link)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>` : esc(s.label)).join(' / ')}</b></span>`;
+    // Mid-game is when the stream is wanted most, so the links stay (without the line and the venue)
+    if (state === 'in' && ca) html += `<div class="dpad pre-meta dr-ca">${caLinks()}</div>`;
     if (state === 'pre' && ((g && (g.odds || g.venue)) || ca)) {
       const o = g && g.odds, sm = o && UI.moved(o.spreadHome, home.abbr + ' '), tm = o && UI.moved(o.total);
-      // Where to watch in Canada, linked straight to the game's page on that service when the NBA lists one
-      html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${ca ? `<span>Watch in Canada <b>${ca.items.map(s => s.link ? `<a class="ca-link" href="${esc(s.link)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>` : esc(s.label)).join(' / ')}</b></span>` : ''}${o && o.details ? `<span>Line <b>${esc(o.details)}</b>${sm ? ` (${esc(sm)})` : ''}</span>` : ''}${o && o.ou ? `<span>O/U <b>${esc(o.ou)}</b>${tm ? ` (${esc(tm)})` : ''}</span>` : ''}${o && o.awayML ? `<span>Moneyline <b>${esc(g.away.abbr)} ${esc(o.awayML)} · ${esc(g.home.abbr)} ${esc(o.homeML)}</b></span>` : ''}${g && g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
+      html += `<div class="dpad pre-meta" style="justify-content:center;padding-bottom:12px">${ca ? caLinks() : ''}${o && o.details ? `<span>Line <b>${esc(o.details)}</b>${sm ? ` (${esc(sm)})` : ''}</span>` : ''}${o && o.ou ? `<span>O/U <b>${esc(o.ou)}</b>${tm ? ` (${esc(tm)})` : ''}</span>` : ''}${o && o.awayML ? `<span>Moneyline <b>${esc(g.away.abbr)} ${esc(o.awayML)} · ${esc(g.home.abbr)} ${esc(o.homeML)}</b></span>` : ''}${g && g.venue ? `<span>${esc(g.venue)}</span>` : ''}</div>`;
     }
   }
-  // Matchup is there before tip-off, and stays for a game that tips off while it's open on that tab
-  const tabs = [...(state === 'pre' || d.tab === 'preview' ? [['preview', 'Matchup']] : []), ['box', 'Box score'], ['team', 'Team stats'], ['plays', 'Plays'], ['wp', 'Win chance']];
+  // Matchup is there before tip-off, and stays for a game that tips off while it's open on that tab. A postponed game
+  // only has its matchup (ESPN keeps the injuries and each side's last 5)
+  const tabs = pp ? [['preview', 'Matchup']] : [...(state === 'pre' || d.tab === 'preview' ? [['preview', 'Matchup']] : []), ['box', 'Box score'], ['team', 'Team stats'], ['plays', 'Plays'], ['wp', 'Win chance']];
   html += `<div class="dtabs dpad" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-act="dtab" data-v="${k}" aria-selected="${d.tab === k}">${l}</button>`).join('')}</div>`;
   // The win chance chart is drawn at the pane's real width, so its labels keep their size on a phone. The width
   // ends up in the HTML, so a rotation redraws it on the next render
@@ -602,6 +623,23 @@ function renderDrawer() {
     if (el.scrollTop !== top) el.scrollTop = top;
     if (data && d.tab === 'wp') bindWp(data);
   }
+}
+/* Under the score while live: each side's timeouts left and fouls this period, BONUS on the side that shoots on the
+   other team's next common foul, a dot on the side with the ball, and the run going on now once it's 6-0 or more.
+   What can't be worked out is left out (NBA.liveSit in js/core.js). Screen readers get each side as one sentence */
+const abbrOf = (data, id) => (id === data.away.id ? data.away : data.home).abbr || '';
+function liveStrip(data) {
+  const ls = NBA.liveSit(data);
+  if (!ls) return '';
+  const f = NBA.gameFlow(data), run = f && f.cur && f.cur.n >= 6 ? f.cur : null;
+  const per = data.clockS === 0 ? data.period + 1 : data.period;
+  const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const side = (t, me, opp, isHome) => {
+    const say = [pl(me.to, 'timeout') + ' left', me.fouls != null ? `${pl(me.fouls, 'team foul')} this ${per > 4 ? 'overtime' : 'quarter'}` : '',
+      opp.pen ? 'in the bonus' : '', me.poss ? 'has the ball' : ''].filter(Boolean).join(', ');
+    return `<div class="dl-side${isHome ? ' home' : ''}"><span class="sr">${esc(t.abbr)}: ${say}.</span><span class="dl-bits" aria-hidden="true">${me.poss ? '<i class="dl-ball"></i>' : ''}<span><b>${me.to}</b> TO</span>${me.fouls != null ? `<span><b>${me.fouls}</b> ${me.fouls === 1 ? 'foul' : 'fouls'}</span>` : ''}${opp.pen ? '<span class="dl-bonus">Bonus</span>' : ''}</span></div>`;
+  };
+  return `<div class="dr-live dpad">${side(data.away, ls.away, ls.home, false)}<div class="dl-run">${run ? `${esc(abbrOf(data, run.teamId))} ${run.n}-0 run` : ''}</div>${side(data.home, ls.home, ls.away, true)}</div>`;
 }
 /* Before tip-off: ESPN's predictor, each side's last 5, the season series, team leaders, injuries, the line and
    the preview story, all from the game's summary. A part ESPN hasn't posted is left out */
@@ -664,13 +702,19 @@ function paneBox(d, data) {
   else {
     // Wide screens show the two teams side by side; phones swipe between them, with a button for each team above
     const boxes = [data.away, data.home].map(t => data.box.find(b => b.teamId === t.id)).filter(Boolean);
+    // A freshly opened game starts on your team's box score (the repaint below scrolls the phone strip to it)
+    if (d.boxIdx == null) { const mi = boxes.findIndex(b => b.teamId === NBA.S.myTeam); d.boxIdx = mi > 0 ? mi : 0; }
     const at = Math.min(d.boxIdx || 0, boxes.length - 1);
     const pick = boxes.length > 1 ? `<div class="box-tabs" role="group" aria-label="Team">${boxes.map((b, i) => {
       const t = NBA.T(b.teamId);
       return `<button data-act="boxteam" data-v="${i}" aria-pressed="${i === at}">${UI.logo(t, 20)}${esc(t.name || t.abbr)}</button>`;
     }).join('')}</div>` : '';
     // .fit: the key stats are squeezed to fit a phone's width, so a swipe anywhere on them changes team
-    out += tools + pick + `<div class="box-pair box-swipe${NBA.S.boxCols === 'full' ? '' : ' fit'}">${boxes.map(b => boxTeam(b, d)).join('')}</div>`;
+    const live = data.state === 'in';
+    out += tools + pick + `<div class="box-pair box-swipe${NBA.S.boxCols === 'full' ? '' : ' fit'}${live ? ' live' : ''}">${boxes.map(b => boxTeam(b, d, data)).join('')}</div>`;
+    // What the live marks mean (the floor bar only when ESPN says who's on it)
+    const anyOn = boxes.some(b => b.players.some(p => p.onCourt));
+    if (live) out += `<p class="note bx-key">${anyOn ? '<span><i class="bx-on" aria-hidden="true"></i>On the floor</span>' : ''}<span><b class="ft">PF</b> Foul trouble</span><span><b class="fo">PF</b> Fouled out</span></p>`;
   }
   // Each team's injuries under its own box score column: away on the left, home on the right
   if (data.injuries.length) {
@@ -681,16 +725,32 @@ function paneBox(d, data) {
   }
   return out;
 }
-function boxTeam(b, d) {
-  const t = NBA.T(b.teamId);
-  const idx = b.keys.map((k, i) => i).filter(i => NBA.S.boxCols === 'full' || BOX_COMPACT.includes(b.keys[i]));
-  const played = b.players.filter(p => !p.dnp), dnp = b.players.filter(p => p.dnp);
+function boxTeam(b, d, data) {
+  const t = NBA.T(b.teamId), live = data.state === 'in';
+  // Live, personal fouls join the key stats: foul trouble decides who stays on the floor
+  const idx = b.keys.map((k, i) => i).filter(i => NBA.S.boxCols === 'full' || BOX_COMPACT.includes(b.keys[i]) || (live && b.keys[i] === 'fouls'));
+  const played = b.players.filter(p => !p.dnp), dnp = b.players.filter(p => p.dnp && !p.yet), yet = b.players.filter(p => p.yet);
+  // The five on the floor, while live; anything other than 1 to 5 of them means ESPN's flag can't be trusted
+  const nOn = played.filter(p => p.onCourt).length, onOk = live && nOn > 0 && nOn <= 5;
+  // Foul trouble: 2 in the 1st, 3 in the 2nd, 4 in the 3rd, 5 after that. 6 (or an ejection) is out of the game
+  const pfI = b.keys.indexOf('fouls'), trouble = (data.period || 0) >= 4 ? 5 : (data.period || 0) + 1;
+  const pfCls = p => {
+    const n = NBA.num(p.stats[pfI]);
+    return p.ejected || n >= 6 ? 'fo' : live && data.period && n >= trouble ? 'ft' : '';
+  };
+  const cell = (p, i) => {
+    const c = [b.keys[i] === 'points' ? 'pts' : '', i === pfI ? pfCls(p) : ''].filter(Boolean).join(' ');
+    return `<td${c ? ` class="${c}"` : ''}>${esc(p.stats[i] ?? '')}</td>`;
+  };
   const th = idx.map(i => {
     const on = d.sort && d.sort.k === b.keys[i];
     return `<th scope="col"><button class="sortb${on ? ' on' : ''}" data-act="sort" data-k="${esc(b.keys[i])}" aria-label="Sort by ${esc(b.labels[i])}">${esc(b.labels[i])}${on ? (d.sort.desc ? ' ↓' : ' ↑') : ''}</button></th>`;
   }).join('');
   // A name opens the player's card, which has a button back to this game
-  const prow = p => `<tr><th class="pl" scope="row"><button class="plink" data-act="player" data-id="${esc(p.id)}">${esc(p.name)}</button><span class="pp">${esc(p.pos || '')}</span></th>${idx.map(i => `<td class="${b.keys[i] === 'points' ? 'pts' : ''}">${esc(p.stats[i] ?? '')}</td>`).join('')}</tr>`;
+  const prow = p => {
+    const on = onOk && p.onCourt, tag = p.ejected ? ' (ejected)' : on ? ' (on the floor)' : '';
+    return `<tr${on ? ' class="on"' : ''}><th class="pl" scope="row"><button class="plink" data-act="player" data-id="${esc(p.id)}">${esc(p.name)}</button>${tag ? `<span class="sr">${tag}</span>` : ''}<span class="pp">${esc(p.pos || '')}</span></th>${idx.map(i => cell(p, i)).join('')}</tr>`;
+  };
   const sub = l => `<tr class="sub"><th scope="rowgroup">${l}</th><th colspan="${idx.length}"></th></tr>`;
   let rows;
   if (d.sort) {
@@ -703,13 +763,23 @@ function boxTeam(b, d) {
   const tot = `<tr class="tot"><th class="pl" scope="row">Team</th>${idx.map(i => `<td>${esc(b.totals[i] ?? '')}</td>`).join('')}</tr>`;
   return `<div><h3 class="bx-team">${UI.logo(t, 26)}${esc(t.full || t.abbr)}</h3>
     <div class="tblwrap"><table class="bx"><thead><tr><th class="pl" scope="col">Player</th>${th}</tr></thead><tbody>${rows}${tot}</tbody></table></div>
+    ${yet.length ? `<p class="dnp">Not in yet: ${yet.map(p => esc(p.name)).join(', ')}</p>` : ''}
     ${dnp.length ? `<p class="dnp">Did not play: ${dnp.map(p => esc(p.name) + (p.reason ? ` (${esc(p.reason.toLowerCase())})` : '')).join(', ')}</p>` : ''}</div>`;
 }
 function paneTeam(data) {
   const a = data.tstats.find(x => x.teamId === data.away.id), h = data.tstats.find(x => x.teamId === data.home.id);
   if (!a || !h || !Object.keys(a.m).length) return `<p class="empty">Team stats fill in once the game tips off.</p>`;
   const [ca, ch] = NBA.tones(data.away, data.home);
-  const rows = TEAM_STATS.filter(([k]) => a.m[k] != null && h.m[k] != null).map(([k, label, split, pct, lowerBetter]) => {
+  // How the game went: ESPN's lead changes (one number for the game), and ties and the biggest run from the scoring
+  // plays. Left out until ESPN counts lead changes
+  const f = NBA.gameFlow(data), b = f && f.best, lc = parseInt(a.m.leadChanges, 10);
+  const at = p => `${NBA.perLabel(p.period)} ${p.clock}`;
+  const flow = !Number.isFinite(lc) || !f ? '' : `<div class="cmp-flow">
+      <div><b>${lc}</b><small>Lead change${lc === 1 ? '' : 's'}</small></div><div><b>${f.ties}</b><small>Tie${f.ties === 1 ? '' : 's'}</small></div>
+      ${b ? `<div><b>${esc(abbrOf(data, b.teamId))} ${b.n}-0</b><small>Biggest run · ${esc(b.from.period === b.to.period ? `${at(b.from)}–${b.to.clock}` : `${at(b.from)}–${at(b.to)}`)}</small></div>` : ''}</div>`;
+  // Technicals only once someone has one
+  const tech = +a.m.technicalFouls || +h.m.technicalFouls;
+  const rows = TEAM_STATS.filter(([k]) => a.m[k] != null && h.m[k] != null && (k !== 'technicalFouls' || tech)).map(([k, label, split, pct, lowerBetter]) => {
     const va = parseFloat(a.m[k]) || 0, vh = parseFloat(h.m[k]) || 0, max = Math.max(va, vh, 1);
     const better = va === vh ? 0 : ((va > vh) !== !!lowerBetter ? -1 : 1);
     const fmt = v => esc(v) + (pct ? '%' : '');
@@ -720,8 +790,8 @@ function paneTeam(data) {
       <div class="hbar"><i style="width:${(vh / max * 100).toFixed(1)}%;background:${ch}"></i></div>
       <span class="v${better > 0 ? ' b' : ''}">${fmt(h.m[k])}</span></div></div>`;
   }).join('');
-  return `<div class="cmp"><div class="cmp-head"><span></span><span>${esc(data.away.abbr)}</span><span>${esc(data.home.abbr)}</span><span></span></div>${rows}</div>
-    <p class="note">The stronger number in each row is bold. For turnovers, fewer is better.</p>`;
+  return `${flow}<div class="cmp"><div class="cmp-head"><span></span><span>${esc(data.away.abbr)}</span><span>${esc(data.home.abbr)}</span><span></span></div>${rows}</div>
+    <p class="note">The stronger number in each row is bold. For turnovers and fouls, fewer is better. Time leading leaves out the time tied.</p>`;
 }
 function panePlays(d, data) {
   if (!data.plays.length) return `<p class="empty">Play-by-play starts at tip-off.</p>`;
