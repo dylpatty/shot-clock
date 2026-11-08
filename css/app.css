@@ -1202,6 +1202,9 @@ a.hchip,button.hchip{cursor:pointer}
 .drawer.modal .cmp,.drawer.modal .wpwrap,.drawer.modal .wpwrap + .note{width:100%;max-width:1100px;margin-left:auto;margin-right:auto}
 .dpad{padding-left:22px;padding-right:max(22px,env(safe-area-inset-right,0px))}
 @media (max-width:640px){.dpad{padding-left:14px;padding-right:max(14px,env(safe-area-inset-right,0px))}}
+/* The game window is painted in parts (ui.js renderDrawer). The wrappers make no box of their own, so the close bar and
+   the tab bar inside them still stick to the top of the window as it scrolls */
+.dr-part{display:contents}
 .dr-bar{position:sticky;top:0;z-index:3;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;height:calc(56px + env(safe-area-inset-top,0px));padding-top:env(safe-area-inset-top,0px)}
 .dr-title{font-weight:800;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ext{font-size:12px;font-weight:700;color:var(--accent);text-decoration:none;white-space:nowrap}
@@ -1277,6 +1280,12 @@ a.hchip,button.hchip{cursor:pointer}
 @media (max-width:360px){.mx-row:has(.mx-pills){flex-wrap:wrap}.mx-pills{flex-basis:100%}}
 .mx-g.w b{color:var(--win)}
 .mx-g.lo b{color:var(--loss)}
+/* Rest days under each team's last 5; the second night of a back-to-back stands out */
+.mx-rest{margin:-2px 0 8px 30px;font-size:12px;color:var(--muted)}
+.mx-rest.b2b{color:var(--warn);font-weight:700}
+/* Earlier and later meetings in the series: wider pills, a result or a date on top */
+.mx-meet{margin-top:8px;flex-wrap:wrap}
+.mx-g.mx-mt{flex:1 1 96px;max-width:150px}
 @media (hover:hover){.mx-g:hover{border-color:var(--muted)}}
 .mx-lead{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px 24px}
 .mx-lead .mx-row{margin-top:0}
@@ -1360,6 +1369,10 @@ a.hchip,button.hchip{cursor:pointer}
 .cmp-bars .v{font-variant-numeric:tabular-nums;font-size:14px;color:var(--muted)}
 .cmp-bars .v.b{color:var(--ink);font-weight:800}
 .cmp-bars .v:last-child{text-align:right}
+/* The Matchup tab's tale of the tape: a league rank under each value */
+.cmp.tape{margin-bottom:12px}
+.drawer.modal .cmp.tape{max-width:760px;margin-left:0}
+.cmp.tape .v small{display:block;font-size:10px;font-weight:600;color:var(--muted);line-height:1.2}
 .hbar{height:10px;display:flex}
 .hbar.l{justify-content:flex-end}
 .hbar i{display:block;height:100%;border-radius:4px;min-width:2px}
