@@ -99,7 +99,10 @@ const ET_WEEKDAY = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone:
 const INJ_WORD = /\b(probable|questionable|doubtful|available|will play|ruled out)\b/i;
 UI.injWord = (i, g) => {
   const c = String((i && i.short) || ''), day = g && g.date ? ET_WEEKDAY.format(new Date(g.date)) : '';
-  return day && (c.includes(day + "'s") || c.includes(day + '’s')) ? ((INJ_WORD.exec(c) || [])[1] || '').toLowerCase() : '';
+  if (!(day && (c.includes(day + "'s") || c.includes(day + '’s')))) return '';
+  // "is not available", "won't play": out, not available
+  if (/(not|won't|won’t|will not|unable to)[^.]{0,25}(available|play|return)/i.test(c)) return 'ruled out';
+  return ((INJ_WORD.exec(c) || [])[1] || '').toLowerCase();
 };
 // 'out' (for this game or the season), 'gtd' (a game-time call) or '' (not listed)
 UI.injCall = (i, word) => word === 'ruled out' || i.fs === 'OUT' || i.fs === 'OFS' ? 'out' : i.fs === 'GTD' ? 'gtd' : /out|suspen/i.test(i.status || '') ? 'out' : i.status ? 'gtd' : '';
@@ -795,7 +798,7 @@ function renderDrawer() {
   const [pTop, pTabs, pPane, pVids] = ['#dr-top', '#dr-tabs', '#dr-pane', '#dr-vids'].map(s => el.querySelector(s));
   if (!pPane) return;
   // Screen readers hear that the tab is still loading while its placeholder shapes show
-  if (pPane.hasAttribute('aria-busy') !== (!data && !err)) pPane.toggleAttribute('aria-busy', !data && !err);
+  if (!data && !err) pPane.setAttribute('aria-busy', 'true'); else pPane.removeAttribute('aria-busy');
   paintPart(pTop, html, d.id);
   paintPart(pTabs, tabBar, d.id);
   // A finger scrubbing the win chance chart keeps it (see bindWp); letting go paints what came in meanwhile

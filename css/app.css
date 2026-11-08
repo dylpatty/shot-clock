@@ -1412,7 +1412,7 @@ a.hchip,button.hchip{cursor:pointer}
 .dl-ball{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
 .dl-run{font-weight:800;color:var(--accent);white-space:nowrap;text-align:center}
 /* Narrow phones: like the clock above, the run gets its own row, so each side has room for its bonus on one line */
-@media (max-width:420px){.dr-live{grid-template-columns:minmax(0,1fr) minmax(0,1fr);row-gap:4px}.dl-run{grid-column:1/-1;grid-row:2}.dl-run:empty{display:none}}
+@media (max-width:420px){.dr-live{grid-template-columns:minmax(0,1fr) minmax(0,1fr);row-gap:4px}.dl-run{grid-column:1/-1;grid-row:2}.dl-run{min-height:1.45em}}
 .dr-ca{justify-content:center;padding-bottom:10px}
 .dr-pp{justify-content:center;padding-bottom:6px}
 .lsx{border-collapse:collapse;margin:0 auto 6px;font-variant-numeric:tabular-nums;font-size:13px}

@@ -204,8 +204,10 @@ F.search = raw => {
   const pq = pw.join(' ');
   if (pq.replace(/ /g, '').length >= 2) {
     const qw = (NICK[pq] || pq).split(' ');
+    // A name with a team's word in it (P.J. Washington, Jalen Green... Kings?) still matches on every word typed
+    const all = core.length > 1 && pw.length < core.length ? core : null;
     people().forEach(p => {
-      const fit = nameFit(qw, p.words);
+      const fit = Math.max(nameFit(qw, p.words), all ? nameFit(all, p.words) + 1 : 0);
       if (!fit) return;
       let s = 46 + fit * 8 + Math.min(10, ((p.stats && p.stats.pts) || 0) / 3);
       if (p.n === qw.join(' ')) s += 22;

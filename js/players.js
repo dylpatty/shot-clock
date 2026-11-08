@@ -108,7 +108,8 @@ UI.statsRow = l => `<div class="fd-stats">${statBox(l.pts, 'PTS', 'pts')}${statB
 UI.gameState = (g, brief, vs = '') => {
   const masked = NBA.masked(g.id, g.date), sc = masked || brief ? '' : ` · ${esc(g.away.abbr)} ${esc(g.away.score)}–${esc(g.home.score)} ${esc(g.home.abbr)}`;
   const at = vs && (!sc || g.state === 'pre') ? ` · ${vs}` : '';
-  if (g.state === 'in') return `<span class="fd-k live"><i class="dot blink"></i>Live · ${esc(NBA.detail(g))}${sc}${at}</span>`;
+  // A hidden live game is just "Live": the clock ("2:10 - OT", "End of 4th") would give away a close game
+  if (g.state === 'in') return `<span class="fd-k live"><i class="dot blink"></i>Live${masked ? '' : ' · ' + esc(NBA.detail(g))}${sc}${at}</span>`;
   if (isPP(g)) return `<span class="fd-k">${esc(g.detail || 'Postponed')}${at}</span>`;
   // A hidden final is just "Final": "Final/OT" would give away a close game
   if (g.state === 'post') return `<span class="fd-k">${esc(masked ? 'Final' : g.detail || 'Final')}${sc}${at}</span>`;
