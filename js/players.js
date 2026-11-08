@@ -35,9 +35,10 @@ function rosterIndex() {
 NBA.payrollCard = teamId => {
   const ro = NBA.data('roster:' + teamId);
   const head = `<div class="card-h"><h3>Payroll</h3><div class="end"><span class="eyebrow">${NBA.SEASON_LABEL} salaries</span></div></div>`;
-  if (!ro) return `<div class="card w12">${head}<p class="loading" style="padding:var(--pad)">Loading salaries…</p></div>`;
+  // Every version is .payroll, which puts it last on a phone's team page
+  if (!ro) return `<div class="card w12 payroll">${head}<p class="loading" style="padding:var(--pad)">Loading salaries…</p></div>`;
   const list = ro.players.filter(p => p.salary > 0).sort((a, b) => b.salary - a.salary);
-  if (!list.length) return `<div class="card w12">${head}<p class="empty" style="padding:var(--pad)">ESPN hasn't posted salaries for this roster yet.</p></div>`;
+  if (!list.length) return `<div class="card w12 payroll">${head}<p class="empty" style="padding:var(--pad)">ESPN hasn't posted salaries for this roster yet.</p></div>`;
   const L = NBA.capLines(), tone = NBA.tone(NBA.T(teamId));
   // ESPN is often slow to post salaries for players signed in the offseason, so those make the totals a floor, not the full number
   const twoWay = ro.players.filter(p => !p.salary && p.deal), missing = ro.players.filter(p => !p.salary && !p.deal);

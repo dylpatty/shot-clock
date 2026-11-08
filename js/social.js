@@ -36,6 +36,9 @@ NBA.def('social', 3 * 60000, () => NBA.getJSON(RAW + 'social.json').catch(e => {
 // The week's and season's biggest posts, kept by the same job
 NBA.def('socarch', 30 * 60000, () => NBA.getJSON(RAW + 'social-archive.json').catch(e => { if (e.message === 'HTTP 404') return { week: [], season: [] }; throw e; }));
 const DAY = 864e5;
+// Heat, the 24-hour window and the day's counts are worked out as of the feed's last load, not this instant: on the
+// clock of the moment, flame meters and counts crept between polls, and every creep rebuilt the whole feed
+const feedNow = () => NBA.status('social').t || Date.now();
 
 // Engagement on one scale per source, from each site's real counts: upvotes and comments on Reddit; likes, reposts,
 // replies and quotes on X. Comments count extra, since a post people argue about is a conversation, not just a
@@ -99,7 +102,7 @@ function percentiles(list, f) {
    how big it got and half on how fast; it cools with age; and it's nudged by what this site knows: your team, tonight's
    games, who's playing well, and that clips are the point of a feed like this */
 function scorer(list) {
-  const now = Date.now(), groups = {};
+  const now = feedNow(), groups = {};
   list.forEach(it => { (groups[it.src] = groups[it.src] || []).push(it); });
   const big = {}, fast = {};
   const ageH = it => Math.max(0.25, (now - it.time) / 3600000);
@@ -163,7 +166,7 @@ function pool() {
   const since = S.sort === 'top' ? { day: DAY, week: 7 * DAY, season: 400 * DAY }[S.range] : DAY;
   let list = (day && day.items) || [];
   if (arch) list = list.concat(arch[S.range] || []);
-  const now = Date.now();
+  const now = feedNow();
   list = dedupe(list.filter(it => it && it.id && SRC[it.src] && now - it.time < since));
   if (S.src !== 'all') list = list.filter(it => it.src === S.src);
   if (S.type === 'clips') list = list.filter(isClip);
@@ -197,6 +200,10 @@ const num = n => !n ? '0' : n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).repla
 const ago = ms => { const m = Math.max(0, Math.round((Date.now() - ms) / 60000)); return m < 1 ? 'now' : m < 60 ? m + 'm' : m < 1440 ? Math.round(m / 60) + 'h' : Math.round(m / 1440) + 'd'; };
 // "5m ago", or "just now" rather than "now ago"
 const agoTxt = ms => { const a = ago(ms); return a === 'now' ? 'just now' : a + ' ago'; };
+// Both are written in by UI.tick, so a minute passing doesn't rebuild the feed
+UI.tickers.sago = n => n.dataset.t ? ago(+n.dataset.t) : '';
+UI.tickers.sagotxt = n => n.dataset.t ? agoTxt(+n.dataset.t) : '';
+const agoEl = (ms, tk = 'sago') => `<time data-tk="${tk}" data-t="${+ms || ''}"></time>`;
 // X's logo is its name, so its badge is the logo alone
 const badge = src => `<span class="sp-badge sb-${src}${SRC[src].tag ? '' : ' solo'}" title="From ${esc(SRC[src].name)}">${ICON[src]}${SRC[src].tag ? `<span>${esc(SRC[src].tag)}</span>` : ''}</span>`;
 const flames = s => { const n = Math.max(1, Math.min(5, Math.ceil(s.heatPct * 5))); return `<span class="sp-heat" title="Heat ${n} of 5" aria-label="Heat ${n} of 5">${Array.from({ length: 5 }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`; };
@@ -224,15 +231,19 @@ function mediaHtml(it, hide) {
   const shown = m.slice(0, 4);
   return `<div class="sp-media n${shown.length}">${shown.map(one).join('')}${m.length > 4 ? `<span class="sp-more">+${m.length - 4}</span>` : ''}</div>`;
 }
+// A game chip's score and clock change on every poll, so UI.tick writes them in from today's scoreboard as it stands
+// (the chip's HTML only changes when the game starts or ends). Spoiler mode hides the score until the game is opened
+UI.tickers.sgame = n => {
+  const day = NBA.data('day:'), g = day && day.games.find(x => x.id === n.dataset.g);
+  if (!g) return '';
+  const hide = NBA.S.spoilers && !st.revealed.has(g.id);
+  return g.state === 'pre' ? NBA.fmtTime(g.date) : g.state === 'in' ? (hide ? 'Live' : `${g.away.score}-${g.home.score} · ${NBA.detail(g)}`) : (hide ? 'Final' : `${g.away.score}-${g.home.score} · Final`);
+};
 function gameChips(it) {
   const t = tags(it), day = NBA.data('day:');
   if (!day || !t.teams.length) return '';
   const games = day.games.filter(g => t.teams.some(x => x.id === g.away.id || x.id === g.home.id)).slice(0, 2);
-  return games.map(g => {
-    const hide = NBA.S.spoilers && !st.revealed.has(g.id);
-    const s = g.state === 'pre' ? NBA.fmtTime(g.date) : g.state === 'in' ? (hide ? 'Live' : `${g.away.score}-${g.home.score} · ${NBA.detail(g)}`) : (hide ? 'Final' : `${g.away.score}-${g.home.score} · Final`);
-    return `<button class="sp-game${g.state === 'in' ? ' live' : ''}" data-act="game" data-id="${g.id}">${g.state === 'in' ? '<i class="dot blink"></i>' : ''}${UI.logo(g.away, 16)}${esc(g.away.abbr)} @ ${UI.logo(g.home, 16)}${esc(g.home.abbr)}<span>${esc(s)}</span></button>`;
-  }).join('');
+  return games.map(g => `<button class="sp-game${g.state === 'in' ? ' live' : ''}" data-act="game" data-id="${g.id}">${g.state === 'in' ? '<i class="dot blink"></i>' : ''}${UI.logo(g.away, 16)}${esc(g.away.abbr)} @ ${UI.logo(g.home, 16)}${esc(g.home.abbr)}<span data-tk="sgame" data-g="${esc(g.id)}"></span></button>`).join('');
 }
 function card(it, s) {
   const src = SRC[it.src], a = it.author || {}, st2 = it.stats || {};
@@ -242,13 +253,14 @@ function card(it, s) {
     ? [[STAT.up, it.sf ? st2.up : null, 'upvotes'], [STAT.reply, st2.replies, 'comments']]
     : [[STAT.heart, st2.likes, 'likes'], [STAT.repost, st2.reposts, 'reposts'], [STAT.reply, st2.replies, 'replies'], [STAT.views, st2.views, 'views']];
   const body = `${it.title ? `<h4 class="sp-title">${esc(it.title)}</h4>` : ''}${it.text ? `<p class="sp-text${it.title ? ' sub' : ''}">${linkify(it.text.length > 420 ? it.text.slice(0, 400).replace(/\s+\S*$/, '') + '…' : it.text)}</p>` : ''}`;
+  const chips = gameChips(it);
   const reply = it.top && it.top.text && !hide ? `<div class="sp-reply"><b>${esc(it.top.author || 'Top reply')}</b> ${esc(it.top.text.length > 220 ? it.top.text.slice(0, 210).replace(/\s+\S*$/, '') + '…' : it.top.text)}${it.top.up ? `<span>${STAT.up}${num(it.top.up)}</span>` : ''}</div>` : '';
   return `<article class="sp sp-${it.src}" data-id="${esc(it.id)}">
     <div class="sp-top">${avatar(it)}<div class="sp-who"><b>${esc(a.name || a.handle || src.name)}${a.verified ? '<i class="sp-ver" title="Verified"></i>' : ''}</b>
-      <small>${a.handle && a.handle !== a.name ? esc(a.handle) + ' · ' : ''}${ago(it.time)}${it.flair ? ` · <span class="sp-flair">${esc(it.flair)}</span>` : ''}</small></div>${badge(it.src)}</div>
+      <small>${a.handle && a.handle !== a.name ? esc(a.handle) + ' · ' : ''}${agoEl(it.time)}${it.flair ? ` · <span class="sp-flair">${esc(it.flair)}</span>` : ''}</small></div>${badge(it.src)}</div>
     ${hide ? `<button class="sp-spoil" data-act="socspoil" data-id="${esc(it.id)}">This post might give away a result. <b>Show it</b></button>` : `<div class="sp-body">${body}</div>`}
     ${mediaHtml(it, hide)}${reply}
-    ${gameChips(it) ? `<div class="sp-games">${gameChips(it)}</div>` : ''}
+    ${chips ? `<div class="sp-games">${chips}</div>` : ''}
     <div class="sp-bar">${stats.filter(x => x[1] != null).map(([ic, v, l]) => `<span class="sp-st" title="${esc(num(v) + ' ' + l)}">${ic}${num(v)}</span>`).join('')}
       ${flames(s)}${it.also && it.also.length ? `<span class="sp-also">also on ${it.also.map(x => SRC[x] ? SRC[x].name : x).join(', ')}</span>` : ''}
       <a class="sp-open" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(src.open)} ↗</a></div></article>`;
@@ -277,7 +289,7 @@ V.social = () => {
     S.pending = S.pending.filter(id => byId.has(id)).concat(fresh);
   }
   const shown = S.shown.map(id => byId.get(id)).filter(Boolean);
-  const today = ((data && data.items) || []).filter(it => SRC[it.src] && Date.now() - it.time < DAY);
+  const today = ((data && data.items) || []).filter(it => SRC[it.src] && feedNow() - it.time < DAY);
   const counts = {}; today.forEach(it => { counts[it.src] = (counts[it.src] || 0) + 1; });
   const tr = trending(today);
   const live = ((NBA.data('day:') || {}).games || []).some(g => g.state === 'in');
@@ -285,7 +297,7 @@ V.social = () => {
   const status = (data && data.status) || {};
 
   const head = `<div class="soc-head"><div><h2 class="soc-brand">Courtside</h2><p class="soc-tag">Today's NBA conversation from ${Object.keys(SRC).map(k => `<span class="soc-dot sd-${k}"></span>${SRC[k].name}`).join(' and ')}, ranked by heat</p></div>
-    <div class="soc-live">${live ? '<span class="soc-pill live"><i class="dot blink"></i>Games live</span>' : ''}<span class="soc-pill">${today.length} posts today${upd ? ` · updated ${esc(agoTxt(upd))}` : ''}</span>
+    <div class="soc-live">${live ? '<span class="soc-pill live"><i class="dot blink"></i>Games live</span>' : ''}<span class="soc-pill">${today.length} posts today${upd ? ` · updated ${agoEl(upd, 'sagotxt')}` : ''}</span>
       <button class="ib soc-refresh" data-act="socrefresh" aria-label="Refresh the feed" title="Refresh">${STAT.refresh}</button></div></div>`;
   const stories = tr.players.length ? `<div class="soc-stories" role="list" aria-label="Trending players">${tr.players.map(({ x, c }) => `<button role="listitem" class="soc-story${S.focus === 'p' + x.id ? ' on' : ''}" data-act="socfocus" data-v="p${esc(x.id)}" aria-pressed="${S.focus === 'p' + x.id}"><span class="ring">${UI.hs(x.headshot, 'hs', 160)}</span><b>${esc((x.name || '').split(' ').slice(-1)[0])}</b><small>${c} posts</small></button>`).join('')}</div>` : '';
   const seg = (list, cur, act, label) => `<div class="seg soc-seg" role="group" aria-label="${label}">${list.map(([k, l]) => `<button data-act="${act}" data-v="${k}" aria-pressed="${cur === k}">${l}</button>`).join('')}</div>`;
@@ -300,7 +312,7 @@ V.social = () => {
   else if (!shown.length) feed = `<p class="empty">${err ? "Couldn't load the feed. It will try again shortly." : S.focus || S.type !== 'all' || S.src !== 'all' ? 'Nothing matches these filters yet.' : S.sort === 'top' && S.range !== 'day' && !NBA.data('socarch') ? 'Loading…' : 'No posts yet. The feed fills in as the NBA world wakes up.'}</p>`;
   else feed = shown.slice(0, S.limit).map(x => card(x.it, x.s)).join('') + (shown.length > S.limit ? `<div class="soc-sentinel" aria-hidden="true"></div><button class="btn soc-moreb" data-act="socmore">Show more</button>` : `<p class="soc-end">You're all caught up.</p>`);
   const newPill = S.pending.length ? `<button class="soc-new" data-act="socnew">↑ ${S.pending.length} new post${S.pending.length > 1 ? 's' : ''}</button>` : '';
-  const srcState = Object.keys(SRC).map(k => { const s = status[k] || {}; return `<li><span class="sp-badge sb-${k}">${ICON[k]}</span><b>${SRC[k].name}</b><small>${s.ok === false ? esc(s.note || 'Not reachable right now') : `${counts[k] || 0} posts today${s.at ? ' · checked ' + esc(agoTxt(Date.parse(s.at))) : ''}`}</small></li>`; }).join('');
+  const srcState = Object.keys(SRC).map(k => { const s = status[k] || {}; return `<li><span class="sp-badge sb-${k}">${ICON[k]}</span><b>${SRC[k].name}</b><small>${s.ok === false ? esc(s.note || 'Not reachable right now') : `${counts[k] || 0} posts today${s.at ? ' · checked ' + agoEl(Date.parse(s.at), 'sagotxt') : ''}`}</small></li>`; }).join('');
   const rail = `<aside class="soc-rail">
     ${tr.teams.length ? `<div class="card"><div class="card-h"><h3>Trending teams</h3></div><ol class="soc-trend">${tr.teams.map(({ x, c }, i) => `<li><button data-act="socfocus" data-v="t${esc(x.id)}" aria-pressed="${S.focus === 't' + x.id}"><span class="rk">${i + 1}</span>${UI.logo(x, 22)}<b>${esc(x.name || x.abbr)}</b><small>${c} post${c > 1 ? 's' : ''}</small></button></li>`).join('')}</ol></div>` : ''}
     <div class="card"><div class="card-h"><h3>Sources</h3></div><ul class="soc-state">${srcState}</ul><p class="note soc-about">${esc(about)}</p></div></aside>`;

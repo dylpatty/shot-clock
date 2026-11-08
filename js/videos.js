@@ -18,10 +18,15 @@ NBA.def('videos', 5 * 60000, () => NBA.getJSON(RAW + 'videos.json').catch(e => {
 const KINDS = [['all', 'All'], ['interview', 'Interviews'], ['breakdown', 'Breakdowns'], ['podcast', 'Podcasts'], ['highlights', 'Highlights'], ['feature', 'Features']];
 const LABEL = { interview: 'Interview', breakdown: 'Breakdown', podcast: 'Podcast', highlights: 'Highlights', feature: 'Feature' };
 const ago = t => { const m = Math.max(1, Math.round((Date.now() - t) / 60000)); return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`; };
+// Written in by UI.tick, so the clock moving on doesn't rebuild every card
+UI.tickers.vago = n => n.dataset.t ? ago(+n.dataset.t) : '';
 const viewsTxt = n => n == null ? '' : n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M views` : n >= 1e3 ? `${Math.round(n / 1e3)}K views` : `${n} views`;
+// Ages for the order and the "last day and a half" shelves are taken as of the list's last load: on the clock of the
+// moment, two close videos swapped places every few minutes, and each swap rebuilt the page
+const listNow = () => NBA.status('videos').t || Date.now();
 // How interesting a video is: views per hour since it went up, damped so a day-old hit doesn't bury tonight's
 // interviews, with breakdowns and interviews lifted a little over highlights (the NBA's own get millions regardless)
-const score = v => ((v.views || 0) + 50) / Math.pow((Date.now() - v.t) / HOUR + 2, 0.9) * ({ breakdown: 1.4, interview: 1.3, podcast: 1.2, highlights: 0.8, feature: 1 }[v.kind] || 1);
+const score = v => ((v.views || 0) + 50) / Math.pow((listNow() - v.t) / HOUR + 2, 0.9) * ({ breakdown: 1.4, interview: 1.3, podcast: 1.2, highlights: 0.8, feature: 1 }[v.kind] || 1);
 const channel = (d, v) => (d.channels && d.channels[v.ch] && d.channels[v.ch].name) || v.ch;
 
 /* One video. hide: spoiler mode is on and the title could give the result away, so it and the still are covered;
@@ -29,7 +34,7 @@ const channel = (d, v) => (d.channels && d.channels[v.ch] && d.channels[v.ch].na
 UI.vcard = (v, d, { hide = false, gid = '' } = {}) => `<button class="vc${hide ? ' hide' : ''}" data-act="yt" data-v="${esc(v.id)}"${gid ? ` data-id="${esc(gid)}"` : ''} data-title="${esc(v.title)}">
     <span class="vc-img"><img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy" decoding="async">${v.len ? `<span class="vc-dur">${NBA.fmtDur(v.len)}</span>` : ''}<span class="vc-kind k-${v.kind}">${LABEL[v.kind] || 'Video'}</span><span class="vc-play" aria-hidden="true">▶</span></span>
     <span class="vc-t">${hide ? 'Title hidden while spoiler mode is on' : esc(v.title)}</span>
-    <span class="vc-m">${esc(channel(d, v))} · ${ago(v.t)}${v.views != null ? ' · ' + viewsTxt(v.views) : ''}</span></button>`;
+    <span class="vc-m">${esc(channel(d, v))} · <time data-tk="vago" data-t="${+v.t || ''}"></time>${v.views != null ? ' · ' + viewsTxt(v.views) : ''}</span></button>`;
 const spoils = v => NBA.S.spoilers && (v.kind === 'interview' || v.kind === 'highlights' || NBA.spoils(v.title));
 // A sideways strip of videos (it scrolls on its own, so a swipe on it doesn't change tabs or close the game). key
 // keeps it scrolled where it was through live repaints (UI.paint)
@@ -50,7 +55,7 @@ V.videos = () => {
     // Shelves: interviews from the last day and a half, newest first, then the most interesting of each kind
     const shelf = (title, list, kind) => list.length ? `<div class="vshelf"><div class="vshelf-h"><h3>${title}</h3><button class="link" data-act="vkind" data-v="${kind}">See all</button></div>${row(list, d, v => ({ hide: spoils(v) }), `v-${kind}`)}</div>` : '';
     const top = k => items.filter(v => v.kind === k).sort((a, b) => score(b) - score(a)).slice(0, 12);
-    const fresh = items.filter(v => v.kind === 'interview' && Date.now() - v.t < 36 * HOUR).sort((a, b) => b.t - a.t).slice(0, 16);
+    const fresh = items.filter(v => v.kind === 'interview' && listNow() - v.t < 36 * HOUR).sort((a, b) => b.t - a.t).slice(0, 16);
     body = shelf('Latest interviews', fresh.length ? fresh : top('interview'), 'interview') + shelf('Breakdowns and analysis', top('breakdown'), 'breakdown')
       + shelf('Podcasts', top('podcast'), 'podcast') + shelf('Highlights', top('highlights'), 'highlights') + shelf('Features', top('feature'), 'feature');
   } else {
@@ -74,7 +79,7 @@ NBA.teamVideos = id => {
   if (!d || !d.items) return '';
   const all = d.items.filter(v => v.teams.includes(String(id)));
   if (!all.length) return '';
-  const recent = all.filter(v => v.kind === 'interview' && Date.now() - v.t < 48 * HOUR).sort((a, b) => b.t - a.t);
+  const recent = all.filter(v => v.kind === 'interview' && listNow() - v.t < 48 * HOUR).sort((a, b) => b.t - a.t);
   const rest = all.filter(v => !recent.includes(v)).sort((a, b) => score(b) - score(a));
   const t = NBA.T(id);
   return `<div class="card w12 vcard-team"><div class="card-h"><h3>${esc(t.name || 'Team')} videos</h3><div class="end"><span class="eyebrow">Interviews, podcasts and more from YouTube</span></div></div>
