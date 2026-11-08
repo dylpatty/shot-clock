@@ -153,7 +153,10 @@ function nowCard(id, teamId) {
   if (e) parts.push(`<div class="pc-last" role="button" tabindex="0" data-act="game" data-id="${esc(e.id)}"><span class="fd-k">Last game · ${lastHead(e)}</span><span class="pc-ln">${lastLine(e)}</span></div>`);
   else if (!g && !x && !n.log && !NBA.status('gamelog:' + id).err) parts.push('<p class="fd-note">Loading his last game…</p>');
   if (!parts.length) return '';
-  const when = g ? NBA.fmtDay(NBA.today, { weekday: 'short', month: 'short', day: 'numeric' }) : 'No game today';
+  let when = g ? NBA.fmtDay(NBA.today, { weekday: 'short', month: 'short', day: 'numeric' }) : 'No game today';
+  // On a day off, when he plays next (from his team's schedule)
+  const nx = !g && teamId && NBA.teamEvents ? (NBA.teamEvents(teamId) || []).find(ev => ev.state === 'pre') : null;
+  if (nx) when = `Next: ${NBA.fmtDate(nx.date, { weekday: 'short' })} ${nx.home ? 'vs' : '@'} ${NBA.T(nx.oppId).abbr || nx.oppAbbr || ''} · ${/TBD/i.test(nx.detail || '') ? 'time TBD' : NBA.fmtTime(nx.date)}`;
   return `<div class="card pc-wide pc-now"><div class="card-h"><h3>Right now</h3><div class="end"><span class="eyebrow">${esc(when)}</span></div></div><div class="pc-now-b">${parts.join('')}</div></div>`;
 }
 

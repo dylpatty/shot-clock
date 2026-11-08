@@ -722,7 +722,7 @@ V.home = () => {
     const before = sch.events.filter(e => new Date(e.date) < tip && !(e.state === 'post' && e.completed === false)).slice(-1)[0];
     NBA.use(eve === NBA.today ? 'day:' : 'day:' + NBA.paramOf(eve));
     const b2b = [[t, !!before && NBA.etDay(before.date) === eve], [opp, !!(NBA.playedOn(eve) || new Set()).has(String(myNext.oppId))]]
-      .filter(x => x[1] && x[0].abbr).map(([tm]) => ` <span class="tag b2b" title="${esc(tm.name || tm.abbr)}: second night of a back-to-back">${esc(tm.abbr)} B2B</span>`).join('');
+      .filter(x => x[1] && x[0].abbr).map(([tm]) => ` <span class="tag b2b" title="${esc(tm.name || tm.abbr)}: second night of a back-to-back">${esc(tm.name || tm.abbr)} on a B2B</span>`).join('');
     nextPanel = `<button class="hh-next" data-act="game" data-id="${myNext.id}"><span class="eyebrow">${esc(t.name)} next game</span>
       <span class="nx-vs">${side(L[0], L[1])}<span class="nx-at">@</span>${side(R[0], R[1])}</span>
       <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(nextTbd ? 'Time TBD' : NBA.fmtTime(myNext.date))}${NBA.caTv(myNext) ? ' · ' + esc(NBA.caTv(myNext).short) : ''}${b2b}</span>

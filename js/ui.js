@@ -179,7 +179,7 @@ UI.gameCard = (g, big) => {
     if (g.state === 'in' && S.card.winprob && g.homeWin != null) extra += UI.wpBar(g);
     if (g.state === 'pre') {
       // A team that also plays the day before (B2B) leads, since that's when stars sit; it shows before a line is posted too
-      const meta = [g.away, g.home].filter(t => NBA.restTag(g, t)).map(t => `<span class="tag b2b" title="${esc(t.name || t.abbr)}: second night of a back-to-back">${esc(t.abbr)} B2B</span>`).join('')
+      const meta = [g.away, g.home].filter(t => NBA.restTag(g, t)).map(t => `<span class="tag b2b" title="${esc(t.name || t.abbr)}: second night of a back-to-back">${esc(t.name || t.abbr)} on a B2B</span>`).join('')
         + (g.odds && g.odds.details ? `<span>Line <b>${esc(g.odds.details)}</b></span>` : '') + (g.odds && g.odds.ou ? `<span>O/U <b>${esc(g.odds.ou)}</b></span>` : '') + (g.venue ? `<span>${esc(g.venue)}</span>` : '');
       if (meta) extra += `<div class="pre-meta">${meta}</div>`;
       extra += UI.absences(g);
