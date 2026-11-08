@@ -683,7 +683,20 @@ function teamTable(teams) {
       ${TEAM_COLS.map(([k]) => `<td title="Ranks ${NBA.ord(t.rank[k])} in the league">${fmt(k, t[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div></div>`;
 }
 const PCOLS = [['gp', 'GP'], ['min', 'MIN'], ['pts', 'PTS'], ['reb', 'REB'], ['ast', 'AST'], ['stl', 'STL'], ['blk', 'BLK'], ['tov', 'TOV'], ['tpm', '3PM'], ['fgp', 'FG%'], ['tpp', '3P%'], ['ftp', 'FT%'], ['ts', 'TS%']];
+/* The All players table: the heading and the search field are part of the page, and the count, the table and Show more
+   are painted into #ps-body on their own (NBA.after.stats), so typing a name repaints only those and never replaces the
+   field being typed in (or the rest of the page) */
+let psBody = '';
 function playerTable(players, mode) {
+  psBody = playerRows(players, mode);
+  // Only the 30 real teams carry a conference (from standings); NBA Cup placeholders and All-Star teams don't
+  const teams = [...NBA.teams.values()].filter(t => t.abbr && t.conf).sort((a, b) => (a.full || '').localeCompare(b.full || ''));
+  return `<div class="sec-h"><h3>All players</h3><span class="sub">${mode === 'total' ? 'Season totals' : 'Per game'}</span>
+      <div class="end tools"><label class="sr" for="pq">Find a player</label><input class="field" id="pq" data-in="pq" type="search" placeholder="Find a player">
+      <label class="sr" for="pteam">Team</label><select id="pteam" data-ch="pteam"><option value="">All teams</option>${teams.map(t => `<option value="${t.id}" ${st.pteam === t.id ? 'selected' : ''}>${esc(t.full)}</option>`).join('')}</select></div></div>
+    <div id="ps-body"></div>`;
+}
+function playerRows(players, mode) {
   const s = st.psort;
   let list = players.filter(p => p.gp > 0);
   if (st.pteam) list = list.filter(p => p.teamId === st.pteam);
@@ -692,12 +705,8 @@ function playerTable(players, mode) {
   list.sort((a, b) => (s.desc ? 1 : -1) * ((Number.isFinite(val(b)) ? val(b) : -1e9) - (Number.isFinite(val(a)) ? val(a) : -1e9)));
   const total = list.length;
   list = list.slice(0, st.plimit);
-  // Only the 30 real teams carry a conference (from standings); NBA Cup placeholders and All-Star teams don't
-  const teams = [...NBA.teams.values()].filter(t => t.abbr && t.conf).sort((a, b) => (a.full || '').localeCompare(b.full || ''));
-  return `<div class="sec-h"><h3>All players</h3><span class="sub">${total} players · ${mode === 'total' ? 'season totals' : 'per game'}</span>
-      <div class="end tools"><label class="sr" for="pq">Find a player</label><input class="field" id="pq" data-in="pq" type="search" placeholder="Find a player" value="${esc(st.pq)}">
-      <label class="sr" for="pteam">Team</label><select id="pteam" data-ch="pteam"><option value="">All teams</option>${teams.map(t => `<option value="${t.id}" ${st.pteam === t.id ? 'selected' : ''}>${esc(t.full)}</option>`).join('')}</select></div></div>
-    <div class="card"><div class="card-b"><div class="tblwrap"><table class="tbl">
+  return `<p class="note ps-count" aria-live="polite">${total} player${total === 1 ? '' : 's'}${st.pq || st.pteam ? (total === 1 ? ' matches' : ' match') : ''}</p>
+    <div class="card"><div class="card-b"><div class="tblwrap" data-sx="ps-tbl"><table class="tbl">
       <thead><tr><th class="l sticky" scope="col">Player</th><th class="l" scope="col">Team</th><th class="l" scope="col">Pos</th>${PCOLS.map(([k, l]) => `<th scope="col"><button class="sortb${s.k === k ? ' on' : ''}" data-act="psort" data-k="${k}">${l}${s.k === k ? (s.desc ? ' ↓' : ' ↑') : ''}</button></th>`).join('')}</tr></thead>
       <tbody>${list.map(p => `<tr class="click" data-act="player" data-id="${p.id}"><td class="l sticky"><b>${esc(p.name)}</b></td><td class="l">${esc(p.team)}</td><td class="l">${esc(p.pos)}</td>
         ${PCOLS.map(([k]) => `<td>${NBA.statFmt(k, NBA.statValue(k, p, mode), mode)}</td>`).join('')}</tr>`).join('') || `<tr><td class="l" colspan="${PCOLS.length + 3}">No players match.</td></tr>`}</tbody></table></div>
@@ -707,7 +716,16 @@ NBA.actions.statsmode = a => { NBA.S.statsMode = a.dataset.v; NBA.save(); NBA.ch
 NBA.actions.tsort = a => { const k = a.dataset.k; st.tsSort = st.tsSort.k === k ? { k, desc: !st.tsSort.desc } : { k, desc: !['oppg', 'tov'].includes(k) }; NBA.changed(); };
 NBA.actions.psort = a => { const k = a.dataset.k; st.psort = st.psort.k === k ? { k, desc: !st.psort.desc } : { k, desc: true }; NBA.changed(); };
 NBA.actions.pmore = () => { st.plimit += 50; NBA.changed(); };
-NBA.changes.pq = t => { st.pq = t.value; st.plimit = 50; NBA.render(); };
+NBA.after.stats = view => {
+  const q = view.querySelector('#pq');
+  if (q && q.value !== st.pq) q.value = st.pq;
+  UI.paint(view.querySelector('#ps-body'), psBody);
+};
+NBA.changes.pq = t => {
+  st.pq = t.value; st.plimit = 50;
+  const players = NBA.data('players'), el = document.getElementById('ps-body');
+  if (players && el) UI.paint(el, psBody = playerRows(players, NBA.S.statsMode === 'total' ? 'total' : 'game'));
+};
 NBA.changes.pteam = t => { st.pteam = t.value; st.plimit = 50; NBA.changed(); };
 NBA.actions.player = a => UI.openPlayer(a.dataset.id, a);
 

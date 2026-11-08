@@ -127,8 +127,8 @@ function people() {
   return idx;
 }
 const personById = id => people().find(p => p.id === String(id));
-const injuryOf = id => { for (const g of NBA.data('injuries') || []) { const i = g.list.find(x => x.id === String(id)); if (i) return i; } return null; };
-const todayGame = teamId => { const d = NBA.data('day:'); return (d && d.games.find(g => g.away.id === teamId || g.home.id === teamId)) || null; };
+// Shared with the player card and the players followed on Home (core.js, players.js)
+const injuryOf = NBA.injuryOf, todayGame = NBA.todayGame;
 const isPP = g => g.state === 'post' && g.completed === false;
 // Feeds a result card needs, asked for when the panel opens so the first keystroke already has them
 F.warm = () => ['extras', 'players', 'injuries', 'standings', 'day:'].forEach(k => NBA.use(k));
@@ -235,35 +235,8 @@ F.search = raw => {
 const when = iso => NBA.fmtDate(iso, { weekday: 'short', month: 'short', day: 'numeric' });
 const hidden = (id, date) => NBA.masked(id, date);
 const showBtn = id => `<button class="link" data-act="reveal" data-id="${esc(id)}">Show</button>`;
-const statBox = (v, label, cls = '') => v === '' || v == null ? '' : `<span class="${cls}"><b>${esc(v)}</b>${label}</span>`;
-// A player's line in one game from its box score: null until it loads or if he isn't in it, { dnp } if he sat,
-// { dnp, yet } if the game is live and he hasn't checked in (ESPN's reason is on everyone, so it isn't used for him)
-function boxLine(s, pid) {
-  for (const b of (s && s.box) || []) {
-    const pl = (b.players || []).find(x => x.id === pid);
-    if (!pl) continue;
-    if (pl.yet) return { dnp: "Hasn't checked in yet", yet: true };
-    if (pl.dnp) return { dnp: pl.reason || 'Did not play' };
-    const v = k => { const i = (b.keys || []).indexOf(k); return i < 0 ? '' : pl.stats[i]; };
-    return { min: v('minutes'), pts: v('points'), reb: v('rebounds'), ast: v('assists'), stl: v('steals'), blk: v('blocks'), tov: v('turnovers'),
-      fg: v('fieldGoalsMade-fieldGoalsAttempted'), tp: v('threePointFieldGoalsMade-threePointFieldGoalsAttempted'), ft: v('freeThrowsMade-freeThrowsAttempted'), pm: v('plusMinus'), pf: v('fouls') };
-  }
-  return null;
-}
-const statsRow = l => `<div class="fd-stats">${statBox(l.pts, 'PTS', 'pts')}${statBox(l.reb, 'REB')}${statBox(l.ast, 'AST')}${statBox(l.fg, 'FG')}${statBox(l.tp, '3PT')}
-  ${+l.stl ? statBox(l.stl, 'STL') : ''}${+l.blk ? statBox(l.blk, 'BLK') : ''}${statBox(l.min, 'MIN')}${l.pm !== undefined && l.pm !== '' ? statBox(l.pm, '+/-') : ''}${+l.pf >= 4 ? statBox(l.pf, 'FOULS', 'warn') : ''}</div>`;
-// "Live · Q3 5:21 · BOS 78-71 PHI", "Final · ..." (the score hidden in spoiler mode) or "Tonight · 7:30 PM · TSN".
-// With a game row under it (brief), it leaves out what the row already shows. vs is "@ MIL" for a player's team,
-// said only when there's no score naming both teams
-function gameState(g, brief, vs = '') {
-  const masked = hidden(g.id, g.date), sc = masked || brief ? '' : ` · ${esc(g.away.abbr)} ${esc(g.away.score)}–${esc(g.home.score)} ${esc(g.home.abbr)}`;
-  const at = vs && (!sc || g.state === 'pre') ? ` · ${vs}` : '';
-  if (g.state === 'in') return `<span class="fd-k live"><i class="dot blink"></i>Live · ${esc(NBA.detail(g))}${sc}${at}</span>`;
-  if (isPP(g)) return `<span class="fd-k">${esc(g.detail || 'Postponed')}${at}</span>`;
-  if (g.state === 'post') return `<span class="fd-k">${esc(g.detail || 'Final')}${sc}${at}</span>`;
-  const tv = NBA.caTv(g);
-  return `<span class="fd-k">Tonight${brief ? '' : ` · ${esc(UI.tipTime(g))}${tv ? ' · ' + esc(tv.short) : ''}`}${at}</span>`;
-}
+// The box-score line, its stat boxes, the game's state line and the injury pill are shared with the player card (players.js)
+const boxLine = NBA.boxLine, statsRow = UI.statsRow, gameState = UI.gameState, injuryPill = UI.injuryPill;
 const oppOf = (g, teamId) => g.away.id === teamId ? g.home : g.away;
 const atOrVs = (g, teamId) => g.home.id === teamId ? 'vs' : '@';
 const gameBtn = g => g.state === 'in' ? 'Open the live game' : g.state === 'pre' ? 'Game preview' : isPP(g) ? 'Open the game' : 'Box score';
@@ -274,14 +247,6 @@ function eventText(e) {
   const res = NBA.isFinal(e) ? (hidden(e.id, e.date) ? `result hidden ${showBtn(e.id)}` : `<b class="${e.won ? 'w' : 'l'}">${e.won ? 'W' : 'L'} ${esc(e.my)}-${esc(e.their)}</b>`)
     : e.state === 'post' ? esc(e.detail || 'Postponed') : `${esc(NBA.fmtTime(e.date))}${NBA.caTv(e) ? ' · ' + esc(NBA.caTv(e).short) : ''}`;
   return `${esc(when(e.date))} · ${e.home ? 'vs' : '@'} ${esc(opp)} · ${res}`;
-}
-// "Out" with the injury and, when it's still ahead, ESPN's estimated return
-function injuryPill(i) {
-  if (!i) return '<span class="pill ok">No injury listed</span>';
-  const cls = /out/i.test(i.status) ? 'out' : /day|question|doubt|prob/i.test(i.status) ? 'dtd' : 'neutral';
-  const ret = i.ret && /^\d{4}-\d\d-\d\d/.test(i.ret) && i.ret.slice(0, 10) > NBA.today ? `est. return ${NBA.fmtDay(i.ret.slice(0, 10), { month: 'short', day: 'numeric' })}` : '';
-  const what = [[i.side, i.type].filter(Boolean).join(' '), ret].filter(Boolean).join(' · ');
-  return `<span class="pill ${cls}">${esc(i.status || 'Listed')}</span>${what ? `<span class="fd-injtx">${esc(what)}</span>` : ''}`;
 }
 const sec = (head, body) => `<div class="fd-sec">${head}${body}</div>`;
 
@@ -305,7 +270,7 @@ function teamCard(t) {
   } else body += `<p class="fd-note">Loading the schedule…</p>`;
   const inj = ((NBA.data('injuries') || []).find(x => x.teamId === t.id) || { list: [] }).list;
   if (inj.length) {
-    const outs = inj.slice().sort((a, b) => /out/i.test(b.status) - /out/i.test(a.status)).slice(0, 5);
+    const outs = inj.slice().sort((a, b) => NBA.injuryNow(b).out - NBA.injuryNow(a).out).slice(0, 5);
     body += sec('<span class="fd-k">Injuries</span>', `<ul class="fd-inj">${outs.map(i => `<li><button class="fd-ev" data-act="fd-open" data-k="p" data-id="${esc(i.id)}"><b>${esc(i.name)}</b></button> ${injuryPill(i)}</li>`).join('')}</ul>${inj.length > 5 ? `<div class="fd-note">and ${inj.length - 5} more</div>` : ''}`);
   }
   const ask = (label, q) => `<button class="chip" data-act="ask-q" data-q="${esc(q)}">${label}</button>`;
@@ -318,20 +283,21 @@ function teamCard(t) {
 function playerCard(p) {
   NBA.use('injuries');
   const t = p.teamId ? NBA.T(p.teamId) : null, s = p.stats;
-  const inj = injuryOf(p.id);
-  const g = p.teamId ? todayGame(p.teamId) : null;
+  // Today's game and his line in it, and the injury report, the same way his player card's "Right now" reads them
+  const n = NBA.playerNow(p.id, p.teamId, { log: false }), { g, inj } = n, now = NBA.injuryNow(inj);
   const sub = [t && (t.full || t.name), p.pos, p.jersey ? '#' + p.jersey : ''].filter(Boolean).join(' · ');
-  let body = `<div class="fd-sec"><div class="fd-status">${injuryPill(inj)}</div>${inj && inj.short ? `<div class="fd-note fd-clip">${esc(inj.short)}</div>` : ''}</div>`;
+  // ESPN's comment only when it's about today or tomorrow, and not when it quotes a result spoiler mode hides
+  let body = `<div class="fd-sec"><div class="fd-status">${injuryPill(inj)}</div>${now && now.note ? `<div class="fd-note fd-clip">${esc(now.note)}</div>` : ''}</div>`;
   let lastFrom = 'log';
   if (g) {
     const head = gameState(g, false, `${atOrVs(g, p.teamId)} ${esc(oppOf(g, p.teamId).abbr)}`);
     let line;
-    if (g.state === 'pre' || isPP(g)) { line = inj && /out/i.test(inj.status) ? `<div class="fd-note">Listed out for this one.</div>` : ''; }
-    else if (hidden(g.id, g.date)) line = `<div class="fd-note">His line is hidden in spoiler mode. ${showBtn(g.id)}</div>`;
+    const l = n.line;
+    if (n.state === 'pre' || n.state === 'pp') { line = now && now.out ? `<div class="fd-note">Listed out for this one.</div>` : ''; }
+    else if (n.masked) line = `<div class="fd-note">His line is hidden in spoiler mode. ${showBtn(g.id)}</div>`;
     else {
-      const sum = NBA.use('summary:' + g.id), l = boxLine(sum, p.id);
-      line = l && l.dnp ? `<div class="fd-note">${l.yet ? '' : "Didn't play: "}${esc(l.dnp)}</div>` : l ? statsRow(l)
-        : sum ? `<div class="fd-note">Not in the box score${g.state === 'in' ? ' yet' : ''}.</div>` : '<div class="fd-note">Loading his line…</div>';
+      line = l && l.dnp ? `<div class="fd-note">${l.yet || (g.state === 'in' && !l.why) ? "Hasn't checked in yet." : `Didn't play: ${esc(l.dnp)}`}</div>` : l ? statsRow(l)
+        : n.sum ? `<div class="fd-note">Not in the box score${g.state === 'in' ? ' yet' : ''}.</div>` : '<div class="fd-note">Loading his line…</div>';
       if (l && !l.dnp) lastFrom = '';
     }
     body += sec(head, line + `<div class="fd-acts">${openGame(g, gameBtn(g))}</div>`);
@@ -355,7 +321,7 @@ function playerCard(p) {
     <div class="fd-hd">${UI.hs(p.headshot, 'hs fd-hs', 200)}<div class="fd-nm"><b>${esc(p.name)}</b><small>${esc(sub || ' ')}</small></div>${t && t.abbr ? UI.logo(t, 32, 'fd-tlogo') : ''}</div>
     ${body}
     <div class="fd-acts"><button class="btn sm" data-act="fd-open" data-k="p" data-id="${esc(p.id)}">Player card</button>
-      <button class="chip" data-act="ask-q" data-q="${esc(p.name)} last 5 games">Last 5 games</button></div></div>`;
+      ${UI.followBtn(p)}<button class="chip" data-act="ask-q" data-q="${esc(p.name)} last 5 games">Last 5 games</button></div></div>`;
 }
 function matchupCard(a, b) {
   const g = (() => { const x = todayGame(a.id); return x && (x.away.id === b.id || x.home.id === b.id) ? x : null; })();
@@ -392,7 +358,7 @@ function teamSub(t) {
 function playerSub(p) {
   const t = p.teamId ? NBA.T(p.teamId) : null, inj = injuryOf(p.id), g = p.teamId ? todayGame(p.teamId) : null;
   const bits = [t && t.abbr, p.pos].filter(Boolean).map(esc);
-  if (inj) bits.push(`<span class="${/out/i.test(inj.status) ? 'out' : 'dtd'}">${esc(inj.status)}</span>`);
+  if (inj) { const n = NBA.injuryNow(inj); bits.push(`<span class="${n.out ? 'out' : 'dtd'}">${esc(n.label)}</span>`); }
   if (g && g.state !== 'pre' && !hidden(g.id, g.date)) {
     const l = boxLine(NBA.data('summary:' + g.id), p.id);
     if (l && !l.dnp) bits.push(`${g.state === 'in' ? '<span class="live">Live</span> ' : ''}${esc(l.pts)} PTS ${g.state === 'in' ? 'so far' : 'tonight'}`);

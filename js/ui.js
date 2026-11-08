@@ -1339,9 +1339,18 @@ document.addEventListener('click', e => {
   const fn = NBA.actions[a.dataset.act];
   if (fn) { e.preventDefault(); fn(a, e); }
 });
+/* A dropdown keeps focus after a pick (with a mouse on Windows), and UI.paint holds back anything holding a focused
+   dropdown until it loses focus, so a team picked on Stats or Injuries changed nothing until a click elsewhere. The pick
+   is made, so it lets go first. On a desktop, focus then goes back to the new dropdown so the keyboard keeps its place
+   (not on an iPhone, where focusing a dropdown opens its menu again) */
+const HOVER = matchMedia('(hover: hover)');
 document.addEventListener('change', e => {
   const t = e.target, ch = t.dataset && t.dataset.ch;
-  if (ch && NBA.changes[ch]) NBA.changes[ch](t, e);
+  if (!ch || !NBA.changes[ch]) return;
+  const pick = t.tagName === 'SELECT', inView = pick && $('#view').contains(t);
+  if (pick) t.blur();
+  NBA.changes[ch](t, e);
+  if (inView && t.id && HOVER.matches) { NBA.render(); const n = document.getElementById(t.id); if (n) n.focus({ preventScroll: true }); }
 });
 document.addEventListener('input', e => {
   const t = e.target, ch = t.dataset && t.dataset.in;

@@ -658,7 +658,7 @@ const DAY_CHARTS = {
   age: ['players'], trend: ['teamstats', 'week'], vegas: ['futures'], astto: ['players'], shots: ['players'], deep: ['players'], line: ['players'], mvp: ['futures', 'players'],
 };
 // The parts of Home that NBA.after.home paints, each only when its own HTML changes
-let homeParts = { hero: '', games: '', rest: '' };
+let homeParts = { hero: '', games: '', follow: '', rest: '' };
 V.home = () => {
   const day = NBA.use('day:'), confs = NBA.use('standings'), news = NBA.use('news:');
   ['players', 'teamstats', 'futures'].forEach(k => NBA.use(k));
@@ -766,7 +766,7 @@ V.home = () => {
       <div class="hm-team-games">${last ? `<button class="hm-g" data-act="game" data-id="${last.id}"><span class="eyebrow">Last game</span><b>${NBA.masked(last.id, last.date) ? 'Final' : `<span class="${last.won ? 'w' : 'lo'}">${last.won ? 'W' : 'L'}</span> ${esc(last.my)}-${esc(last.their)}`}</b><small>${last.home ? 'vs' : '@'} ${esc(last.oppAbbr || '')} · ${esc(NBA.fmtDate(last.date, { month: 'short', day: 'numeric' }))}</small></button>` : ''}
         ${myNext ? `<button class="hm-g" data-act="game" data-id="${myNext.id}"><span class="eyebrow">Next game</span><b>${myNext.home ? 'vs' : '@'} ${esc(myNext.oppAbbr || '')}</b><small>${esc(NBA.fmtDate(myNext.date, { weekday: 'short', month: 'short', day: 'numeric' }))} · ${esc(nextTbd ? 'Time TBD' : NBA.fmtTime(myNext.date))}</small></button>` : ''}</div>
       ${lastHl ? `<button class="chip hl-chip" ${NBA.ytAttrs(lastHl, lastG)}>▶ Last game's full highlights${lastHl.dur ? ' · ' + NBA.fmtDur(lastHl.dur) : ''}</button>` : ''}
-      ${leaders.length ? `<ul class="hm-lead3">${leaders.map(p => `<li data-act="player" data-id="${p.id}">${UI.hs(p.headshot)}<span><b>${esc(p.name)}</b><small>${f1(p.pts)} pts · ${f1(p.reb)} reb · ${f1(p.ast)} ast</small></span></li>`).join('')}</ul>` : ''}
+      ${leaders.length ? `<ul class="hm-lead3">${leaders.map(p => `<li data-act="player" data-id="${p.id}">${UI.hs(p.headshot)}<span><b>${esc(p.name)}</b><small>${f1(p.pts)} pts · ${f1(p.reb)} reb · ${f1(p.ast)} ast</small></span>${UI.followBtn ? UI.followBtn(p, 'hm-fol', true) : ''}</li>`).join('')}</ul>` : ''}
       <a class="chip" href="#myteam">Team page</a></div>`;
   }
 
@@ -857,12 +857,15 @@ V.home = () => {
 
   // The view itself is a fixed frame, so a poll only rebuilds the parts whose text changed: a score or clock tick
   // repaints the hero and games strip, and leaves the fact deck and chart of the day alone
-  homeParts = { hero, games: gamesSec, rest: `<div class="home-grid">${standCard}${factCard}${teamCard}${hlCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div>` };
-  return '<div id="hm-hero"></div><section class="sec" id="hm-games"></section><section class="sec" id="hm-rest"></section>';
+  // The players you follow (players.js) sit under today's games, in their own part: their lines tick with the scores
+  homeParts = { hero, games: gamesSec, follow: NBA.followSection ? NBA.followSection() : '', rest: `<div class="home-grid">${standCard}${factCard}${teamCard}${hlCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div>` };
+  return '<div id="hm-hero"></div><section class="sec" id="hm-games"></section><section class="sec" id="hm-follow" hidden></section><section class="sec" id="hm-rest"></section>';
 };
 NBA.after.home = view => {
   UI.paint(view.querySelector('#hm-hero'), homeParts.hero);
   UI.paint(view.querySelector('#hm-games'), homeParts.games);
+  const fw = view.querySelector('#hm-follow');
+  if (fw) { UI.paint(fw, homeParts.follow); fw.hidden = !homeParts.follow; }
   UI.paint(view.querySelector('#hm-rest'), homeParts.rest);
   // On phones the games strip scrolls sideways; keep it on the same games when the scores refresh
   const strip = view.querySelector('.hg-strip');
