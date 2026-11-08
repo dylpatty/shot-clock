@@ -182,6 +182,33 @@ html.stale .live-btn,html.stale .hchip.live{filter:saturate(.3)}
 /* Laptop widths: all 13 tabs in one row from about 1280px (narrower ones scroll, by wheel too: ui.js) */
 @media (min-width:641px) and (max-width:1600px){.tab{padding:0 15px;font-size:18px}}
 @media (min-width:641px) and (max-width:1400px){.tab{padding:0 11px;font-size:17px}}
+/* Your team's live score under the tab bar (ui.js renderScorebug): a strip in the page's own color that the open tab
+   runs into, one line of fixed height so the header never changes height between polls */
+.scorebug{display:flex;justify-content:center;height:38px;background:var(--bg);border-top:1px solid var(--line)}
+.scorebug:empty{display:none}
+.sb{display:flex;align-items:center;justify-content:center;gap:10px;min-width:0;max-width:100%;height:100%;padding:0 8px;border:0;background:none;color:inherit;font:inherit;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
+.sb img{width:20px;height:20px;object-fit:contain;flex:none}
+.sb-tm{display:inline-flex;align-items:center;gap:6px;flex:none}
+.sb-ab{font-weight:800;font-size:13px}
+.sb-sc{font-family:var(--f-display);font-weight:800;font-size:21px;line-height:1;min-width:1.5em;text-align:center}
+.sb-sc.lostsc{color:var(--muted)}
+.sb-st{display:inline-flex;align-items:center;gap:6px;min-width:0;overflow:hidden;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.sb.live .sb-st{color:var(--live)}
+.sb-wp{flex:none;padding-left:10px;border-left:1px solid var(--line);font-size:11px;font-weight:700;color:var(--muted)}
+@media (hover:hover){.sb:hover .sb-ab{text-decoration:underline;text-underline-offset:2px}}
+@media (max-width:370px){.sb{gap:7px;padding:0 2px}.sb-wp{display:none}}
+/* A close game somewhere in the league (ui.js renderAlert): a banner that slides down just under the header (and any
+   offline strip), clear of the tab bar */
+.alert{position:fixed;z-index:50;left:50%;top:calc(env(safe-area-inset-top,0px) + var(--top-h,110px) + var(--strip-h,0px) + 8px);transform:translateX(-50%);
+  width:min(480px,calc(100% - 24px));display:flex;align-items:center;gap:2px;padding:4px;border-radius:14px;
+  border:1px solid color-mix(in srgb,var(--live) 60%,var(--line));background:var(--card);box-shadow:var(--shadow);animation:alert-in .28s ease-out}
+@keyframes alert-in{from{opacity:0;transform:translate(-50%,-10px)}}
+.al-go{flex:1;min-width:0;display:flex;align-items:center;gap:4px;padding:6px 8px;border:0;border-radius:10px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.al-go img{width:26px;height:26px;object-fit:contain;flex:none}
+.al-txt{display:flex;flex-direction:column;gap:1px;min-width:0;margin-left:6px}
+.al-txt b{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--live)}
+.al-txt > span{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+@media (hover:hover){.al-go:hover{background:var(--card-2)}}
 
 /* ---------- shared controls ---------- */
 .dot{width:8px;height:8px;border-radius:50%;background:currentColor;display:inline-block;flex:none}
@@ -321,6 +348,14 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .game.big{position:relative;padding:calc(var(--tile-pad) + 4px);border-color:color-mix(in srgb,var(--live) 60%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--live) 35%,transparent)}
 .game.big::after{content:"";position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;box-shadow:0 0 0 1px color-mix(in srgb,var(--live) 70%,transparent),0 0 22px 0 color-mix(in srgb,var(--live) 28%,transparent);opacity:0;animation:glow 2.2s ease-in-out infinite;will-change:opacity}
 @keyframes glow{50%{opacity:1}}
+/* A clutch game (NBA.heat) glows harder and faster, on the same 'glow' animation, which NBA.render keeps in step across
+   repaints */
+.game.clutch{position:relative;border-color:var(--live)}
+.game.clutch::after{content:"";position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--live) 80%,transparent),0 0 30px 2px color-mix(in srgb,var(--live) 42%,transparent);opacity:0;animation:glow 1.4s ease-in-out infinite;will-change:opacity}
+html.stale .game.clutch::after{animation:none}
+/* The pill after a live game's clock: clutch is solid red, overtime on its own is pale */
+.heat{flex:none;padding:1px 6px;border-radius:5px;font-weight:800;letter-spacing:.06em;line-height:1.35;color:var(--live);background:var(--live-soft)}
+.heat.hot{background:var(--live);color:var(--card)}
 .game.mine,.game.mine:hover{border-color:color-mix(in srgb,var(--live) 55%,var(--line))}
 .line.mine{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--live) 55%,transparent);border-radius:10px}
 .g-top{display:flex;justify-content:space-between;gap:8px;font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);min-width:0}
@@ -395,7 +430,18 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .last{font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:baseline;min-width:0;border-top:1px solid var(--line-2);padding-top:8px}
 .last .lbl{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;flex:none}
 .last span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pre-meta{display:flex;gap:6px 12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.last b{color:var(--ink);font-weight:700}
+/* Phone-width cards (and narrow desktop ones): the last play and the recap wrap onto a second line instead of being cut
+   off mid-sentence. Both lines are always kept, so a card doesn't change height each poll as a short play replaces a
+   long one. The pre-game injuries row wraps too, but takes only the room it needs */
+@container (max-width:599px){
+  .last{align-items:flex-start}
+  .last .lbl{line-height:1.74}
+  .last span:last-child{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-height:2.9em}
+  .last.outs span:last-child{min-height:0}
+}
+@container (min-width:430px) and (max-width:599px){.last .lbl{line-height:1.885}}
+.pre-meta{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 .pre-meta b{color:var(--ink)}
 .reveal{align-self:flex-start}
 
@@ -427,7 +473,10 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .ln-at{text-align:center;color:var(--muted);font-weight:700}
 .ln-odds{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ln-score{font-family:var(--f-display);font-weight:800;font-size:18px}
+/* B2B beside a team's name, only where the row has room for it (not phones or narrow day cards) */
+.ln-team .tag{flex:none}
 @media (max-width:640px){
+  .line .tag{display:none}
   .line{grid-template-columns:6.4em minmax(0,1fr) 1.2em minmax(0,1fr);gap:6px;padding:8px 12px}
   .ln-time{font-size:12px}
   .ln-odds{display:none}
@@ -445,6 +494,7 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 @container (max-width:479px){
   .day .ln-team b .full{display:none}
   .day .ln-team b .abbr{display:inline}
+  .day .line .tag{display:none}
 }
 /* A faint dotted line between rows of day cards (inserted by ruleRows in views.js) */
 .row-rule{grid-column:1/-1;height:0;margin:0 6px;border-top:2px dotted color-mix(in srgb,var(--muted) 40%,transparent)}
@@ -518,8 +568,10 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .sm-wait{min-height:60vh}
 .season-months{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(min(100%,400px),1fr));align-items:start}
 .sm-card{scroll-margin-top:calc(env(safe-area-inset-top,0px) + var(--top-h,0px) + var(--strip-h,0px) + 10px)}
-.glist .tag{display:inline-block;margin-left:6px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.04em;vertical-align:1px;background:var(--card-2);color:var(--muted);border:1px solid var(--line)}
-.glist .tag.b2b{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+/* Small tags: B2B (second night of a back-to-back) on team schedules, game cards, Upcoming rows and Home's next game */
+.tag{display:inline-block;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.04em;vertical-align:1px;white-space:nowrap;background:var(--card-2);color:var(--muted);border:1px solid var(--line)}
+.tag.b2b{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.glist .tag{margin-left:6px}
 .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 .legend i{display:inline-block;width:20px;vertical-align:middle;margin-right:6px}
 .legend .l1{border-top:2px solid var(--ink)}
@@ -799,6 +851,10 @@ button.q-face{cursor:pointer}
 .nx-count{font-size:13px;padding:5px 12px;border-radius:999px;background:var(--accent-soft);color:var(--ink)}
 /* ESPN's win odds, the line and who's out, within 36 hours of tip-off; kept narrow so the panel doesn't widen */
 .nx-pv{display:block;max-width:280px;margin-top:-4px;font-size:12px;line-height:1.35;color:var(--muted);text-wrap:balance}
+/* Your team live: the win chance bar, the last play (one line) and the top scorers, as wide as the panel's text */
+.hh-next .wp,.nx-last{align-self:center;width:100%;max-width:280px;min-width:0}
+.nx-last{text-align:left}
+.nx-top{max-width:100%;margin-top:-4px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nx-count b{color:var(--accent)}
 @media (max-width:760px){
   .home-hero.has-next{flex-direction:column;align-items:stretch}
@@ -821,6 +877,8 @@ a.hchip,button.hchip{cursor:pointer}
 @media (hover:hover){.hg:hover{border-color:var(--muted)}}
 .hg.live{border-color:color-mix(in srgb,var(--live) 60%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--live) 30%,transparent)}
 .hg.mine{border-color:color-mix(in srgb,var(--live) 55%,var(--line))}
+.hg.clutch{border-color:var(--live);box-shadow:0 0 0 2px color-mix(in srgb,var(--live) 45%,transparent)}
+.hg-live .heat{font-size:10px}
 .hg-st{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hg-live{display:inline-flex;align-items:center;gap:6px;color:var(--live)}
 .hg-row{display:flex;align-items:center;gap:8px;font-size:14px}

@@ -69,6 +69,8 @@
     </div>
   </div>
   <nav class="page tabbar" id="tabbar" role="tablist" aria-label="Sections"></nav>
+  <!-- Your team's live score on the tabs that don't already show it (ui.js renderScorebug) -->
+  <div class="page scorebug" id="scorebug"></div>
 </header>
 
 <section class="ask-panel" id="ask-panel" hidden aria-label="Answers" aria-live="polite"></section>
@@ -83,6 +85,8 @@
 <aside class="drawer narrow" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="st-title"></aside>
 <!-- Highlight videos play here, outside the view and the game window, so live repaints can't cut one off -->
 <dialog class="vid" id="vid" aria-label="Highlights"></dialog>
+<!-- A close game somewhere in the league (ui.js renderAlert). It never takes focus, and a swipe on it doesn't change tabs -->
+<div class="alert" id="alert" role="status" aria-live="polite" hidden data-noswipe></div>
 
 <script src="js/core.js?v=20261108b"></script>
 <script src="js/ui.js?v=20261108b"></script>

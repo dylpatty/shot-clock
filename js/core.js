@@ -224,6 +224,27 @@ NBA.spoils = text => SPOIL_RE.test(String(text || ''));
 NBA.masked = (id, date) => !!NBA.S.spoilers && !(NBA.ui && NBA.ui.st.revealed.has(String(id))) && Date.now() - new Date(date).getTime() < 2 * 864e5;
 // ESPN sends '0.0 - 2nd' at the end of a period
 NBA.detail = g => String((g && g.detail) || '').replace(/^0\.0 - (\S+)/i, 'End of $1');
+// '1:12' or '4.2' (seconds left) as seconds
+NBA.clockSecs = c => { const s = String(c || ''); if (s.includes(':')) { const [m, x] = s.split(':'); return +m * 60 + parseFloat(x); } return parseFloat(s); };
+// 'Jaren Jackson Jr.' is Jackson, not Jr.
+NBA.surname = n => { const w = String(n || '').trim().split(/\s+/); return w.length > 2 && /^(?:jr|sr|ii|iii|iv)\.?$/i.test(w[w.length - 1]) ? w[w.length - 2] : w[w.length - 1]; };
+/* How tense a live scoreboard game is, by the NBA's clutch rule (4th quarter or overtime, 5:00 or less, within 5):
+   null, or { kind, label, short, clutch, per }. kind 'crunch' is a clutch 4th quarter, 'toOT' a tie at the end of the
+   4th (or of an overtime) and 'ot' any overtime, clutch or not. Anything showing it must hide it on a game whose score
+   is hidden in spoiler mode, since it says how close the game is */
+NBA.heat = g => {
+  if (!g || g.state !== 'in' || !g.away || !g.home) return null;
+  const per = g.period || Math.max(g.away.lines.length, g.home.lines.length), det = NBA.detail(g);
+  // ESPN's clock is seconds left in the period; an older cached game has only the text
+  const clock = /^End of/i.test(det) ? 0 : typeof g.clock === 'number' ? g.clock : NBA.clockSecs((/(\d+:\d+(?:\.\d)?|\d+\.\d)/.exec(det) || [])[1]);
+  const m = Math.abs((+g.away.score || 0) - (+g.home.score || 0));
+  // At 0.0 of the 4th or later someone has won unless it's tied
+  if (per >= 4 && clock === 0) return m ? null : { kind: 'toOT', label: per === 4 ? 'Heading to OT' : `Heading to ${per - 3}OT`, short: 'To OT', clutch: true, per };
+  const clutch = per >= 4 && clock <= 300 && m <= 5;
+  if (per >= 5) { const ot = per === 5 ? 'OT' : (per - 4) + 'OT'; return { kind: 'ot', label: clutch ? 'Clutch' : ot, short: clutch ? 'Clutch' : ot, clutch, per }; }
+  return clutch ? { kind: 'crunch', label: 'Clutch', short: 'Clutch', clutch, per } : null;
+};
+NBA.clutch = g => !!(NBA.heat(g) || {}).clutch;
 NBA.fmtDur = s => { const t = Math.round(s) || 0; return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 
 /* ---------- full game highlights ---------- */
@@ -356,6 +377,8 @@ function parseGame(ev) {
   return {
     id: String(ev.id), date: ev.date, state: st.type.state, completed: st.type.completed,
     detail: st.type.shortDetail || st.type.detail || '', away, home,
+    // The period and the seconds left in it, for the clutch flag (NBA.heat)
+    period: st.period || 0, clock: typeof st.clock === 'number' ? st.clock : null,
     tv: [...new Set(nat)].join(', '),
     note: (c.notes && c.notes[0] && c.notes[0].headline) || '',
     venue: c.venue ? [c.venue.fullName, c.venue.address && c.venue.address.city].filter(Boolean).join(', ') : '',
@@ -367,7 +390,31 @@ function parseGame(ev) {
   };
 }
 NBA.parseGame = parseGame;
-NBA.sortGames = list => list.slice().sort((a, b) => ((b.state === 'in') - (a.state === 'in')) || (new Date(a.date) - new Date(b.date)));
+// Live games first, your team's at the top of them, then by tip-off. Never by how close a game is: cards trading places
+// every 10 s would move under a scrolling finger, and in spoiler mode the order itself would say which game is tight
+const mineIn = g => g.state === 'in' && (g.away.id === NBA.S.myTeam || g.home.id === NBA.S.myTeam);
+NBA.sortGames = list => list.slice().sort((a, b) => ((b.state === 'in') - (a.state === 'in')) || (mineIn(b) - mineIn(a)) || (new Date(a.date) - new Date(b.date)));
+/* Teams with a game on an ET day, played or still to come (a postponed or canceled one doesn't count), from that day's
+   scoreboard or month if it's loaded: a Set of team ids, or null. Worked out once per board, so a refreshed board is
+   read fresh. NBA Cup placeholders (ids -1, -2) aren't teams */
+const PLAYED = new WeakMap();
+NBA.playedOn = iso => {
+  const d = NBA.data(iso === NBA.today ? 'day:' : 'day:' + NBA.paramOf(iso)), m = !d && NBA.data('month:' + NBA.paramOf(iso).slice(0, 6));
+  const games = d ? d.games : m && m.days[iso];
+  if (!games) return null;
+  let s = PLAYED.get(games);
+  if (!s) { s = new Set(); games.filter(g => !(g.state === 'post' && g.completed === false)).forEach(g => [g.away, g.home].forEach(t => { if (+t.id > 0) s.add(t.id); })); PLAYED.set(games, s); }
+  return s;
+};
+// 'B2B' when the team also played the day before this game: the second night of a back-to-back. The day before is
+// kept by start time, since lists of hundreds of games ask for it
+const DAY_BEFORE = new Map();
+NBA.restTag = (g, team) => {
+  let p = DAY_BEFORE.get(g.date);
+  if (p === undefined) DAY_BEFORE.set(g.date, p = NBA.shiftIso(NBA.etDay(g.date), -1));
+  const s = NBA.playedOn(p);
+  return s && team && s.has(team.id) ? 'B2B' : '';
+};
 
 function parseStandings(j) {
   return (j.children || []).map(ch => ({
@@ -457,7 +504,8 @@ function parseSummary(j, id) {
   const lastWall = plays.map(p => p.wall).filter(Boolean).pop();
   const injuries = (j.injuries || []).map(t => ({
     teamId: String(t.team && t.team.id),
-    list: (t.injuries || []).map(i => ({ name: i.athlete ? i.athlete.displayName : '', status: i.status || '', type: i.details ? i.details.type : '' })),
+    // fs: ESPN's game-day call (OUT, GTD, or OFS for out for the season), fresher than status, which can be left over from an earlier game
+    list: (t.injuries || []).map(i => ({ name: i.athlete ? i.athlete.displayName : '', status: i.status || '', type: i.details ? i.details.type : '', fs: fsOf(i) })),
   })).filter(t => t.list.length);
   const link = ((j.header && j.header.links) || []).find(l => (l.rel || []).includes('summary'));
   const art = j.article;
@@ -630,6 +678,8 @@ function parseFutures(j) {
     return { id: String(it.id), name: cleanMarket(it.name || it.displayName), provider: (fu.provider && fu.provider.name) || 'Sportsbook', entries };
   }).filter(m => m.entries.length);
 }
+// The injury report's call for the next game: OUT, GTD (a game-time decision) or OFS (out for the season)
+function fsOf(i) { const f = i && i.details && i.details.fantasyStatus; return String((f && f.abbreviation) || '').toUpperCase(); }
 function parseInjuries(j) {
   return (j.injuries || []).map(t => ({
     teamId: String(t.id), teamName: t.displayName,
@@ -639,7 +689,7 @@ function parseInjuries(j) {
       const aid = a.id || [...(a.links || []).map(l => l.href), (a.headshot || {}).href].map(h => (/\/id\/(\d+)|\/(\d+)\.png/.exec(h || '') || []).slice(1).find(Boolean)).find(Boolean);
       return {
         id: String(aid || i.id), name: a.displayName || '', pos: a.position && a.position.abbreviation, headshot: headshotOf(a.headshot),
-        status: i.status || (i.type && i.type.description) || '', date: i.date,
+        status: i.status || (i.type && i.type.description) || '', date: i.date, fs: fsOf(i),
         type: d.type || '', detail: d.detail || '', side: d.side && d.side !== 'Not Specified' ? d.side : '', ret: d.returnDate || '',
         short: i.shortComment || '', long: i.longComment || '',
       };
@@ -689,6 +739,27 @@ function parseRoster(j, extras) {
 /* ---------- resources ---------- */
 NBA.bumps = new Set();
 const prevScores = new Map();
+/* Close games anywhere in the league, for the in-page alert (ui.js renderAlert): a game turning clutch, or tied at the
+   end of the 4th (or of an overtime), or going to overtime. Each game alerts once for each; a tie heading to overtime
+   and that overtime are one alert. The first scoreboard only takes note, so opening the app mid-crunch (or the
+   reload for a new build) doesn't set off every close game at once. NBA.endedAt: when a game this page was
+   watching went final, for the 15 minutes the header's score bug keeps showing it */
+NBA.alerts = [];
+NBA.endedAt = new Map();
+const prevState = new Map(), alerted = new Set();
+let heatSeen = false;
+function noteHeat(games) {
+  games.forEach(g => {
+    const h = NBA.heat(g);
+    const key = !h ? '' : h.kind === 'crunch' ? 'crunch' : 'ot' + (h.kind === 'toOT' ? h.per + 1 : h.per);
+    if (key && heatSeen && !alerted.has(g.id + key)) NBA.alerts.push({ id: g.id, t: Date.now() });
+    if (key) alerted.add(g.id + key);
+    if (prevState.get(g.id) === 'in' && g.state === 'post') NBA.endedAt.set(g.id, Date.now());
+    prevState.set(g.id, g.state);
+  });
+  heatSeen = true;
+  if (NBA.alerts.length > 6) NBA.alerts.splice(0, NBA.alerts.length - 6);
+}
 // A past day whose games are all over can't change, so it keeps for 12 hours
 def('day', (p, d) => !p ? 60000 : d && NBA.isoFromParam(p) < NBA.today && d.games.every(g => g.state === 'post') ? 12 * 3600000 : 30 * 60000, async p => {
   let j = await getJSON(API + '/scoreboard' + (p ? '?dates=' + p : ''));
@@ -724,6 +795,7 @@ def('day', (p, d) => !p ? 60000 : d && NBA.isoFromParam(p) < NBA.today && d.game
       prevScores.set(k, t.score);
     }));
     NBA.bumps = bumps;
+    noteHeat(games);
   }
   return { day: (j.day && j.day.date) || NBA.isoFromParam(p), games };
 });

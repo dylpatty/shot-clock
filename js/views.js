@@ -33,6 +33,13 @@ V.schedule = () => {
   const isToday = !NBA.dayParam;
   const iso = day ? day.day : (NBA.dayParam ? NBA.isoFromParam(NBA.dayParam) : NBA.today);
   const label = (iso === NBA.today ? 'Today · ' : '') + NBA.fmtDay(iso, { weekday: 'short', month: 'short', day: 'numeric' });
+  // Games still to come say who's out (one league-wide report) and who played the day before (that day's scoreboard,
+  // usually loaded already)
+  if (day && day.games.some(g => g.state === 'pre')) {
+    NBA.use('injuries');
+    const eve = NBA.shiftIso(iso, -1);
+    NBA.use(eve === NBA.today ? 'day:' : 'day:' + NBA.paramOf(eve));
+  }
   let main;
   if (!day) main = stateOf(key, 'games');
   else if (!day.games.length) main = `<p class="empty">No games on ${esc(NBA.fmtDay(iso, { weekday: 'long', month: 'long', day: 'numeric' }))}.</p>`;

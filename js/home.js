@@ -454,9 +454,7 @@ function topMovement(ids) {
 }
 /* The Home headline reacts to your team first, then the calendar, then the clock.
    Results stay out of it while spoiler mode is on. */
-const clockSecs = c => { const s = String(c || ''); if (s.includes(':')) { const [m, x] = s.split(':'); return +m * 60 + parseFloat(x); } return parseFloat(s); };
-// 'Jaren Jackson Jr.' is Jackson, not Jr.
-const surname = n => { const w = String(n || '').trim().split(/\s+/); return w.length > 2 && /^(?:jr|sr|ii|iii|iv)\.?$/i.test(w[w.length - 1]) ? w[w.length - 2] : w[w.length - 1]; };
+const clockSecs = NBA.clockSecs, surname = NBA.surname;
 const dayKeyOf = iso => iso === NBA.today ? 'day:' : 'day:' + NBA.paramOf(iso);
 function heroMessage({ now, games, live, myId, t, sch, mine, loaded }) {
   const name = t.name || 'your team', hide = NBA.S.spoilers;
@@ -465,10 +463,10 @@ function heroMessage({ now, games, live, myId, t, sch, mine, loaded }) {
   const g = live.find(x => x.away.id === myId || x.home.id === myId);
   if (g && !hide) {
     const me = g.away.id === myId ? g.away : g.home, them = me === g.away ? g.home : g.away;
-    const d = (+me.score) - (+them.score), period = Math.max(g.away.lines.length, g.home.lines.length);
-    const clock = clockSecs((/(\d+:\d+(?:\.\d)?|\d+\.\d)/.exec(g.detail) || [])[1]);
-    const sub = `${score(g.away, g.home)} · ${g.detail}`;
-    if (period >= 4 && clock <= 300 && Math.abs(d) <= 5) return { title: 'Crunch time', sub };
+    const d = (+me.score) - (+them.score);
+    const sub = `${score(g.away, g.home)} · ${NBA.detail(g)}`;
+    // The NBA's clutch rule, the same one that flags the game cards (and a tie heading to overtime)
+    if (NBA.clutch(g)) return { title: 'Crunch time', sub };
     if (d >= 15) return { title: 'Blowout alert', sub: `The ${name} are up ${d} on the ${them.name}. ${sub}` };
     if (d <= -12) return { title: 'Comeback time', sub: `The ${name} are down ${-d} to the ${them.name}. ${sub}` };
     return { title: 'Game on', sub };
@@ -630,11 +628,13 @@ function gameTile(g) {
   const hide = NBA.S.spoilers && g.state !== 'pre' && !pp && !st.revealed.has(g.id);
   const sc = t => g.state === 'pre' || pp || hide ? '' : `<b class="hg-sc">${esc(t.score)}</b>`;
   const won = t => g.state === 'post' && !pp && !hide && t.winner ? ' won' : '';
-  const status = g.state === 'in' ? `<span class="hg-live"><i class="dot blink"></i>${esc(hide ? 'Live' : NBA.detail(g))}</span>`
+  // The clutch or overtime pill from the game cards, in its short form; it says how close the game is, so not when hidden
+  const heat = hide ? null : NBA.heat(g);
+  const status = g.state === 'in' ? `<span class="hg-live"><i class="dot blink"></i>${esc(hide ? 'Live' : NBA.detail(g))}${heat ? `<b class="heat${heat.clutch ? ' hot' : ''}">${esc(heat.short)}</b>` : ''}</span>`
     : pp ? `<span>${esc(g.detail || 'Postponed')}</span>` : g.state === 'post' ? `<span>${esc(hide ? 'Final' : g.detail)}</span>` : `<span>${esc(UI.tipTime(g))}</span>`;
   // Records already count tonight's result, so they hide with the score
   const row = t => `<span class="hg-row${won(t)}">${UI.logo(t, 28)}<span class="hg-ab">${esc(t.abbr)}</span><small>${hide ? '' : esc(t.record || '')}</small>${sc(t)}</span>`;
-  return `<button class="hg${g.state === 'in' ? ' live' : ''}${UI.isMine(g) ? ' mine' : ''}" data-act="game" data-id="${g.id}"><span class="hg-st">${status}</span>${row(g.away)}${row(g.home)}</button>`;
+  return `<button class="hg${g.state === 'in' ? ' live' : ''}${heat && heat.clutch ? ' clutch' : ''}${UI.isMine(g) ? ' mine' : ''}" data-act="game" data-id="${g.id}"><span class="hg-st">${status}</span>${row(g.away)}${row(g.home)}</button>`;
 }
 // Charts that can be the chart of the day, in a fixed order, with the feeds each needs besides standings
 // ('week' is the last 7 days of scoreboards)
@@ -688,15 +688,29 @@ V.home = () => {
   if (myLive) {
     // Same rule as the game tiles: opening the game reveals its score here too
     const hide = NBA.S.spoilers && !st.revealed.has(myLive.id);
+    // What the Schedule's live card adds, without leaving Home: ESPN's win chance, the last play (one line) and each
+    // side's top scorer so far. All three give the game away, so none shows while it's hidden
+    const top = tm => { const l = tm.leaders.find(x => x.cat === 'points'); return l && l.value != null ? `${l.full || l.short} ${l.value}` : ''; };
+    const tops = [top(myLive.away), top(myLive.home)].filter(Boolean).join(' · ');
+    const more = hide ? '' : (myLive.homeWin != null ? UI.wpBar(myLive) : '')
+      + (myLive.lastPlay ? `<span class="last nx-last"><span class="lbl">Last play</span><span title="${esc(myLive.lastPlay)}">${esc(myLive.lastPlay)}</span></span>` : '')
+      + (tops ? `<span class="nx-top">Top: ${esc(tops)}</span>` : '');
     nextPanel = `<button class="hh-next live" data-act="game" data-id="${myLive.id}"><span class="eyebrow"><i class="dot blink"></i>${esc(t.name)} are live</span>
       <span class="nx-vs">${side(myLive.away, myLive.away.record, hide ? null : myLive.away.score)}<span class="nx-at">${esc(hide ? 'Live' : NBA.detail(myLive))}</span>${side(myLive.home, myLive.home.record, hide ? null : myLive.home.score)}</span>
-      <span class="nx-when">Tap for the box score</span></button>`;
+      ${more}<span class="nx-when">Tap for the box score</span></button>`;
   } else if (myNext) {
     const opp = NBA.T(myNext.oppId);
     const [L, R] = myNext.home ? [[opp, recOf(myNext.oppId)], [t, recOf(myId)]] : [[t, recOf(myId)], [opp, recOf(myNext.oppId)]];
+    // The second night of a back-to-back: yours from the team's own schedule (a postponed date doesn't count, as on
+    // the team page), the opponent's from the day before's scoreboard (one small request, usually already loaded)
+    const eve = NBA.shiftIso(NBA.etDay(myNext.date), -1), tip = new Date(myNext.date);
+    const before = sch.events.filter(e => new Date(e.date) < tip && !(e.state === 'post' && e.completed === false)).slice(-1)[0];
+    NBA.use(eve === NBA.today ? 'day:' : 'day:' + NBA.paramOf(eve));
+    const b2b = [[t, !!before && NBA.etDay(before.date) === eve], [opp, !!(NBA.playedOn(eve) || new Set()).has(String(myNext.oppId))]]
+      .filter(x => x[1] && x[0].abbr).map(([tm]) => ` <span class="tag b2b" title="${esc(tm.name || tm.abbr)}: second night of a back-to-back">${esc(tm.abbr)} B2B</span>`).join('');
     nextPanel = `<button class="hh-next" data-act="game" data-id="${myNext.id}"><span class="eyebrow">${esc(t.name)} next game</span>
       <span class="nx-vs">${side(L[0], L[1])}<span class="nx-at">@</span>${side(R[0], R[1])}</span>
-      <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(nextTbd ? 'Time TBD' : NBA.fmtTime(myNext.date))}${NBA.caTv(myNext) ? ' · ' + esc(NBA.caTv(myNext).short) : ''}</span>
+      <span class="nx-when"><b>${esc(NBA.fmtDate(myNext.date, { weekday: 'long', month: 'short', day: 'numeric' }))}</b> · ${esc(nextTbd ? 'Time TBD' : NBA.fmtTime(myNext.date))}${NBA.caTv(myNext) ? ' · ' + esc(NBA.caTv(myNext).short) : ''}${b2b}</span>
       ${previewLine(myNext, myId, t, now)}${nextTbd ? '' : `<span class="nx-count">Tip-off in <b>${esc(countdown(myNext.date))}</b></span>`}</button>`;
   }
   const msg = heroMessage({ now, games, live, myId, t, sch, mine, loaded: !!day });
