@@ -236,11 +236,13 @@ const when = iso => NBA.fmtDate(iso, { weekday: 'short', month: 'short', day: 'n
 const hidden = (id, date) => NBA.masked(id, date);
 const showBtn = id => `<button class="link" data-act="reveal" data-id="${esc(id)}">Show</button>`;
 const statBox = (v, label, cls = '') => v === '' || v == null ? '' : `<span class="${cls}"><b>${esc(v)}</b>${label}</span>`;
-// A player's line in one game from its box score: null until it loads or if he isn't in it, { dnp } if he sat
+// A player's line in one game from its box score: null until it loads or if he isn't in it, { dnp } if he sat,
+// { dnp, yet } if the game is live and he hasn't checked in (ESPN's reason is on everyone, so it isn't used for him)
 function boxLine(s, pid) {
   for (const b of (s && s.box) || []) {
     const pl = (b.players || []).find(x => x.id === pid);
     if (!pl) continue;
+    if (pl.yet) return { dnp: "Hasn't checked in yet", yet: true };
     if (pl.dnp) return { dnp: pl.reason || 'Did not play' };
     const v = k => { const i = (b.keys || []).indexOf(k); return i < 0 ? '' : pl.stats[i]; };
     return { min: v('minutes'), pts: v('points'), reb: v('rebounds'), ast: v('assists'), stl: v('steals'), blk: v('blocks'), tov: v('turnovers'),
@@ -328,7 +330,7 @@ function playerCard(p) {
     else if (hidden(g.id, g.date)) line = `<div class="fd-note">His line is hidden in spoiler mode. ${showBtn(g.id)}</div>`;
     else {
       const sum = NBA.use('summary:' + g.id), l = boxLine(sum, p.id);
-      line = l && l.dnp ? `<div class="fd-note">Didn't play: ${esc(l.dnp)}</div>` : l ? statsRow(l)
+      line = l && l.dnp ? `<div class="fd-note">${l.yet ? '' : "Didn't play: "}${esc(l.dnp)}</div>` : l ? statsRow(l)
         : sum ? `<div class="fd-note">Not in the box score${g.state === 'in' ? ' yet' : ''}.</div>` : '<div class="fd-note">Loading his line…</div>';
       if (l && !l.dnp) lastFrom = '';
     }
