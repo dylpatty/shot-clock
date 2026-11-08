@@ -133,21 +133,28 @@ let pbRaf = 0, pbLast = 0, pbHold = 0;
 const pbReduce = matchMedia('(prefers-reduced-motion: reduce)');
 // The copy is only there for the loop. Hide it when the whole list already fits on screen (early in the night,
 // or on a tablet) or motion is reduced, so the same players never show twice side by side
+// Measured when the band is painted or the window changes size, not every frame: a layout read per frame, while the page
+// is scrolling, made the Schedule stutter on iPhones. tr._run is one run's width, 0 when it all fits
 function bandFits(tr) {
-  const fits = pbReduce.matches || tr.firstElementChild.offsetWidth <= tr.clientWidth;
+  const run = tr.firstElementChild ? tr.firstElementChild.offsetWidth : 0;
+  const fits = pbReduce.matches || !tr.offsetParent || run <= tr.clientWidth;
+  tr._run = fits ? 0 : run;
   tr.classList.toggle('fits', fits);
   return fits;
 }
 function bandTick(t) {
   pbRaf = 0;
   const tr = document.getElementById('pb-track');
-  if (!tr || !tr.offsetParent || bandFits(tr)) { pbLast = 0; return; }
+  if (!tr || !tr._run) { pbLast = 0; return; }
   const dt = pbLast ? Math.min(50, t - pbLast) : 0;
   pbLast = t;
-  if (Date.now() > pbHold) {
+  // It also stands still while the page itself is being scrolled up or down, and picks up again after
+  const moving = UI.pageMoving && UI.pageMoving();
+  // Measured again every few seconds while still, for a web font or a new name changing the width after it was painted
+  if (!moving && t - (tr._mt || 0) > 3000) { tr._mt = t; if (bandFits(tr)) { pbLast = 0; return; } }
+  if (Date.now() > pbHold && !moving) {
     // One run along, the copy looks exactly like the start, so wrap back there
-    const run = tr.firstElementChild.offsetWidth;
-    const x = ((st.pbX == null ? tr.scrollLeft : st.pbX) + PB_SPEED * dt / 1000) % run;
+    const x = ((st.pbX == null ? tr.scrollLeft : st.pbX) + PB_SPEED * dt / 1000) % tr._run;
     st.pbX = x;
     tr.scrollLeft = x;
   }
@@ -156,9 +163,9 @@ function bandTick(t) {
 function bindBand(view) {
   const tr = view.querySelector('#pb-track');
   if (!tr) return;
+  bandFits(tr);
   if (!tr._bound) {
     tr._bound = true;
-    bandFits(tr);
     // Re-renders replace the band, so it carries on from the same spot
     if (st.pbX) tr.scrollLeft = st.pbX;
     const hold = () => { pbHold = Infinity; };
@@ -184,8 +191,15 @@ function paintBand() {
   UI.paint(host, st.bandHtml || '');
   bindBand(host);
 }
-// Turning a tablet or narrowing the window can show the band (or make the list overflow), so check again
-window.addEventListener('resize', () => { if (!pbRaf && document.getElementById('pb-track')) pbRaf = requestAnimationFrame(bandTick); });
+// Turning a tablet or narrowing the window can show the band (or make the list overflow), so measure again. Only a change
+// of width counts: Safari's toolbar sliding in and out as you scroll changes the height alone
+let pbW = innerWidth;
+window.addEventListener('resize', () => {
+  if (innerWidth === pbW) return;
+  pbW = innerWidth;
+  const tr = document.getElementById('pb-track');
+  if (tr) { bandFits(tr); if (!pbRaf) pbRaf = requestAnimationFrame(bandTick); }
+});
 NBA.actions.pbgame = a => UI.openGame(a.dataset.id, a);
 /* A team's schedule is cached for 15 minutes, so lay today's scoreboard (refreshed every 10 s while live) over it.
    A game that just ended then shows as a result right away instead of as live or upcoming. */
@@ -296,9 +310,21 @@ function paintSeason() {
     loadNearMonths();
     return;
   }
-  el._seasonKey = key;
-  UI.paint(el, seasonSkeleton(days, months));
-  months.forEach(ym => { const sec = document.getElementById('sm-' + ym); if (UI.paint(sec, monthHtml(ym, days))) ruleRows(sec.querySelector('.days')); });
+  // The frame (heading, month buttons, an empty section per month) is only rebuilt when it changes. A month that just
+  // loaded repaints its own section and nothing else, so the months above it, where you're reading, stay put.
+  // While the page is being scrolled, only months still below the screen are filled in; the rest wait for it to settle
+  const skel = [days[0], days.length, months.join(), st.seasonMine, NBA.S.myTeam, NBA.T(NBA.S.myTeam).name, NBA.S.tz].join('|');
+  if (el._skel !== skel || !el._html) { el._skel = skel; UI.paint(el, seasonSkeleton(days, months)); }
+  const moving = UI.pageMoving && UI.pageMoving();
+  let held = false;
+  months.forEach(ym => {
+    const sec = document.getElementById('sm-' + ym);
+    if (!sec) return;
+    if (moving && sec._html != null && sec.getBoundingClientRect().top < innerHeight) { held = true; return; }
+    if (UI.paint(sec, monthHtml(ym, days))) ruleRows(sec.querySelector('.days'));
+  });
+  if (held) UI.viewHeld = true;
+  else el._seasonKey = key;
   loadNearMonths();
 }
 /* A faint dotted line between each row of day cards, so a short day sitting next to a long one still reads as one row.
@@ -330,9 +356,15 @@ function ruleRows(grid) {
     top = c.offsetTop;
   });
 }
-// Window resizes are also caught directly, as a backstop for browsers that report grid widths late
-let ruleTimer = 0;
-window.addEventListener('resize', () => { clearTimeout(ruleTimer); ruleTimer = setTimeout(() => document.querySelectorAll('.days').forEach(ruleRows), 150); });
+// Window resizes are also caught directly, as a backstop for browsers that report grid widths late. Only a change of
+// width: on an iPhone in Safari the toolbar sliding in and out as you scroll fires a resize every time, and redrawing
+// every line in the season list then made scrolling up and down judder
+let ruleTimer = 0, ruleW = innerWidth;
+window.addEventListener('resize', () => {
+  if (innerWidth === ruleW) return;
+  ruleW = innerWidth;
+  clearTimeout(ruleTimer); ruleTimer = setTimeout(() => document.querySelectorAll('.days').forEach(ruleRows), 150);
+});
 NBA.after.schedule = (view, changed) => {
   // iPhone Safari doesn't hold the scroll when the games above change height. renderView keeps it when the frame
   // itself was repainted (changed); otherwise only the parts below change, so measure here: whichever of the rest of

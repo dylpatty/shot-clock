@@ -149,6 +149,7 @@ const EXTRA_ALIASES = {
   PHX: ['suns'], CHA: ['hornets'], SAC: ['kings'], MEM: ['grizzlies', 'grizz'], ORL: ['magic'], DET: ['pistons'], TOR: ['raptors', 'raps'],
   MIA: ['heat'], MIL: ['bucks'], IND: ['pacers'], HOU: ['rockets'], DEN: ['nuggets', 'nugs'], CHI: ['bulls'], BOS: ['celtics'], ATL: ['hawks'],
 };
+NBA.TEAM_ALIASES = EXTRA_ALIASES; // the search bar's wayfinder (find.js) matches on them too
 NBA.T = id => NBA.teams.get(String(id)) || { id: String(id), abbr: '', name: '', full: '', logo: '', color: '#888888', alt: '#BBBBBB' };
 NBA.lg = t => (NBA.isDark() && t.logoDark) ? t.logoDark : (t.logo || '');
 /* ESPN's image resizer. Width only: it keeps the aspect ratio. Callers ask for about 3x the CSS size, in a few

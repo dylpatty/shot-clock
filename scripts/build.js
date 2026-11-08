@@ -4,6 +4,7 @@
      wing  wingspan in inches, from Crafted NBA or the NBA Draft Combine
      wht   barefoot height in inches from the same measurement
      tm    ESPN team the salary row was matched on
+     nm, tid, no, pos   every rostered player's name, ESPN team id, jersey and position (the search bar's player list)
    Every source is optional: when one can't be read, yesterday's values carry over. `get` does the fetching, so the
    same code runs in the GitHub Action (Node) and in a browser test. */
 import { parseContracts, parseLength, parseCombine } from './sources.js';
@@ -25,7 +26,10 @@ export async function buildExtras({ get, previous, now, combineYear, combineFrom
   // Who's in the league today, from ESPN
   const teams = (await get(`${ESPN}/teams`, { json: true })).sports[0].leagues[0].teams.map(t => t.team);
   const rosters = await Promise.all(teams.map(t => get(`${ESPN}/teams/${t.id}/roster`, { json: true })));
-  const roster = rosters.flatMap((j, i) => (j.athletes || []).map(a => ({ id: String(a.id), name: a.displayName || a.fullName || '', team: teams[i].abbreviation })));
+  const roster = rosters.flatMap((j, i) => (j.athletes || []).map(a => ({
+    id: String(a.id), name: a.displayName || a.fullName || '', team: teams[i].abbreviation, tid: String(teams[i].id),
+    no: a.jersey || '', pos: (a.position && a.position.abbreviation) || '',
+  })));
   if (roster.length < 300) throw new Error(`Only ${roster.length} players on ESPN rosters`);
   const teamOf = new Map(roster.map(p => [p.id, p.team]));
   const find = matcher(roster);
@@ -33,6 +37,9 @@ export async function buildExtras({ get, previous, now, combineYear, combineFrom
   const players = {};
   const put = (id, k, v) => { (players[id] = players[id] || {})[k] = v; };
   const report = { espnPlayers: roster.length };
+  // Everyone on a roster, for the site's search bar: name, ESPN team id, jersey and position. First, so each line
+  // starts with who it is
+  for (const p of roster) { put(p.id, 'nm', p.name); put(p.id, 'tid', p.tid); if (p.no) put(p.id, 'no', p.no); if (p.pos) put(p.id, 'pos', p.pos); }
 
   // Salaries, matched on name and team only: a waived player's dead money must not follow him to his new team
   let salaries = 0, seasons = [];

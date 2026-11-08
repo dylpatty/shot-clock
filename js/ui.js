@@ -294,6 +294,9 @@ function renderView() {
   UI.swipeDir = null;
   // Lets the stylesheet give a tab its own page layout (the Schedule's right-hand performers rail)
   document.documentElement.dataset.tab = tab;
+  // The same page while it's being scrolled waits (see UI.pageMoving): the newest of everything goes in once it settles
+  if (sameRoute && view._html && UI.pageMoving()) { UI.viewHeld = true; return; }
+  UI.viewHeld = false;
   const html = fn(arg), season = $('#season');
   // iPhone Safari doesn't hold the scroll still when today's games above change height, so when the
   // rest-of-season list is scrolled into, keep it where it was (Chrome's own correction leaves nothing to do)
@@ -399,6 +402,24 @@ UI.ownsSwipe = el => !!(el && el.closest && el.closest('[data-noswipe], input, t
   addEventListener('click', release, true);
   // A glide keeps the hold going until the strip stops moving
   addEventListener('scroll', e => { if (lifted && e.target === UI.heldStrip) settle(); }, { passive: true, capture: true });
+})();
+/* Scrolling the page up and down: while a finger is moving it, or it's still gliding from a flick, live refreshes don't
+   rebuild the page. On an iPhone, swapping the page's HTML mid-scroll (a score, a "5m ago") makes it stutter or jump,
+   and correcting the scroll position for a change above stops the glide dead. Once it has been still for a moment, a
+   normal render paints the newest of everything. A tap that doesn't scroll isn't held up */
+(() => {
+  let down = false, moved = false, last = 0, timer = 0;
+  UI.pageMoving = () => (down && moved) || Date.now() - last < 150;
+  const settle = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (UI.pageMoving()) settle(); else if (UI.viewHeld) NBA.changed(); }, 160);
+  };
+  addEventListener('touchstart', e => { down = e.touches.length > 0; moved = false; }, { passive: true, capture: true });
+  const up = e => { if (e.touches && e.touches.length) return; down = false; if (moved) settle(); };
+  addEventListener('touchend', up, { passive: true, capture: true });
+  addEventListener('touchcancel', up, { passive: true, capture: true });
+  // Only the page's own scroll (scroll events from strips, tables and the game window don't reach the window)
+  addEventListener('scroll', () => { last = Date.now(); if (down) moved = true; settle(); }, { passive: true });
 })();
 /* Touch screens: a quick sideways swipe anywhere else on the page moves to the next or previous tab, so the tab bar
    needn't be reached. Nothing happens while a game, settings, a video, the calendar or search is open */

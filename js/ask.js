@@ -17,7 +17,9 @@ const SUGGESTIONS = ['What is the Warriors record?', "Warriors' next 10 games", 
   'Best player in the East over the last week', 'Power rankings', 'Warriors vs Lakers', 'Stephen Curry last 5 games',
   'Curry vs Doncic', 'Plus-minus leaders', 'Who is hot right now?', 'Warriors defensive rating'];
 
-const A = NBA.ask = { open: false, turns: [], convo: [], busy: false };
+// mode: 'home' (nothing typed: live games, recent picks, questions to try), 'find' (results as you type, find.js) or
+// 'answers' (the questions asked so far and their answers)
+const A = NBA.ask = { open: false, turns: [], convo: [], busy: false, mode: 'home' };
 
 /* ---------- Markdown-lite renderer for Claude's answers ---------- */
 function inline(s) {
@@ -616,23 +618,30 @@ function renderPanel() {
   placePanel();
   const hasKey = !!NBA.aiKey.get();
   const engine = hasKey ? MODEL_NAMES[NBA.S.aiModel] || 'Claude' : 'Built-in answers';
-  const body = A.turns.length ? A.turns.map(t => `<div class="qa-q">${esc(t.q)}</div><div class="qa-a">
+  const F = NBA.find, finding = A.mode === 'find' && !!F;
+  if (A.mode === 'answers' && !A.turns.length) A.mode = 'home';
+  const answers = A.mode === 'answers';
+  const sugg = `<div class="sugg">${SUGGESTIONS.map(s => `<button class="chip" data-act="ask-q" data-q="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
+  const body = finding ? F.panel() : answers ? A.turns.map(t => `<div class="qa-q">${esc(t.q)}</div><div class="qa-a">
       ${t.pending ? `<div class="thinking"><i></i>${t.steps.length ? esc(t.steps[t.steps.length - 1]) + '…' : 'Thinking…'}</div>` : ''}
       ${t.error ? `<p class="qa-err">${esc(t.error)}</p>` : ''}
       ${t.html ? `<div class="md">${t.html}</div>` : ''}
       ${!t.pending && t.steps.length ? `<div class="qa-steps">${[...new Set(t.steps)].map(s => `<span>${esc(s)}</span>`).join('')}</div>` : ''}
       ${t.meta ? `<div class="qa-meta"><span>${esc(t.meta)}</span></div>` : ''}</div>`).join('')
-    : `<p class="hint">Ask about records, schedules, stats, leaders, injuries, odds or recent form. Try one:</p>`;
-  const sugg = `<div class="sugg">${SUGGESTIONS.map(s => `<button class="chip" data-act="ask-q" data-q="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
+    : `${F ? F.home() : ''}<p class="hint">Or ask about records, schedules, stats, leaders, injuries, odds or recent form:</p>${sugg}`;
   // The API key lives here rather than in Settings, right where ask-anything needs it
   const keyNote = hasKey
     ? `<p class="note ask-keynote">Ask-anything is on with your Anthropic API key, saved only in this browser.${A.busy ? '' : ' <button class="link" data-act="ask-key-clear">Remove key</button>'}</p>`
     : `<div class="ask-key"><p class="note">The search bar answers common questions by itself. To ask anything, paste an Anthropic API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. You pay Anthropic per question (about 5–15¢), separately from any Claude subscription. The key stays in this browser and is only sent to Anthropic.</p>
         <div class="keyrow"><label class="sr" for="ask-key">Anthropic API key</label><input class="field" id="ask-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…"><button class="btn primary" data-act="ask-key-save">Save key</button></div></div>`;
   // New question and Remove key wait until the answer finishes; ask() re-renders then and they come back
-  const html = `<div class="ask-head"><span class="eyebrow">Ask · ${esc(engine)}</span>${A.turns.length && !A.busy ? '<button class="chip" data-act="ask-new">New question</button>' : ''}<button class="ib" data-act="ask-close" aria-label="Close answers">${UI.I.close}</button></div>
-    <div class="ask-body" id="ask-body">${body}${A.turns.length ? '' : sugg}${keyNote}</div>`;
+  const label = finding ? 'Search' : answers ? `Ask · ${engine}` : 'Search or ask';
+  const html = `<div class="ask-head"><span class="eyebrow">${esc(label)}</span>${answers && !A.busy ? '<button class="chip" data-act="ask-new">New question</button>' : ''}<button class="ib" data-act="ask-close" aria-label="Close search">${UI.I.close}</button></div>
+    <div class="ask-body${finding ? ' fd-body' : ''}" id="ask-body">${body}${finding ? '' : keyNote}</div>`;
   UI.paint(el, html);
+  // The highlighted result, for screen readers following the arrow keys
+  const inp = $('#ask-input'), ad = finding ? F.activeId() : '';
+  if ((inp.getAttribute('aria-activedescendant') || '') !== ad) { if (ad) inp.setAttribute('aria-activedescendant', ad); else inp.removeAttribute('aria-activedescendant'); }
 }
 A.render = () => { if (A.open) renderPanel(); };
 A.isOpen = () => A.open;
@@ -641,7 +650,8 @@ const showBar = on => {
   document.documentElement.classList.toggle('srch', on);
   const b = $('.srch-btn'); if (b) b.setAttribute('aria-expanded', String(on));
 };
-A.close = () => { A.open = false; showBar(false); renderPanel(); };
+// Closing also lets go of the field, which puts the iPhone keyboard away
+A.close = () => { A.open = false; showBar(false); renderPanel(); const i = $('#ask-input'); if (document.activeElement === i) i.blur(); };
 A.keyChanged = () => { A.convo = []; renderPanel(); };
 function scrollToLast() {
   const el = $('#ask-panel'), qs = el.querySelectorAll('.qa-q');
@@ -651,8 +661,8 @@ async function ask(q) {
   q = q.trim();
   if (!q) return;
   // One question at a time: show the one still running (the panel may have been closed) rather than doing nothing
-  if (A.busy) { A.open = true; renderPanel(); scrollToLast(); return; }
-  A.open = true; A.busy = true;
+  if (A.busy) { A.open = true; A.mode = 'answers'; renderPanel(); scrollToLast(); return; }
+  A.open = true; A.busy = true; A.mode = 'answers';
   const turn = { q, steps: [], pending: true };
   A.turns.push(turn);
   renderPanel(); scrollToLast();
@@ -674,10 +684,21 @@ async function ask(q) {
   renderPanel();
   scrollToLast();
 }
+A.run = ask;
+// What's in the search field now: results for it, or (empty) the starting panel or the answers so far
+function typed(v) {
+  if (NBA.find) NBA.find.typed(v);
+  A.mode = v.trim() && NBA.find ? 'find' : A.turns.length ? 'answers' : 'home';
+  A.open = true;
+  renderPanel();
+  $('#ask-panel').scrollTop = 0;
+}
 Object.assign(NBA.actions, {
   'ask-q': a => { $('#ask-input').value = a.dataset.q; ask(a.dataset.q); },
   // No reset while a question is running: it is still writing to A.convo and holds A.busy
-  'ask-new': () => { if (A.busy) return; A.turns = []; A.convo = []; renderPanel(); $('#ask-input').focus(); },
+  'ask-new': () => { if (A.busy) return; A.turns = []; A.convo = []; $('#ask-input').value = ''; typed(''); $('#ask-input').focus(); },
+  // A recent pick (or your team) from the starting panel: its results, as if typed
+  'fd-recent': a => { const v = NBA.find ? NBA.find.fromRecent(a) : ''; if (!v) return; $('#ask-input').value = v; typed(v); },
   'ask-close': () => A.close(),
   // The magnifier: focusing in the same tap is what brings up the iPhone keyboard. A second tap puts the bar away
   'ask-open': () => {
@@ -695,13 +716,31 @@ Object.assign(NBA.actions, {
   },
   'ask-key-clear': () => { if (A.busy) return; NBA.aiKey.set(''); A.keyChanged(); },
 });
+// Enter opens the highlighted result; with nothing found (or the question highlighted) it asks
 document.getElementById('ask-form').addEventListener('submit', e => {
   e.preventDefault();
   const inp = $('#ask-input');
+  if (A.mode === 'find' && NBA.find && NBA.find.count()) { NBA.find.go(); return; }
   ask(inp.value);
   inp.select();
 });
-document.getElementById('ask-input').addEventListener('focus', () => { if (!A.open && !A.turns.length) { A.open = true; renderPanel(); } });
+document.getElementById('ask-input').addEventListener('input', e => typed(e.target.value));
+// Arrow keys move the highlight through the results
+document.getElementById('ask-input').addEventListener('keydown', e => {
+  if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || A.mode !== 'find' || !NBA.find || !NBA.find.count()) return;
+  e.preventDefault();
+  NBA.find.move(e.key === 'ArrowDown' ? 1 : -1);
+  renderPanel();
+  const o = document.getElementById(NBA.find.activeId());
+  if (o) o.scrollIntoView({ block: 'nearest' });
+});
+document.getElementById('ask-input').addEventListener('focus', e => {
+  if (A.open) return;
+  const v = e.target.value;
+  if (v.trim() && NBA.find && A.mode === 'find') NBA.find.typed(v);
+  A.open = true;
+  renderPanel();
+});
 window.addEventListener('resize', () => { if (A.open) placePanel(); });
 // The keyboard resizes the visual viewport (and can scroll it) without a window resize
 if (window.visualViewport) ['resize', 'scroll'].forEach(t => visualViewport.addEventListener(t, () => { if (A.open) placePanel(); }));
