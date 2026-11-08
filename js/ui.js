@@ -371,6 +371,13 @@ document.getElementById('drawer').addEventListener('scroll', e => {
   UI.drawer.boxIdx = i;
   bs.parentElement.querySelectorAll('.box-tabs button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.v === i)));
 }, { capture: true, passive: true });
+// A window narrowed into the swipe layout (or a tablet turned upright) finds the strip at its start: put it back on the
+// team whose button is lit, which is your team on a freshly opened game (older Safari has no addEventListener here)
+const swipeMq = matchMedia('(max-width:900px)');
+if (swipeMq.addEventListener) swipeMq.addEventListener('change', e => {
+  const bs = e.matches && UI.drawer && UI.drawer.boxIdx && document.querySelector('#drawer .box-swipe');
+  if (bs) bs.scrollLeft = UI.drawer.boxIdx * bs.clientWidth;
+});
 /* The nearest thing around el that scrolls sideways (a wide table, a carousel, a video strip, the tab bar) */
 UI.sideScroller = el => {
   for (let n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
