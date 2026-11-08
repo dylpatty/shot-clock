@@ -641,6 +641,8 @@ function parseInjuries(j) {
         id: String(aid || i.id), name: a.displayName || '', pos: a.position && a.position.abbreviation, headshot: headshotOf(a.headshot),
         status: i.status || (i.type && i.type.description) || '', date: i.date,
         type: d.type || '', detail: d.detail || '', side: d.side && d.side !== 'Not Specified' ? d.side : '', ret: d.returnDate || '',
+        // The fantasy status (OUT, GTD, OFS) is kept current; status can be left over from an earlier game
+        fs: (d.fantasyStatus && d.fantasyStatus.abbreviation) || '',
         short: i.shortComment || '', long: i.longComment || '',
       };
     }),
@@ -900,6 +902,45 @@ NBA.athleteInfo = id => {
   const p = NBA.playerById(id);
   if (p) return { id: p.id, name: p.name, short: p.short, headshot: p.headshot, teamId: p.teamId };
   return NBA.use('athlete:' + id);
+};
+/* Today for one player, from what's already loaded: the shared pieces behind his card's "Right now", the search bar's
+   player card (find.js) and the players followed on Home (NBA.playerNow in players.js puts them together) */
+NBA.injuryOf = id => { for (const g of NBA.data('injuries') || []) { const i = g.list.find(x => x.id === String(id)); if (i) return i; } return null; };
+NBA.todayGame = teamId => { const d = NBA.data('day:'); return (d && d.games.find(g => g.away.id === String(teamId) || g.home.id === String(teamId))) || null; };
+// A player's line in one game from its box score: null until it loads or if he isn't in it, { dnp, why } if he sat.
+// Mid-game a bench player who hasn't checked in has no stats and no reason yet
+NBA.boxLine = (s, pid) => {
+  for (const b of (s && s.box) || []) {
+    const pl = (b.players || []).find(x => x.id === String(pid));
+    if (!pl) continue;
+    if (pl.dnp) return { dnp: pl.reason || 'Did not play', why: pl.reason || '' };
+    const v = k => { const i = (b.keys || []).indexOf(k); return i < 0 ? '' : pl.stats[i]; };
+    return { min: v('minutes'), pts: v('points'), reb: v('rebounds'), ast: v('assists'), stl: v('steals'), blk: v('blocks'), tov: v('turnovers'),
+      fg: v('fieldGoalsMade-fieldGoalsAttempted'), tp: v('threePointFieldGoalsMade-threePointFieldGoalsAttempted'), ft: v('freeThrowsMade-freeThrowsAttempted'), pm: v('plusMinus'), pf: v('fouls') };
+  }
+  return null;
+};
+/* What the injury report means today. ESPN's status can be left over from an earlier game (status Out, fantasy status
+   GTD, "ruled out for Saturday's game" still up on Sunday), so the fantasy status leads, and a comment that names today
+   ("questionable for Sunday's game") gives the word. A comment about another day's game than today's or tomorrow's is old
+   news and is left out ("underwent surgery Tuesday" isn't about a game and stays), and so is one that gives away a
+   result in spoiler mode (some quote last night's line) */
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const GAME_DAY = /\b((?:sun|mon|tues|wednes|thurs|fri|satur)day)(?:['’]s| night['’]s)?\s+(?:(?:road |home )?(?:game|contest|matchup|tilt|clash|opener)|against|versus|vs\b|at\b)/gi;
+const INJ_WORDS = [[/\b(?:probable)\b/i, 'Probable', 'dtd'], [/\b(?:questionable)\b/i, 'Questionable', 'dtd'], [/\b(?:doubtful)\b/i, 'Doubtful', 'dtd'],
+  [/\b(?:ruled out|won['’]t play|will not play|is out|will be out|(?:not|n['’]t) (?:be )?available|unavailable|will sit)\b/i, 'Out', 'out'],
+  [/\b(?:available|will play|cleared to play|will return)\b/i, 'Available', 'ok']];
+NBA.injuryNow = i => {
+  if (!i) return null;
+  const dow = NBA.dateOfIso(NBA.today).getDay(), text = String(i.short || '');
+  const days = [...text.matchAll(GAME_DAY)].map(m => WEEKDAYS.indexOf(m[1].toLowerCase()));
+  const today = days.includes(dow), fresh = !days.length || today || days.includes((dow + 1) % 7);
+  // The first word the comment uses, wherever it says it
+  const hit = today ? INJ_WORDS.map(([re, label, cls]) => ({ label, cls, at: text.search(re) })).filter(x => x.at >= 0).sort((a, b) => a.at - b.at)[0] : null;
+  const fs = { OUT: ['Out', 'out'], GTD: ['Day-to-day', 'dtd'], OFS: ['Out for season', 'out'] }[String(i.fs || '').toUpperCase()];
+  const st = i.status || 'Listed', [label, cls] = hit ? [hit.label, hit.cls] : fs || [st, /out/i.test(st) ? 'out' : /day|question|doubt|prob/i.test(st) ? 'dtd' : 'neutral'];
+  const ret = i.ret && /^\d{4}-\d\d-\d\d/.test(i.ret) && i.ret.slice(0, 10) > NBA.today ? `est. return ${NBA.fmtDay(i.ret.slice(0, 10), { month: 'short', day: 'numeric' })}` : '';
+  return { label, cls, out: cls === 'out', what: [i.side, i.type, i.detail].filter(Boolean).join(' '), ret, note: fresh && !(NBA.S.spoilers && NBA.spoils(text)) ? text : '' };
 };
 
 /* Stat definitions shared by the Stats tab, team pages and the search bar */

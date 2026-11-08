@@ -544,6 +544,8 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .mini .card-h .end{font-size:11px;color:var(--muted)}
 .tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .tools .field{max-width:280px}
+/* The All players count, painted with its table */
+.ps-count{margin:0 0 8px}
 
 /* ---------- odds ---------- */
 .odds-grid{display:grid;gap:var(--gap);grid-template-columns:repeat(12,minmax(0,1fr));align-items:start}
@@ -851,6 +853,30 @@ a.hchip,button.hchip{cursor:pointer}
 .hm-lead3 img,.hm-lead3 .hs{width:44px;height:33px;object-fit:cover;object-position:top;border-radius:6px;background:var(--card-2);flex:none}
 .hm-lead3 b{display:block;font-size:14px}
 .hm-lead3 small{display:block;font-size:12px;color:var(--muted)}
+.hm-lead3 li > span{flex:1;min-width:0}
+/* The star that follows a top scorer on Home */
+.hm-fol{flex:none;width:36px;height:36px;display:grid;place-items:center;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--muted);font-size:17px;line-height:1;cursor:pointer}
+.hm-fol.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+@media (hover:hover){.hm-fol:hover{color:var(--accent);border-color:var(--accent)}}
+/* Players you follow: a row each, tonight's line or status under the name, live points on the right */
+.fw-list{list-style:none;margin:0;padding:0;display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr))}
+.fw{display:flex;align-items:center;gap:12px;min-width:0;min-height:58px;padding:8px 12px 8px 8px;border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.fw.live{border-color:color-mix(in srgb,var(--live) 55%,var(--line))}
+@media (hover:hover){.fw:hover{border-color:var(--accent);background:var(--card-2)}}
+.fw > img,.fw > .hs{width:52px;height:38px;object-fit:cover;object-position:top;border-radius:8px;background:var(--card-2);flex:none}
+.fw-tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.fw-tx b{display:flex;align-items:center;gap:6px;min-width:0;font-size:14.5px}
+.fw-nm{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fw-tx b img{width:16px;height:16px;object-fit:contain;flex:none}
+.fw-tx small{font-size:12.5px;color:var(--muted);line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.fw-tx .live{color:var(--live);font-weight:800}
+.fw-tx .out,.fw-tx .loss{color:var(--loss);font-weight:700}
+.fw-tx .dtd{color:var(--warn);font-weight:700}
+.fw-tx .ok,.fw-tx .win{color:var(--win);font-weight:700}
+.fw-tx .link{font-size:12.5px}
+.fw-v{flex:none;display:flex;flex-direction:column;align-items:center;font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--muted)}
+.fw-v b{font-family:var(--f-display);font-weight:900;font-size:30px;line-height:1;letter-spacing:0;color:var(--ink);font-variant-numeric:tabular-nums}
+.fw.live .fw-v b{color:var(--accent)}
 .hm-team .chip{align-self:flex-start}
 .hm-team-top .hm-bpi{margin-top:2px;font-size:12px}
 /* Full game highlights deck: YouTube's 16:9 still with a play button and the running time over it. On wide screens
@@ -1547,6 +1573,10 @@ a.hchip,button.hchip{cursor:pointer}
 /* Phones: long names shrink to fit, and break only if they still don't */
 @media (max-width:640px){.pc-id h2{font-size:clamp(22px,7.5vw,32px);overflow-wrap:anywhere}}
 .pc-tags{display:flex;gap:6px;flex-wrap:wrap}
+/* Follow on Home, in the hero's tag row: outlined on the team colors, filled once followed */
+.pc-follow{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.08);color:inherit;font:inherit;font-size:11px;font-weight:800;letter-spacing:.04em;white-space:nowrap;cursor:pointer}
+.pc-follow.on{background:#F4F6F8;border-color:#F4F6F8;color:#111418}
+@media (hover:hover){.pc-follow:hover{border-color:#F4F6F8}}
 .pc-pay{padding-bottom:18px;display:flex;flex-direction:column;align-items:flex-end}
 .pc-pay b{font-family:var(--f-display);font-weight:900;font-size:clamp(34px,4vw,56px);line-height:.9;font-variant-numeric:tabular-nums}
 .pc-pay span{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
@@ -1559,6 +1589,22 @@ a.hchip,button.hchip{cursor:pointer}
 .pc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap);margin-top:var(--gap);align-items:start}
 .pc-grid > .pc-wide{grid-column:1/-1}
 @media (max-width:760px){.pc-grid{grid-template-columns:minmax(0,1fr)}}
+/* Right now: tonight's game and his line (a tap opens the box score), the injury report, his last game */
+.pc-now-b{display:flex;flex-direction:column;gap:12px;padding:var(--pad)}
+.pc-g{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--line-2);border-radius:12px;background:var(--card-2);cursor:pointer;-webkit-tap-highlight-color:transparent}
+@media (hover:hover){.pc-g:hover,.pc-last:hover{border-color:var(--accent)}}
+.pc-g-top{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;justify-content:space-between}
+.pc-go{font-size:12px;font-weight:800;color:var(--accent);white-space:nowrap}
+.pc-g .fd-stats{grid-template-columns:repeat(auto-fill,minmax(80px,1fr))}
+.pc-g .fd-stats b{font-size:30px;white-space:nowrap}
+.pc-inj{display:flex;flex-direction:column;gap:6px}
+.pc-clip{overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.pc-last{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--line-2);border-radius:12px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.pc-last .win{color:var(--win)}
+.pc-last .loss{color:var(--loss)}
+.pc-ln{font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pc-ln b{font-family:var(--f-display);font-weight:900;font-size:22px;color:var(--ink);vertical-align:-2px}
+@media (max-width:640px){.pc-now-b{padding:12px;gap:10px}.pc-g{padding:10px}.pc-g .fd-stats{grid-template-columns:repeat(auto-fill,minmax(52px,1fr))}.pc-g .fd-stats b{font-size:24px}}
 .pc-stats{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:1px;background:var(--line-2)}
 .pc-stats div{background:var(--card);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .pc-stats b{font-family:var(--f-display);font-weight:900;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
@@ -1613,7 +1659,9 @@ a.hchip,button.hchip{cursor:pointer}
 .pl-az button,.pl-az span{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;font-weight:800;font-size:13px}
 .pl-az button{background:var(--card);border:1px solid var(--line);color:var(--ink);cursor:pointer}
 @media (hover:hover){.pl-az button:hover{border-color:var(--accent);color:var(--accent)}}
-.pl-az span{color:color-mix(in srgb,var(--muted) 45%,transparent)}
+.pl-az span,.pl-az button:disabled{color:color-mix(in srgb,var(--muted) 45%,transparent)}
+/* A letter the search has emptied: greyed out like one with nobody in it */
+.pl-az button:disabled{background:none;border-color:transparent;cursor:default}
 .pl-group{scroll-margin-top:calc(env(safe-area-inset-top,0px) + var(--top-h,130px) + var(--strip-h,0px) + 12px)}
 .pl-letter{margin:22px 0 10px;font-family:var(--f-display);font-weight:900;font-size:26px;line-height:1;color:var(--muted)}
 .pl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
