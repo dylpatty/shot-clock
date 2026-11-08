@@ -66,6 +66,24 @@ UI.tipTime = g => {
 UI.oddsText = o => !o ? '' : [o.details, o.ou ? 'O/U ' + o.ou : ''].filter(Boolean).join(' · ');
 /* "opened -2.5" when DraftKings has moved a line since it opened */
 UI.moved = (m, prefix = '') => m && m.open !== '' && m.now !== '' && String(m.open) !== String(m.now) ? `opened ${prefix}${m.open}` : '';
+/* Placeholder shapes while a feed loads, built from the real classes so the content lands at about the same height
+   instead of pushing everything down. The HTML never changes, so UI.paint leaves it alone on every poll; with Reduce
+   Motion the shimmer stops and plain grey blocks stay. The caller puts aria-busy on the container */
+const sk = (w, cls) => `<i class="skel${cls ? ' ' + cls : ''}"${w ? ` style="--w:${w}"` : ''}></i>`;
+UI.skel = {
+  bar: sk,
+  // Home's games strip: status, two teams and the Canadian TV line that games before and during tip-off carry
+  tiles: n => '<span class="sr">Loading games…</span>' + Array.from({ length: n }, () => `<div class="hg skel-tile" aria-hidden="true"><span class="hg-st">${sk('55%')}</span>
+    <span class="hg-row">${sk('', 'skel-logo')}${sk('34%')}</span><span class="hg-row">${sk('', 'skel-logo')}${sk('34%')}</span><small class="hg-tv">${sk('48%')}</small></div>`).join(''),
+  // List rows: a name on the left, a number on the right, of slightly different lengths
+  rows: n => Array.from({ length: n }, (_, i) => `<div class="skel-row" aria-hidden="true">${sk(`${48 + (i * 37) % 30}%`)}${sk('14%')}</div>`).join(''),
+  // The game window's box score: the team buttons (phones), then each team's name over its player rows
+  box: () => `<span class="sr">Loading the box score…</span><div class="pane-tools" aria-hidden="true">${sk('9.5em', 'skel-btn')}${sk('7em')}</div>
+    <div class="box-tabs" aria-hidden="true">${sk()}${sk()}</div>
+    <div class="box-pair box-swipe" aria-hidden="true">${[0, 1].map(() => `<div><h3 class="bx-team">${sk('', 'skel-logo')}${sk('45%')}</h3>${UI.skel.rows(12)}</div>`).join('')}</div>`,
+  // The Matchup tab and the other game tabs: a few sections, each a heading over a couple of rows
+  secs: n => `<span class="sr">Loading game…</span><div class="mx" aria-hidden="true">${Array.from({ length: n }, () => `<div class="mx-sec"><h3 class="bx-team">${sk('38%')}</h3>${UI.skel.rows(2)}</div>`).join('')}</div>`,
+};
 
 UI.gameCard = (g, big) => {
   const S = NBA.S, perLabel = NBA.perLabel;
@@ -650,7 +668,8 @@ function renderDrawer() {
   WP.W = Math.max(280, Math.min(1100, Math.round(el.clientWidth - (innerWidth <= 640 ? 28 : 44))));
   WP.H = WP.W < 500 ? 210 : 230;
   let pane;
-  if (!data) pane = `<p class="empty">${err ? "Couldn't load this game from ESPN. It will retry on the next refresh." : 'Loading game…'}</p>`;
+  // While the summary loads, shapes like the tab that's coming, so the box score doesn't jump in under a line of text
+  if (!data) pane = err ? `<p class="empty">Couldn't load this game from ESPN. It will retry on the next refresh.</p>` : d.tab === 'box' || !d.tab ? UI.skel.box() : UI.skel.secs(d.tab === 'preview' ? 4 : 3);
   else if (d.tab === 'preview') pane = paneMatchup(data, g);
   else if (d.tab === 'box') pane = paneBox(d, data);
   else if (d.tab === 'team') pane = paneTeam(data);
@@ -665,6 +684,8 @@ function renderDrawer() {
   UI.paint(el, DR_FRAME);
   const [pTop, pTabs, pPane, pVids] = ['#dr-top', '#dr-tabs', '#dr-pane', '#dr-vids'].map(s => el.querySelector(s));
   if (!pPane) return;
+  // Screen readers hear that the tab is still loading while its placeholder shapes show
+  if (pPane.hasAttribute('aria-busy') !== (!data && !err)) pPane.toggleAttribute('aria-busy', !data && !err);
   paintPart(pTop, html, d.id);
   paintPart(pTabs, tabBar, d.id);
   // A finger scrubbing the win chance chart keeps it (see bindWp); letting go paints what came in meanwhile

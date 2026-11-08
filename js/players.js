@@ -36,9 +36,9 @@ NBA.payrollCard = teamId => {
   const ro = NBA.data('roster:' + teamId);
   const head = `<div class="card-h"><h3>Payroll</h3><div class="end"><span class="eyebrow">${NBA.SEASON_LABEL} salaries</span></div></div>`;
   // Every version is .payroll, which puts it last on a phone's team page
-  if (!ro) return `<div class="card w12 payroll">${head}<p class="loading" style="padding:var(--pad)">Loading salaries…</p></div>`;
+  if (!ro) return `<div class="card w12 payroll">${head}<p class="loading">Loading salaries…</p></div>`;
   const list = ro.players.filter(p => p.salary > 0).sort((a, b) => b.salary - a.salary);
-  if (!list.length) return `<div class="card w12 payroll">${head}<p class="empty" style="padding:var(--pad)">ESPN hasn't posted salaries for this roster yet.</p></div>`;
+  if (!list.length) return `<div class="card w12 payroll">${head}<p class="empty">ESPN hasn't posted salaries for this roster yet.</p></div>`;
   const L = NBA.capLines(), tone = NBA.tone(NBA.T(teamId));
   // ESPN is often slow to post salaries for players signed in the offseason, so those make the totals a floor, not the full number
   const twoWay = ro.players.filter(p => !p.salary && p.deal), missing = ro.players.filter(p => !p.salary && !p.deal);
@@ -110,8 +110,10 @@ NBA.playerCard = id => {
 
   // This season, with league rank where the player qualifies for the leaderboard
   let statsHtml;
-  if (!stats) statsHtml = '<p class="loading" style="padding:var(--pad)">Loading stats…</p>';
-  else if (!s || !s.gp) statsHtml = `<p class="empty" style="padding:var(--pad)">No games played yet this season.</p>`;
+  // Placeholder stat tiles the size of the real ones (number, label, league rank), so the card doesn't grow under you
+  // when the numbers arrive
+  if (!stats) statsHtml = `<div class="pc-stats" aria-busy="true">${CARD_STATS.map(() => `<div aria-hidden="true"><b>${UI.skel.bar('62%')}</b><span>${UI.skel.bar('38%')}</span><small>${UI.skel.bar('70%')}</small></div>`).join('')}<span class="sr">Loading stats…</span></div>`;
+  else if (!s || !s.gp) statsHtml = `<p class="empty">No games played yet this season.</p>`;
   else statsHtml = `<div class="pc-stats">${CARD_STATS.map(k => {
     const v = NBA.statValue(k, s, 'game');
     const rank = RANKED.has(k) ? NBA.leaders({ stat: k, limit: 999 }).findIndex(x => x.id === id) + 1 : 0;
@@ -170,7 +172,7 @@ NBA.playerCard = id => {
   const games = log ? log.slice(0, 5) : null;
   // No spoilers: a recent game's result and line stay hidden until it's opened (the row opens it)
   const m = g => NBA.masked(g.id, g.date), cell = (g, v) => m(g) ? '·' : esc(v ?? '–');
-  const logHtml = `<div class="card"><div class="card-h"><h3>Last 5 games</h3></div>${!games ? '<p class="loading" style="padding:var(--pad)">Loading games…</p>' : !games.length ? '<p class="empty" style="padding:var(--pad)">No games yet this season.</p>'
+  const logHtml = `<div class="card"><div class="card-h"><h3>Last 5 games</h3></div>${!games ? '<p class="loading">Loading games…</p>' : !games.length ? '<p class="empty">No games yet this season.</p>'
     : `<div class="tblwrap"><table class="tbl pc-log"><thead><tr><th class="l" scope="col">Game</th><th scope="col">MIN</th><th scope="col">PTS</th><th scope="col">REB</th><th scope="col">AST</th><th scope="col">FG</th><th scope="col">3PT</th></tr></thead>
       <tbody>${games.map(g => `<tr class="click" data-act="game" data-id="${esc(g.id)}"><td class="l"><b>${esc(NBA.fmtDate(g.date, { month: 'short', day: 'numeric' }))}</b> ${g.home ? 'vs' : '@'} ${esc(g.oppAbbr || '')} <span class="${m(g) ? '' : g.result === 'W' ? 'win' : g.result === 'L' ? 'loss' : ''}">${m(g) ? '' : esc(g.result)}</span></td>
         <td>${cell(g, g.min)}</td><td><b>${cell(g, g.pts)}</b></td><td>${cell(g, g.reb)}</td><td>${cell(g, g.ast)}</td><td>${cell(g, g.fg)}</td><td>${cell(g, g.tp)}</td></tr>`).join('')}</tbody></table></div>`}</div>`;
@@ -205,8 +207,8 @@ function careerCard(id, r) {
   const car = NBA.use(`career:${id}.${type}`), aw = NBA.use('awards:' + id) || [];
   const tabs = `<div class="seg sm" role="group" aria-label="Season type">${[['2', 'Regular season'], ['3', 'Playoffs']].map(([v, l]) => `<button data-act="pctype" data-v="${v}" aria-pressed="${type === v}">${l}</button>`).join('')}</div>`;
   const head = `<div class="card-h"><h3>Career stats</h3><div class="end">${tabs}</div></div>`;
-  if (!car) return `<div class="card pc-wide">${head}${NBA.status(`career:${id}.${type}`).err ? '<p class="empty" style="padding:var(--pad)">Couldn\'t load career stats from ESPN. It will try again shortly.</p>' : '<p class="loading" style="padding:var(--pad)">Loading career stats…</p>'}</div>`;
-  if (!car.rows.length) return `<div class="card pc-wide">${head}<p class="empty" style="padding:var(--pad)">${type === '3' ? 'No playoff games yet.' : 'No NBA games yet.'}</p></div>`;
+  if (!car) return `<div class="card pc-wide">${head}${NBA.status(`career:${id}.${type}`).err ? '<p class="empty">Couldn\'t load career stats from ESPN. It will try again shortly.</p>' : '<p class="loading">Loading career stats…</p>'}</div>`;
+  if (!car.rows.length) return `<div class="card pc-wide">${head}<p class="empty">${type === '3' ? 'No playoff games yet.' : 'No NBA games yet.'}</p></div>`;
   // Age on February 1 of the season, the way Basketball-Reference counts it
   const born = r && r.dob ? NBA.dateOfIso(r.dob.slice(0, 10)) : null;
   const ageIn = yr => born ? yr - born.getFullYear() - (born.getMonth() > 1 || (born.getMonth() === 1 && born.getDate() > 1) ? 1 : 0) : '';

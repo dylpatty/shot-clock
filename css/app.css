@@ -9,7 +9,8 @@
   --muted:#5A6471;
   --line:#D9DDE3;
   --line-2:#E9ECF0;
-  --accent:#D9530A;
+  /* The wordmark subline's orange: 5.2:1 on white, so 10-13px orange text and white text on orange buttons stay readable */
+  --accent:#C2410C;
   --accent-soft:#FBE7DA;
   --accent-ink:#FFFFFF;
   --live:#D3202A;
@@ -29,6 +30,8 @@
   --gap:18px;
   --pad:18px;
   --tile-pad:14px;
+  /* The selected button of a segmented control. On dark the card color is darker than the track, so it gets its own step up */
+  --seg-on:var(--card); --seg-ring:transparent;
   /* The Full Court wordmark: lettering shaded like the logo (navy here, metallic white on dark) and its orange subline */
   --brand-hi:#0E2D66; --brand-lo:#2F63BE; --brand-sub:#C2410C; --brand-edge:rgba(255,255,255,.7);
   color-scheme:light;
@@ -39,6 +42,7 @@
     --accent:#FF7A2F; --accent-soft:#3A2214; --accent-ink:#1B0E05; --live:#FF4B53; --live-soft:#3A1518;
     --win:#41C47F; --win-soft:#143324; --loss:#FF6E61; --loss-soft:#3A1A17; --warn:#F2A93B; --warn-soft:#3A2A10; --hl:#241A13;
     --scrim:rgba(0,0,0,.6); --shadow:0 18px 50px rgba(0,0,0,.5);
+    --seg-on:#353B45; --seg-ring:color-mix(in srgb,var(--ink) 8%,transparent);
     --brand-hi:#FFFFFF; --brand-lo:#B4C6E4; --brand-sub:#FF8A2B; --brand-edge:rgba(0,0,0,.55);
     color-scheme:dark;
   }
@@ -48,10 +52,13 @@
   --accent:#FF7A2F; --accent-soft:#3A2214; --accent-ink:#1B0E05; --live:#FF4B53; --live-soft:#3A1518;
   --win:#41C47F; --win-soft:#143324; --loss:#FF6E61; --loss-soft:#3A1A17; --warn:#F2A93B; --warn-soft:#3A2A10; --hl:#241A13;
   --scrim:rgba(0,0,0,.6); --shadow:0 18px 50px rgba(0,0,0,.5);
+  --seg-on:#353B45; --seg-ring:color-mix(in srgb,var(--ink) 8%,transparent);
   --brand-hi:#FFFFFF; --brand-lo:#B4C6E4; --brand-sub:#FF8A2B; --brand-edge:rgba(0,0,0,.55);
   color-scheme:dark;
 }
 :root[data-density="compact"]{ --gap:12px; --pad:13px; --tile-pad:10px; }
+/* Phones: less padding inside and between cards, so more fits at a glance. Compact density (more specific) still wins */
+@media (max-width:640px){:root{--gap:12px;--pad:14px;--tile-pad:12px}}
 
 *{box-sizing:border-box}
 /* No grey flash on cards that shrink when pressed (see the touch section); everything else keeps the default */
@@ -199,7 +206,7 @@ html.stale .live-btn,html.stale .hchip.live{filter:saturate(.3)}
 .link{background:none;border:0;padding:0;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .seg{display:inline-flex;padding:3px;border-radius:10px;background:var(--card-2);border:1px solid var(--line);gap:2px;flex:none}
 .seg button{border:0;background:transparent;height:30px;padding:0 12px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
-.seg button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.14)}
+.seg button[aria-pressed="true"]{background:var(--seg-on);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.14),inset 0 0 0 1px var(--seg-ring)}
 .seg.sm button{height:26px;padding:0 9px}
 select{height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:0 10px;max-width:100%}
 .field{height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);padding:0 12px;min-width:0;width:100%}
@@ -237,7 +244,25 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .empty{margin:0;padding:22px 4px;color:var(--muted);text-wrap:balance}
 .note{font-size:12px;color:var(--muted);margin:0}
 .foot{padding-block:10px 40px;font-size:12px;color:var(--muted)}
-.loading{color:var(--muted);padding:30px 4px}
+/* The same height as .empty, so the page doesn't jump when a load turns into "Couldn't load" */
+.loading{color:var(--muted);padding:22px 4px}
+/* Straight inside a card (no .card-b around it) the text would sit against the card's edge */
+.card > .loading,.card > .empty{padding:var(--pad)}
+/* An off-day: buttons to the nearest days that have games, instead of pressing the day arrow over and over */
+.empty-day{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding-block:22px}
+.empty-day .empty{padding:0}
+.empty-acts{display:flex;gap:8px;flex-wrap:wrap}
+/* Placeholder shapes while a feed loads. They reuse the real classes around them, so the content lands at the same height */
+.skel{display:inline-block;vertical-align:middle;position:relative;overflow:hidden;height:.9em;width:var(--w,70%);border-radius:6px;background:var(--card-2)}
+.skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--ink) 7%,transparent),transparent);animation:skel 1.4s ease-in-out infinite}
+@keyframes skel{to{transform:translateX(100%)}}
+.skel-logo{flex:none;width:28px;height:28px;border-radius:50%}
+.skel-row{display:flex;align-items:center;justify-content:space-between;gap:12px;height:31px;border-bottom:1px solid var(--line-2)}
+.skel-row .skel{flex:none}
+.skel-btn{height:32px;border-radius:10px}
+.box-tabs .skel{flex:1 1 0;height:40px;border-radius:12px}
+.skel-li{cursor:default;pointer-events:none}
+.hs-list .skel-logo{width:100%;height:auto;aspect-ratio:1}
 .grid-auto{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--min,320px)),1fr))}
 
 /* ---------- schedule ---------- */
@@ -480,6 +505,15 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .tbl .x1,.tbl .x2{display:none}
 @container (min-width:620px){.tbl .x1{display:table-cell}}
 @container (min-width:860px){.tbl .x2{display:table-cell}}
+/* Playoff odds (ESPN BPI): each chance tinted by its size. A phone-width card shows abbreviations and drops the # column */
+.tbl.odds-tbl td.pc{background:color-mix(in srgb,var(--accent) var(--a,0%),transparent)}
+.odds-tbl td.tm .abbr{display:none}
+@container (max-width:520px){.odds-tbl .n{display:none}.odds-tbl td.tm .full{display:none}.odds-tbl td.tm .abbr{display:inline}.odds-tbl th,.odds-tbl td{padding:8px 4px}}
+/* A 320px phone: tighter headers, so the table fits the swipe without scrolling sideways inside it */
+@container (max-width:300px){.st-wrap .tbl.odds-tbl th{letter-spacing:.01em;padding-inline:3px}.st-wrap .tbl.odds-tbl td{padding-inline:3px}}
+/* Side by side, a desktop card is too narrow for the round-by-round columns, so the conferences stack until the screen
+   is wide enough for both */
+@media (min-width:1001px) and (max-width:1700px){.st-pair.odds-pair{grid-template-columns:minmax(0,1fr)}}
 .st-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:calc(var(--gap) * 1.5)}
 @media (max-width:1000px){.st-pair{grid-template-columns:minmax(0,1fr)}}
 /* Phones: East and West sit side by side and you swipe between them */
@@ -487,7 +521,7 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 @media (max-width:760px){
   .conf-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin-bottom:12px;border-radius:12px;background:var(--card-2);border:1px solid var(--line)}
   .conf-tabs button{border:0;background:transparent;height:40px;border-radius:9px;cursor:pointer;font-weight:800;font-size:15px;color:var(--muted)}
-  .conf-tabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.14)}
+  .conf-tabs button[aria-selected="true"]{background:var(--seg-on);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.14),inset 0 0 0 1px var(--seg-ring)}
   .st-pair{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
   .st-pair::-webkit-scrollbar{display:none}
   .st-pair>.card{flex:0 0 100%;min-width:0;scroll-snap-align:start;scroll-snap-stop:always}
@@ -565,6 +599,19 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .ibar{display:flex;flex-direction:column;gap:3px;font-size:10px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
 .ibar i{display:block;height:6px;border-radius:3px;background:var(--accent);min-width:2px;margin-left:auto}
 .olist li.fav{background:var(--hl)}
+.olist li[data-act]{cursor:pointer}
+@media (hover:hover){.olist li[data-act]:hover{background:var(--card-2)}}
+.olist .abbr{display:none}
+/* Phones: team nicknames, a narrower rank and picture, and the implied % without its bar, so names like
+   Gilgeous-Alexander have room (about 175px at 375px instead of 96px) */
+@media (max-width:640px){
+  .olist li{grid-template-columns:1.3em 26px minmax(0,1fr) auto 2.6em;gap:8px;padding:7px 12px}
+  .olist li img,.olist li img.hs{width:26px;height:26px}
+  .olist .full{display:none}
+  .olist .abbr{display:inline}
+  .ibar{font-size:11px}
+  .ibar i{display:none}
+}
 .lines-tbl td{white-space:nowrap}
 
 /* ---------- injuries & news ---------- */
@@ -575,6 +622,16 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .news-layout > .inj-sec{grid-area:inj}
 /* One column: the biggest names out lead the tab, then the news, then the full injury report */
 @media (max-width:1200px){.news-layout{grid-template-columns:minmax(0,1fr);grid-template-areas:"top" "news" "inj";grid-template-rows:auto}}
+/* In one column a switch shows the injuries (biggest names out, then the full report) or the news, not one under the other */
+.news-switch{display:none}
+@media (max-width:1200px){
+  .news-switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin-bottom:16px;border-radius:12px;background:var(--card-2);border:1px solid var(--line)}
+  .news-switch button{border:0;background:transparent;height:40px;border-radius:9px;cursor:pointer;font-weight:800;font-size:15px;color:var(--muted)}
+  .news-switch button[aria-pressed="true"]{background:var(--seg-on);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.14),inset 0 0 0 1px var(--seg-ring)}
+  .news-layout.pane-inj{grid-template-areas:"top" "inj"}
+  .news-layout.pane-news{grid-template-areas:"news"}
+  .news-layout.pane-inj > .news-sec,.news-layout.pane-news > .inj-top,.news-layout.pane-news > .inj-sec{display:none}
+}
 .inj-stars{list-style:none;margin:0;padding:4px 0}
 .inj-stars li{display:grid;grid-template-columns:1.6em 44px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px var(--pad);border-bottom:1px solid var(--line-2);cursor:pointer}
 .inj-stars li:last-child{border-bottom:0}
@@ -598,6 +655,14 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .story.lead-story .th{height:100%;aspect-ratio:auto;min-height:240px}
 .story.lead-story h3{font-size:clamp(20px,1.6vw,30px)}
 @media (max-width:700px){.story.lead-story{grid-template-columns:minmax(0,1fr)}.story.lead-story .th{aspect-ratio:16/9;min-height:0}}
+/* Phones: after the lead story, headlines are compact rows with a small photo (about 90px each instead of 360) */
+@media (max-width:640px){
+  .news-grid .story:not(.lead-story){display:grid;grid-template-columns:132px minmax(0,1fr);align-items:start}
+  .news-grid .story:not(.lead-story) .th{width:120px;height:auto;aspect-ratio:16/9;margin:12px 0 12px 12px;border-radius:8px}
+  .news-grid .story:not(.lead-story) .tx{gap:4px;padding:11px 12px}
+  .news-grid .story:not(.lead-story) h3{font-size:14.5px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .news-grid .story:not(.lead-story) p{display:none}
+}
 .inj-team{border-bottom:1px solid var(--line-2)}
 .inj-team:last-child{border-bottom:0}
 .inj-team summary{display:flex;align-items:center;gap:10px;padding:12px var(--pad);cursor:pointer;list-style:none;font-weight:800}
@@ -813,7 +878,8 @@ button.q-face{cursor:pointer}
 .nx-count{font-size:13px;padding:5px 12px;border-radius:999px;background:var(--accent-soft);color:var(--ink)}
 /* ESPN's win odds, the line and who's out, within 36 hours of tip-off; kept narrow so the panel doesn't widen */
 .nx-pv{display:block;max-width:280px;margin-top:-4px;font-size:12px;line-height:1.35;color:var(--muted);text-wrap:balance}
-.nx-count b{color:var(--accent)}
+/* Ink, not orange: the orange on its own soft tint is under 4.5:1 */
+.nx-count b{color:var(--ink);font-weight:800}
 @media (max-width:760px){
   .home-hero.has-next{flex-direction:column;align-items:stretch}
   .home-hero.has-next .hh-logo{left:auto;right:-18px;top:-12px;transform:none;width:130px;opacity:.14}
@@ -843,10 +909,16 @@ a.hchip,button.hchip{cursor:pointer}
 .hg-row small{color:var(--muted);font-size:11px}
 .hg-sc{margin-left:auto;font-family:var(--f-display);font-weight:800;font-size:24px;line-height:1;color:var(--muted);font-variant-numeric:tabular-nums}
 .hg-row.won .hg-sc,.hg.live .hg-sc{color:var(--ink)}
+/* Where a game streams in Canada, under the teams, as on the Schedule cards */
+.hg-tv{font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Placeholder tiles while the scoreboard loads: same box as a real tile, but nothing to press */
+.hg.skel-tile{cursor:default;pointer-events:none}
 .home-grid{display:grid;gap:var(--gap);grid-template-columns:minmax(0,1fr);grid-auto-flow:row dense;align-items:start}
 @media (min-width:820px){.home-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.hm-top{grid-row:span 2}.hm-chart{grid-column:span 2}}
 @media (min-width:1300px){.home-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (min-width:2100px){.home-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* One column on phones: your team and last night's highlights come before the 30-team standings */
+@media (max-width:819px){.home-grid>.hm-team{order:-3}.home-grid>.hm-hl{order:-2}}
 .hm-facts .card-b{padding:6px var(--pad) var(--pad)}
 .hm-team{display:flex;flex-direction:column;gap:14px;padding:var(--pad);background:linear-gradient(160deg,color-mix(in srgb,var(--tc) 24%,var(--card)),var(--card) 58%)}
 .hm-team-top{display:flex;align-items:center;gap:14px}

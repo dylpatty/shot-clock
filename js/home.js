@@ -647,7 +647,9 @@ function gameTile(g) {
     : pp ? `<span>${esc(g.detail || 'Postponed')}</span>` : g.state === 'post' ? `<span>${esc(hide ? 'Final' : g.detail)}</span>` : `<span>${esc(UI.tipTime(g))}</span>`;
   // Records already count tonight's result, so they hide with the score
   const row = t => `<span class="hg-row${won(t)}">${UI.logo(t, 28)}<span class="hg-ab">${esc(t.abbr)}</span><small>${hide ? '' : esc(t.record || '')}</small>${sc(t)}</span>`;
-  return `<button class="hg${g.state === 'in' ? ' live' : ''}${UI.isMine(g) ? ' mine' : ''}" data-act="game" data-id="${g.id}"><span class="hg-st">${status}</span>${row(g.away)}${row(g.home)}</button>`;
+  // Where to watch in Canada, before and during the game (a label only, so it shows in spoiler mode too)
+  const ca = g.state === 'pre' || g.state === 'in' ? NBA.caTv(g) : null;
+  return `<button class="hg${g.state === 'in' ? ' live' : ''}${UI.isMine(g) ? ' mine' : ''}" data-act="game" data-id="${g.id}"><span class="hg-st">${status}</span>${row(g.away)}${row(g.home)}${ca ? `<small class="hg-tv" title="${esc(`Streams in Canada on ${ca.label}`)}">${esc(ca.short)}</small>` : ''}</button>`;
 }
 // Charts that can be the chart of the day, in a fixed order, with the feeds each needs besides standings
 // ('week' is the last 7 days of scoreboards)
@@ -673,9 +675,9 @@ V.home = () => {
     return Object.assign({}, e, { state: g.state, completed: g.completed, detail: g.detail, my: me.score, their: op.score, won: g.state === 'post' ? me.winner : e.won });
   }) });
   // A card whose feed hasn't arrived says so, and says when ESPN failed instead of loading forever
-  const wait = (key, what, pad) => {
+  const wait = (key, what) => {
     const err = NBA.status(key).err;
-    return `<p class="${err ? 'empty' : 'loading'}"${pad ? ' style="padding:var(--pad)"' : ''}>${err ? `Couldn't load ${esc(what)} from ESPN. It will try again shortly.` : `Loading ${esc(what)}…`}</p>`;
+    return `<p class="${err ? 'empty' : 'loading'}">${err ? `Couldn't load ${esc(what)} from ESPN. It will try again shortly.` : `Loading ${esc(what)}…`}</p>`;
   };
   const live = games.filter(g => g.state === 'in');
   const nextTip = games.filter(g => g.state === 'pre' && new Date(g.date) > now).sort((a, b) => new Date(a.date) - new Date(b.date))[0];
@@ -721,8 +723,9 @@ V.home = () => {
       <h2>${esc(msg.title)}</h2>${msg.sub ? `<p class="hh-sub">${esc(msg.sub)}</p>` : ''}<div class="hchips">${chips}</div></div>
     ${t.logo ? `<img class="hh-logo" src="${esc(NBA.img(NBA.lg(t), 384))}" alt="">` : ''}${nextPanel}</section>`;
 
-  const strip = !day ? wait('day:', 'games') : games.length
-    ? `<div class="hg-strip">${games.map(gameTile).join('')}</div>` : '<p class="empty">No games today.</p>';
+  // Placeholder tiles while the scoreboard loads, so the cards below don't jump down when the games arrive
+  const strip = !day ? (NBA.status('day:').err ? wait('day:', 'games') : `<div class="hg-strip" aria-busy="true">${UI.skel.tiles(6)}</div>`) : games.length
+    ? `<div class="hg-strip">${games.map(gameTile).join('')}</div>` : `<div class="empty-day"><p class="empty">No games today.</p>${NBA.dayJumps(day.day, false)}</div>`;
   const gamesSec = `<div class="sec-h"><h2>${live.length ? 'Live and today' : 'Today'}</h2><span class="sub">Tap a game for the box score</span><div class="end"><a class="chip" href="#schedule">Full schedule</a></div></div>${strip}`;
 
   // Fun fact deck: the Fun Facts cards plus niche season clubs and last night's oddities, shuffled each visit
@@ -742,7 +745,8 @@ V.home = () => {
     const b = (NBA.use('bpi') || new Map()).get(myId);
     // Round the total too, so the projected record always adds up to the season's games
     const pw = b && Math.round(b.projectedw), pl = b && Math.round(b.projectedw + b.projectedl) - pw;
-    const bpi = b && Number.isFinite(pw) && Number.isFinite(pl) ? `<div class="mut hm-bpi">ESPN projects ${pw}-${pl}${b.probmakeplayoffsD ? ` · ${esc(b.probmakeplayoffsD)} playoff odds` : ''}</div>` : '';
+    // Top 6 is a straight playoff spot, without the play-in
+    const bpi = b && Number.isFinite(pw) && Number.isFinite(pl) ? `<div class="mut hm-bpi">ESPN projects ${pw}-${pl}${b.probmakeplayoffsD ? ` · ${esc(b.probmakeplayoffsD)} playoff odds` : ''}${b.top6seedD ? ` · ${esc(b.top6seedD)} top 6` : ''}</div>` : '';
     teamCard = `<div class="card hm hm-team" style="--tc:${esc(t.color || '#444')}"><div class="hm-team-top">${UI.logo(t, 56)}<div><div class="eyebrow">Your team</div><h3>${esc(t.full)}</h3>
       <div class="mut">${mine ? [`${mine.w}-${mine.l}`, mine.seed ? `${NBA.ord(mine.seed)} in the ${esc(mine.conf)}` : esc(mine.conf), NBA.S.spoilers ? '' : esc(mine.strk || '')].filter(Boolean).join(' · ') : esc((sch && sch.record) || '')}</div>${bpi}</div></div>
       <div class="hm-team-games">${last ? `<button class="hm-g" data-act="game" data-id="${last.id}"><span class="eyebrow">Last game</span><b>${NBA.masked(last.id, last.date) ? 'Final' : `<span class="${last.won ? 'w' : 'lo'}">${last.won ? 'W' : 'L'}</span> ${esc(last.my)}-${esc(last.their)}`}</b><small>${last.home ? 'vs' : '@'} ${esc(last.oppAbbr || '')} · ${esc(NBA.fmtDate(last.date, { month: 'short', day: 'numeric' }))}</small></button>` : ''}
@@ -793,13 +797,17 @@ V.home = () => {
   const topCard = `<div class="card hm hm-top"><div class="card-h"><h3>Top 25 players</h3><div class="end"><span class="eyebrow">Game Score per game</span></div></div>
     ${top.length ? `<ol class="top25">${top.map((x, i) => `<li data-act="player" data-id="${x.p.id}"><span class="rk">${i + 1}</span>${UI.hs(x.p.headshot)}<span class="nm"><b>${esc(x.p.name)}</b><small>${esc(x.p.team)} · ${f1(x.p.pts)} / ${f1(x.p.reb)} / ${f1(x.p.ast)}</small></span>${move(x.p.id, i)}<span class="v">${f1(x.v)}</span></li>`).join('')}</ol>
       <p class="note" style="padding:0 var(--pad) var(--pad)">Game Score rolls a player's whole box score into one number per game. Regulars only (20+ minutes, most of their team's games).${prev ? ` Arrows show moves since ${esc(NBA.fmtDay(prev.day, { month: 'short', day: 'numeric' }))}.` : ' Come back tomorrow to see who moved.'}</p>`
-      : NBA.data('players') ? '<p class="empty" style="padding:var(--pad)">No one has played enough games to rank yet.</p>' : wait('players', 'player stats', true)}</div>`;
+      : NBA.data('players') ? '<p class="empty">No one has played enough games to rank yet.</p>' : wait('players', 'player stats')}</div>`;
 
-  // Standings: all 30 teams, East and West side by side
+  // Standings: all 30 teams, East and West side by side. Until they load, 15 placeholder rows a side hold the card's
+  // full height, so the cards under it don't drop 400px when the table arrives
+  const sk = UI.skel.bar;
+  const standSkel = `<div class="hs-cols" aria-busy="true">${['Eastern', 'Western'].map(c => `<div aria-hidden="true"><div class="eyebrow">${c} Conference</div><ol class="hs-list">${Array.from({ length: 15 }, (_, i) => `<li class="skel-li"><span></span>${sk('', 'skel-logo')}${sk(`${55 + (i * 29) % 35}%`)}${sk('2.2em')}<span></span></li>`).join('')}</ol></div>`).join('')}<span class="sr">Loading standings…</span></div>
+    <p class="note" style="padding:0 var(--pad) var(--pad)">Top 6 make the playoffs; 7–10 play in.</p>`;
   const standRow = r => `<li class="${r.id === myId ? 'me' : ''}${r.seed === 6 ? ' cut' : ''}${r.seed === 10 ? ' cut2' : ''}" data-act="team" data-id="${r.id}"><span class="sd">${r.seed || ''}</span>${UI.logo(NBA.T(r.id).logo ? NBA.T(r.id) : r, 20)}<span class="ab">${esc(r.abbr)}</span><span class="wl">${r.w}-${r.l}</span><span class="${/^W/.test(r.strk) ? 'w' : 'lo'} sk">${NBA.S.spoilers ? '' : esc(r.strk || '')}</span></li>`;
   const standCard = `<div class="card hm hm-stand"><div class="card-h"><h3>Standings</h3><div class="end"><a class="chip" href="#standings">Full table</a></div></div>
     ${confs ? `<div class="hs-cols">${confs.map(c => `<div><div class="eyebrow">${esc(c.name || c.abbr)}</div><ol class="hs-list">${c.rows.slice().sort((a, b) => (a.seed || 99) - (b.seed || 99)).map(standRow).join('')}</ol></div>`).join('')}</div>
-      <p class="note" style="padding:0 var(--pad) var(--pad)">Top 6 make the playoffs; 7–10 play in.</p>` : wait('standings', 'standings', true)}</div>`;
+      <p class="note" style="padding:0 var(--pad) var(--pad)">Top 6 make the playoffs; 7–10 play in.</p>` : NBA.status('standings').err ? wait('standings', 'standings') : standSkel}</div>`;
 
   // Chart of the day, from the charts that don't need all 30 rosters. It's picked from a fixed list so it doesn't
   // swap as each feed arrives; only once today's pick has its data (or its feed failed) and still can't be drawn
@@ -825,8 +833,8 @@ V.home = () => {
   // Fresh stories say "In the last hour" rather than "5m ago", so the cards don't repaint every minute
   const ago = iso => Date.now() - new Date(iso) < 3600000 ? 'In the last hour' : NBA.relTime(iso);
   const newsCard = `<div class="card hm hm-news"><div class="card-h"><h3>Latest news</h3><div class="end"><a class="chip" href="#news">More</a></div></div>
-    ${!news ? wait('news:', 'news', true) : stories.length ? `<ul class="hn-list">${stories.map(a => { const img = a.images && a.images[0] && a.images[0].url; return `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${img ? `<img src="${esc(NBA.img(img, 288))}" alt="" loading="lazy" decoding="async">` : ''}<span><b>${esc(a.headline)}</b><small>${esc(ago(a.published))}</small></span></a></li>`; }).join('')}</ul>`
-      : '<p class="empty" style="padding:var(--pad)">No headlines right now.</p>'}</div>`;
+    ${!news ? wait('news:', 'news') : stories.length ? `<ul class="hn-list">${stories.map(a => { const img = a.images && a.images[0] && a.images[0].url; return `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${img ? `<img src="${esc(NBA.img(img, 288))}" alt="" loading="lazy" decoding="async">` : ''}<span><b>${esc(a.headline)}</b><small>${esc(ago(a.published))}</small></span></a></li>`; }).join('')}</ul>`
+      : '<p class="empty">No headlines right now.</p>'}</div>`;
 
   // Today's games to play
   const menu = NBA.gamesMenu ? NBA.gamesMenu() : [];
