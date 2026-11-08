@@ -6,11 +6,25 @@ const NBA = window.NBA;
 const { esc } = NBA;
 const $ = (s, r = document) => r.querySelector(s);
 const UI = NBA.ui = { st: { revealed: new Set(), perfCat: 'points' } };
-// A reload for a new build (checkBuild) leaves what was only in memory in sessionStorage; pick it back up once
+/* Games opened or shown with "Show score" stay revealed for a week, across launches: iOS often closes a Home Screen
+   app in the background, which used to hide every one of them again. Kept as { id: when } in localStorage, newest 300 */
+const REVEAL_KEY = 'nba.revealed.v1', REVEAL_FOR = 7 * 864e5;
+const reveals = () => { try { const m = JSON.parse(localStorage.getItem(REVEAL_KEY) || 'null'); return m && typeof m === 'object' ? m : {}; } catch (e) { return {}; } };
+Object.entries(reveals()).forEach(([id, t]) => { if (Date.now() - t < REVEAL_FOR) UI.st.revealed.add(id); });
+UI.reveal = id => {
+  id = String(id);
+  UI.st.revealed.add(id);
+  const now = Date.now(), m = reveals();
+  m[id] = now;
+  const keep = Object.entries(m).filter(([, t]) => now - t < REVEAL_FOR).sort((a, b) => b[1] - a[1]).slice(0, 300);
+  try { localStorage.setItem(REVEAL_KEY, JSON.stringify(Object.fromEntries(keep))); } catch (e) { /* storage blocked: reveals last for this visit */ }
+};
+// A reload for a new build (checkBuild) leaves what was only in memory in sessionStorage; pick it back up once.
+// (Builds before reveals were kept in localStorage left them here too)
 try {
   const k = JSON.parse(sessionStorage.getItem('nba.keep') || 'null');
   sessionStorage.removeItem('nba.keep');
-  if (k) { const { revealed, day, ...rest } = k; (revealed || []).forEach(id => UI.st.revealed.add(String(id))); if (day) NBA.dayParam = day; Object.keys(rest).forEach(key => { if (rest[key] != null) UI.st[key] = rest[key]; }); }
+  if (k) { const { revealed, day, ...rest } = k; (revealed || []).forEach(UI.reveal); if (day) NBA.dayParam = day; Object.keys(rest).forEach(key => { if (rest[key] != null) UI.st[key] = rest[key]; }); }
 } catch (e) { /* storage blocked: start fresh */ }
 NBA.views = {};
 NBA.actions = {};
@@ -164,10 +178,11 @@ UI.paint = (el, html) => {
       if (parts.length) sel = parts.join('');
     }
   }
-  // Sideways strips marked data-sx (the video rows) keep their place: their cards' "6m ago" changes every minute
+  // Sideways strips marked data-sx (the video rows) keep their place when the part around them is rebuilt
   const sx = {};
   el.querySelectorAll('[data-sx]').forEach(n => { if (n.scrollLeft) sx[n.dataset.sx] = n.scrollLeft; });
   el.innerHTML = html;
+  UI.tick(el);
   for (const k in sx) { const n = el.querySelector(`[data-sx="${CSS.escape(k)}"]`); if (n) n.scrollLeft = sx[k]; }
   if (sel) {
     const n = el.querySelector(sel);
@@ -178,6 +193,20 @@ UI.paint = (el, html) => {
   }
   return true;
 };
+
+/* Text that changes with the clock ("5m ago", a Social game chip's live score) stays out of the HTML. UI.paint only skips
+   identical HTML, so one "5m ago" turning "6m ago" used to rebuild a whole feed of avatars and pictures every minute,
+   and a chip's score on every 10 s poll. Such text goes in as an empty element with data-tk naming its ticker in
+   UI.tickers (data-t holds the time, data-g the game), and UI.tick writes it: into each part UI.paint puts in, at the
+   end of every render, and every 30 s. A ticker gets the element and returns its text */
+UI.tickers = { rel: n => n.dataset.t ? NBA.relTime(+n.dataset.t) : '' };
+UI.tick = (root = document) => {
+  root.querySelectorAll('[data-tk]').forEach(n => {
+    const f = UI.tickers[n.dataset.tk], v = f ? String(f(n) ?? '') : '';
+    if (n.textContent !== v) n.textContent = v;
+  });
+};
+setInterval(() => { if (!document.hidden) UI.tick(); }, 30000);
 
 /* ---------- routing ---------- */
 const TABS = [
@@ -327,6 +356,8 @@ NBA.render = () => {
   if (UI.drawer) safe('drawer', renderDrawer);
   if (UI.settingsOpen) safe('settings', renderSettings);
   if (NBA.ask && NBA.ask.render) safe('ask', NBA.ask.render);
+  // The clock's text in parts that weren't repainted (a chip's new score, a reveal), before the frame shows
+  safe('tick', () => UI.tick());
   // Repaints recreate live dots and card glows; tying their pulse to the page clock lets a new one carry on mid-beat instead of restarting
   if (document.getAnimations) document.getAnimations().forEach(a => { if (a.animationName === 'blink' || a.animationName === 'glow') a.startTime = 0; });
 };
@@ -491,11 +522,11 @@ function noteOpener(opener) {
 }
 UI.openGame = (id, opener) => {
   noteOpener(opener);
-  // Opening a game shows its score, so in spoiler mode it stays shown elsewhere too. Not for one opened before tip-off
-  // (to check the matchup or the channel): its result must stay hidden later. One whose state isn't known yet, or that
-  // tips off while open, is revealed by renderDrawer
+  // Opening a game shows its score, so in spoiler mode it stays shown elsewhere too (remembered for a week). Not for one
+  // opened before tip-off (to check the matchup or the channel): its result must stay hidden later. One whose state
+  // isn't known yet, or that tips off while open, is revealed by renderDrawer
   const g0 = findGame(id), s0 = NBA.data('summary:' + id), st0 = (g0 && g0.state) || (s0 && s0.state);
-  if (st0 && st0 !== 'pre') UI.st.revealed.add(id);
+  if (st0 && st0 !== 'pre') UI.reveal(id);
   // The first tab is picked once the game's state is known: Matchup before tip-off, else Box score
   UI.drawer = { id, tab: null, sort: null, scoringOnly: false, showAll: false, game: g0 };
   UI.drawerBack = null;
@@ -557,7 +588,7 @@ function renderDrawer() {
   const pp = state === 'post' && ((!!g && g.completed === false) || (!!data && data.completed === false));
   // The game's score is on screen from here on, so it counts as revealed: one opened from a team schedule or a player's
   // log (state unknown until the summary loads), or one that tipped off while open. The next render finds it in the set
-  if (state && state !== 'pre' && !pp && !UI.st.revealed.has(d.id)) { UI.st.revealed.add(d.id); NBA.changed(); }
+  if (state && state !== 'pre' && !pp && !UI.st.revealed.has(d.id)) { UI.reveal(d.id); NBA.changed(); }
   // A cached summary can be hours old: if the scoreboard says the game has started, open on the box score.
   // A postponed game has no box score, plays or chart, only its matchup
   if (pp) d.tab = 'preview';
@@ -1099,7 +1130,7 @@ function repaintAll() {
 /* ---------- events ---------- */
 Object.assign(NBA.actions, {
   game: a => UI.openGame(a.dataset.id, a),
-  reveal: a => { UI.st.revealed.add(a.dataset.id); NBA.changed(); },
+  reveal: a => { UI.reveal(a.dataset.id); NBA.changed(); },
   close: () => UI.closeAll(),
   settings: a => UI.openSettings(a),
   // The header's live button always lands on today's live games, even from another day or deep in the season list
@@ -1140,7 +1171,7 @@ Object.assign(NBA.actions, {
   // Watching a game's highlights counts as opening it, so in spoiler mode its score shows afterwards
   yt: a => {
     const id = a.dataset.v, gid = a.dataset.id;
-    if (gid && !UI.st.revealed.has(gid)) { UI.st.revealed.add(gid); NBA.changed(); }
+    if (gid && !UI.st.revealed.has(gid)) { UI.reveal(gid); NBA.changed(); }
     UI.playYouTube(id, a.dataset.title);
   },
   vidfs: () => {
@@ -1159,7 +1190,8 @@ Object.assign(NBA.actions, {
   },
 });
 Object.assign(NBA.changes, {
-  spoilers: t => { NBA.S.spoilers = t.checked; UI.st.revealed.clear(); NBA.save(); NBA.changed(); },
+  // Turning spoiler mode on or off starts the reveals over, the kept ones too
+  spoilers: t => { NBA.S.spoilers = t.checked; UI.st.revealed.clear(); try { localStorage.removeItem(REVEAL_KEY); } catch (e) { /* storage blocked */ } NBA.save(); NBA.changed(); },
   // The favorite team is also the highlighted team, and drives the team-colors theme. Standings on a phone reopens on its conference
   // The pick is made, so the menu closes first; the header then redraws with the new team instead of waiting
   myTeam: t => { if (!t.value) return; t.blur(); NBA.S.myTeam = t.value; NBA.S.favorites = [t.value]; NBA.save(); UI.st.confIdx = null; applyLook(); repaintAll(); },
@@ -1277,9 +1309,10 @@ NBA.checkBuild = async () => {
     const vid = $('#vid');
     const busy = UI.drawer || UI.settingsOpen || (vid && vid.open) || (NBA.ask && (NBA.ask.busy || (NBA.ask.isOpen && NBA.ask.isOpen()))) || /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
     if (m && m[1] !== BUILD && !busy) {
-      // Keep what lives only in memory across the reload: spoiler reveals, the selected day, the games' current rounds and streaks
+      // Keep what lives only in memory across the reload: the selected day, the games' current rounds and streaks
+      // (spoiler reveals are kept in localStorage, see UI.reveal)
       const s = UI.st;
-      try { sessionStorage.setItem('nba.keep', JSON.stringify({ revealed: [...s.revealed], day: NBA.dayParam, hl: s.hl, hlStreak: s.hlStreak, quiz: s.quiz, quizStreak: s.quizStreak, slMode: s.slMode, slPractice: s.slPractice })); } catch (e) {}
+      try { sessionStorage.setItem('nba.keep', JSON.stringify({ day: NBA.dayParam, hl: s.hl, hlStreak: s.hlStreak, quiz: s.quiz, quizStreak: s.quizStreak, slMode: s.slMode, slPractice: s.slPractice })); } catch (e) {}
       location.reload();
     }
   } catch (e) { /* offline: check again later */ }

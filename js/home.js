@@ -144,9 +144,10 @@ function bindTapTips(wrap, show) {
 }
 
 /* ---------- the charts ---------- */
-// Chart logos draw at up to 30 px and faces at up to 57 px wide, so these widths stay sharp on a 3x screen
-const teamPt = (r, x, y, line) => { const t = NBA.T(r.id); return { id: r.id, act: 'team', x, y, img: NBA.img(NBA.lg(t.logo ? t : r), 128), tip: `${r.full || t.full}|${line}`, on: NBA.S.favorites.includes(r.id) }; };
-const playerPt = (p, x, y, line) => ({ id: p.id, act: 'player', x, y, img: NBA.img(p.headshot, 192), tip: `${p.name} · ${p.team}|${line}`, on: NBA.S.favorites.includes(p.teamId) });
+// Chart logos draw at up to 30 px wide and faces at 36 px on a phone (57 px on a big screen), so these widths stay
+// sharp on a 3x phone. They're the widths UI.logo and UI.hs ask for too, so the browser cache already has most of them
+const teamPt = (r, x, y, line) => { const t = NBA.T(r.id); return { id: r.id, act: 'team', x, y, img: NBA.img(NBA.lg(t.logo ? t : r), 96), tip: `${r.full || t.full}|${line}`, on: NBA.S.favorites.includes(r.id) }; };
+const playerPt = (p, x, y, line) => ({ id: p.id, act: 'player', x, y, img: NBA.img(p.headshot, 132), tip: `${p.name} · ${p.team}|${line}`, on: NBA.S.favorites.includes(p.teamId) });
 const f1 = NBA.fix;
 const SPECS = new Map();
 function chartSpecs() {
@@ -281,11 +282,20 @@ NBA.chartDeck = () => {
   return `<div class="sec-h"><h3>Swipe the charts</h3><span class="sub">${specs.length} charts · swipe, use the arrows, or press ← →</span></div>
     ${deckHtml('deck-charts', specs.map(s => chartCard(s)), { label: 'Charts', cls: 'deck-charts', keys: specs.map(s => s.id) })}`;
 };
-// Draw each chart once its card has a real size, and again only when its data or the screen size changes
+// Draw each chart once its card has a real size, and again only when its data or the screen size changes. In a deck,
+// only the card showing and two either side draw (the rest as the deck comes to rest near them): an SVG image has no
+// lazy loading, so drawing all 20 at once fetched some 150 faces. The chart of the day isn't in a deck and always draws
 function drawCharts(root) {
+  const at = new Map();
   root.querySelectorAll('[data-chart]').forEach(w => {
     const s = SPECS.get(w.dataset.chart);
     if (!s || !w.clientWidth) return;
+    const sl = w.closest('.deck-slide'), t = sl && sl.parentElement;
+    if (t) {
+      if (!at.has(t)) at.set(t, { i: Math.round(t.scrollLeft / slideStep(t)), list: [...slides(t)] });
+      const d = at.get(t);
+      if (Math.abs(d.list.indexOf(sl) - d.i) > 2) return;
+    }
     const sig = s.pts.map(p => `${p.id}:${(+p.x).toFixed(2)}:${(+p.y).toFixed(2)}:${p.on ? 1 : 0}`).join() + `|${w.clientWidth}|${vh()}|${NBA.isDark()}`;
     if (w._sig !== sig) { w._sig = sig; drawChart(w, s); }
   });
@@ -389,8 +399,11 @@ function bindDecks(root) {
       if (k != null) { const j = [...slides(t)].findIndex(s => s.dataset.key === k); if (j >= 0) i = j; }
       if (i) t.scrollLeft = i * slideStep(t);
       const tick = () => { if (!t._raf) t._raf = requestAnimationFrame(() => { t._raf = 0; deckState(t); }); };
-      t.addEventListener('scroll', tick, { passive: true });
-      t.addEventListener('scrollend', () => { t._target = null; deckState(t); });
+      // The charts near the new card draw once the deck comes to rest, never mid-swipe (older Safari has no scrollend,
+      // hence the timer too)
+      const rest = () => { clearTimeout(t._drawT); t._drawT = setTimeout(() => drawCharts(t), 200); };
+      t.addEventListener('scroll', () => { tick(); rest(); }, { passive: true });
+      t.addEventListener('scrollend', () => { t._target = null; deckState(t); clearTimeout(t._drawT); drawCharts(t); });
       t.addEventListener('keydown', e => {
         if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
         e.preventDefault();

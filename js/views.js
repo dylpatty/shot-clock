@@ -803,7 +803,7 @@ function storyCard(a, lead) {
   const im = a.images && a.images[0], img = im && im.url;
   return `<a class="card story${lead ? ' lead-story' : ''}" href="${esc(a.links.web.href)}" target="_blank" rel="noopener">
     ${img ? `<img class="th" src="${esc(storyImg(im, lead ? 1200 : 640))}" alt="" loading="lazy" decoding="async">` : '<span class="th"></span>'}
-    <span class="tx"><span class="eyebrow">${esc(NEWS_TYPE[a.type] || a.type || 'Story')} · ${esc(NBA.relTime(a.published))}</span><h3>${esc(a.headline)}</h3>${a.description ? `<p>${esc(a.description)}</p>` : ''}</span></a>`;
+    <span class="tx"><span class="eyebrow">${esc(NEWS_TYPE[a.type] || a.type || 'Story')} · <time data-tk="rel" data-t="${Date.parse(a.published) || ''}"></time></span><h3>${esc(a.headline)}</h3>${a.description ? `<p>${esc(a.description)}</p>` : ''}</span></a>`;
 }
 function injuryPanel(inj) {
   const head = `<div class="sec-h"><h2>Injuries</h2><span class="sub">Full report from ESPN · refreshes every 10 minutes</span></div>`;
@@ -846,7 +846,9 @@ function glistItem(e, tags = '') {
 /* A team's whole remaining schedule, month by month, behind the same speed-bump divider as the Schedule tab */
 function teamSeason(t, evs) {
   const all = evs.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
-  const left = all.filter(e => e.state === 'pre');
+  // The regular season only: playoff games still to come are often "if necessary" ones that may never be played
+  // (they're in Upcoming games). Back-to-backs below still count every game played
+  const left = all.filter(e => e.state === 'pre' && (e.type || 2) === 2);
   if (!left.length) return '';
   // Second night of a back-to-back: the team also played the day before (a postponed date doesn't count)
   const days = new Set(all.filter(e => !(e.state === 'post' && e.completed === false)).map(e => NBA.etDay(e.date)));
@@ -866,6 +868,7 @@ function teamSeason(t, evs) {
     <div class="season-months">${months.map(([ym, list]) => `<div class="card sm-card" id="tm-${ym}"><div class="card-h"><h3>${esc(monthLabel(ym))}</h3><div class="end"><span class="eyebrow">${list.length} game${list.length > 1 ? 's' : ''} · ${list.filter(e => e.home).length} home</span></div></div>
       <ul class="glist">${list.map(e => glistItem(e, tags(e))).join('')}</ul></div>`).join('')}</div>`;
 }
+let teamNext = '';
 function teamView(id) {
   id = String(id);
   NBA.use('standings');
@@ -898,17 +901,19 @@ function teamView(id) {
   const live = today && today.games.find(g => g.state === 'in' && (g.away.id === id || g.home.id === id));
   const evs = sch ? NBA.teamEvents(id) : [];
   const next = evs.find(e => e.state === 'pre');
-  let nextCard;
-  if (live) nextCard = `<div class="card"><div class="card-h"><h3>Live now</h3></div><div class="card-b">${UI.gameCard(live, true)}</div></div>`;
+  // The live or next game goes in its own part, painted by NBA.after.myteam / teams: during the team's game the score
+  // changes on every poll, and that now repaints this one card instead of the whole page (roster, schedule, news)
+  if (live) teamNext = `<div class="card-h"><h3>Live now</h3></div><div class="card-b">${UI.gameCard(live, true)}</div>`;
   else if (next) {
     const op = NBA.T(next.oppId), opr = sm.get(next.oppId);
     const me = { t, rec: r ? `${r.w}-${r.l}` : '' }, them = { t: op, rec: opr ? `${opr.w}-${opr.l}` : '' };
     const [left, right] = next.home ? [them, me] : [me, them];
-    nextCard = `<div class="card"><div class="card-h"><h3>Next game</h3></div><div class="next-game" data-act="game" data-id="${next.id}" role="button" tabindex="0" style="cursor:pointer">
-      <div class="eyebrow">${esc(NBA.fmtDate(next.date, { weekday: 'long', month: 'short', day: 'numeric' }))} · ${esc(NBA.fmtTime(next.date))}${NBA.caTv(next) ? ' · ' + esc(NBA.caTv(next).short) : ''}</div>
+    // A game whose time isn't set yet (playoff "if necessary" games) carries ESPN's placeholder time
+    teamNext = `<div class="card-h"><h3>Next game</h3></div><div class="next-game" data-act="game" data-id="${next.id}" role="button" tabindex="0" style="cursor:pointer">
+      <div class="eyebrow">${esc(NBA.fmtDate(next.date, { weekday: 'long', month: 'short', day: 'numeric' }))} · ${esc(/TBD/i.test(next.detail || '') ? 'Time TBD' : NBA.fmtTime(next.date))}${NBA.caTv(next) ? ' · ' + esc(NBA.caTv(next).short) : ''}</div>
       <div class="vs"><div>${UI.logo(left.t, 64)}<div class="ab">${esc(left.t.abbr)}</div><div class="mut">${esc(left.rec)}</div></div><div class="mid">@</div>
-      <div>${UI.logo(right.t, 64)}<div class="ab">${esc(right.t.abbr)}</div><div class="mut">${esc(right.rec)}</div></div></div></div></div>`;
-  } else nextCard = `<div class="card"><div class="card-h"><h3>Next game</h3></div>${sch ? '<p class="empty" style="padding:var(--pad)">No upcoming games scheduled.</p>' : stateOf('tsched:' + id, 'schedule')}</div>`;
+      <div>${UI.logo(right.t, 64)}<div class="ab">${esc(right.t.abbr)}</div><div class="mut">${esc(right.rec)}</div></div></div></div>`;
+  } else teamNext = `<div class="card-h"><h3>Next game</h3></div>${sch ? '<p class="empty" style="padding:var(--pad)">No upcoming games scheduled.</p>' : stateOf('tsched:' + id, 'schedule')}`;
 
   const LEAD = ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm', 'fgp', 'min'];
   const leadersHtml = players ? `<div class="tleaders">${LEAD.map(k => {
@@ -919,7 +924,7 @@ function teamView(id) {
 
   const upcomingList = evs.filter(e => e.state !== 'post').slice(0, 10);
   const recent = evs.filter(NBA.isFinal).slice(-10).reverse();
-  const listCard = (title, list) => `<div class="card"><div class="card-h"><h3>${title}</h3></div>${sch ? (list.length ? `<ul class="glist">${list.map(e => glistItem(e)).join('')}</ul>` : '<p class="empty" style="padding:var(--pad)">None yet.</p>') : stateOf('tsched:' + id, 'schedule')}</div>`;
+  const listCard = (title, list, cls) => `<div class="card ${cls}"><div class="card-h"><h3>${title}</h3></div>${sch ? (list.length ? `<ul class="glist">${list.map(e => glistItem(e)).join('')}</ul>` : '<p class="empty" style="padding:var(--pad)">None yet.</p>') : stateOf('tsched:' + id, 'schedule')}</div>`;
 
   const RANKS = [['ppg', 'Points', v => NBA.fix(v)], ['oppg', 'Points allowed', v => NBA.fix(v)], ['fgp', 'Field goal %', v => NBA.fix(v) + '%'], ['tpp', '3-point %', v => NBA.fix(v) + '%'], ['ftp', 'Free throw %', v => NBA.fix(v) + '%'],
     ['rpg', 'Rebounds', v => NBA.fix(v)], ['apg', 'Assists', v => NBA.fix(v)], ['tov', 'Turnovers', v => NBA.fix(v)], ['spg', 'Steals', v => NBA.fix(v)], ['bpg', 'Blocks', v => NBA.fix(v)], ['tpm', '3-pointers made', v => NBA.fix(v)]];
@@ -946,21 +951,25 @@ function teamView(id) {
   const newsHtml = !news ? stateOf('news:' + t.abbr.toLowerCase(), 'news') : stories.length ? `<div class="news-grid" style="padding:var(--pad)">${stories.map(a => storyCard(a, false)).join('')}</div>`
     : '<p class="empty" style="padding:var(--pad)">No headlines right now.</p>';
 
+  // Each card's tg- class sets its place in the single column on phones (see .team-grid in app.css): who's out and
+  // the last results come first there, the payroll last
   return `${hero}<div class="team-grid">
-    ${nextCard}
-    <div class="card w8"><div class="card-h"><h3>Team leaders</h3><div class="end"><span class="eyebrow">Per game</span></div></div>${leadersHtml}</div>
-    ${listCard('Upcoming games', upcomingList)}
-    ${listCard('Recent results', recent)}
-    <div class="card"><div class="card-h"><h3>Team stats</h3><div class="end"><span class="eyebrow">League rank</span></div></div>${ranksHtml}</div>
+    <div class="card tg-next" id="tm-next"></div>
+    <div class="card w8 tg-lead"><div class="card-h"><h3>Team leaders</h3><div class="end"><span class="eyebrow">Per game</span></div></div>${leadersHtml}</div>
+    ${listCard('Upcoming games', upcomingList, 'tg-up')}
+    ${listCard('Recent results', recent, 'tg-recent')}
+    <div class="card tg-stats"><div class="card-h"><h3>Team stats</h3><div class="end"><span class="eyebrow">League rank</span></div></div>${ranksHtml}</div>
     ${NBA.payrollCard(id)}
-    <div class="card w12"><div class="card-h"><h3>Full roster</h3><div class="end"><span class="eyebrow">Season averages · tap a player for their card</span></div></div><div class="card-b">${rosterHtml}</div></div>
-    <div class="card"><div class="card-h"><h3>Injuries</h3></div>${injHtml}</div>
-    <div class="card w8"><div class="card-h"><h3>${esc(t.name)} news</h3></div>${newsHtml}</div>
+    <div class="card w12 tg-roster"><div class="card-h"><h3>Full roster</h3><div class="end"><span class="eyebrow">Season averages · tap a player for their card</span></div></div><div class="card-b">${rosterHtml}</div></div>
+    <div class="card tg-inj"><div class="card-h"><h3>Injuries</h3></div>${injHtml}</div>
+    <div class="card w8 tg-news"><div class="card-h"><h3>${esc(t.name)} news</h3></div>${newsHtml}</div>
     ${NBA.teamVideos ? NBA.teamVideos(id) : ''}
   </div>
   ${sch ? `<section class="sec team-season">${teamSeason(t, evs)}</section>` : ''}`;
 }
 V.myteam = () => teamView(NBA.S.myTeam);
+// The live or next game card, into the frame teamView left for it (the Teams list without a team has none)
+NBA.after.myteam = NBA.after.teams = view => UI.paint(view.querySelector('#tm-next'), teamNext);
 V.teams = arg => {
   if (arg) return `<a class="backlink" href="#teams">${UI.I.left} All teams</a>${teamView(arg)}`;
   const confs = NBA.use('standings');

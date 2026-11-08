@@ -73,7 +73,17 @@ NBA.paramOf = iso => iso.replace(/-/g, '');
 NBA.isoFromParam = p => p ? `${p.slice(0, 4)}-${p.slice(4, 6)}-${p.slice(6, 8)}` : null;
 NBA.dateOfIso = iso => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
 NBA.shiftIso = (iso, n) => { const dt = NBA.dateOfIso(iso); dt.setDate(dt.getDate() + n); return NBA.isoOf(dt); };
-NBA.etDay = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+// The Eastern date of a time, as 2026-11-08. toLocaleDateString builds a new formatter on every call (about 40 µs), and a
+// team page asks for hundreds of these per render, so one formatter is kept, and the answers for date strings too
+// (A formatter throws on a bad date, where toLocaleDateString answered "Invalid Date", so that answer stays)
+const ET_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }), ET_MEMO = new Map();
+const etFmt = d => { const t = new Date(d); return Number.isNaN(t.getTime()) ? 'Invalid Date' : ET_DAY.format(t); };
+NBA.etDay = d => {
+  if (typeof d !== 'string') return etFmt(d);
+  let v = ET_MEMO.get(d);
+  if (v === undefined) { if (ET_MEMO.size > 4000) ET_MEMO.clear(); ET_MEMO.set(d, v = etFmt(d)); }
+  return v;
+};
 NBA.today = NBA.etDay(started.getTime() - 3 * 3600000); // ESPN's day runs until 3 AM Eastern
 // Date formatters are cached: building one is slow, and schedule lists format hundreds of dates per render
 const DTF = new Map();
@@ -85,11 +95,12 @@ NBA.tzLabel = () => NBA.S.tz === 'local' ? 'your time zone' : 'Eastern Time (ET)
 NBA.fmtTime = iso => dtf({ hour: 'numeric', minute: '2-digit', timeZone: tz() }).format(new Date(iso)) + (NBA.S.tz === 'local' ? '' : ' ET');
 NBA.fmtDate = (iso, opts) => dtf(Object.assign({}, opts || { weekday: 'short', month: 'short', day: 'numeric' }, { timeZone: tz() })).format(new Date(iso));
 NBA.relTime = iso => {
-  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  const d = new Date(iso), m = Math.round((Date.now() - d) / 60000);
+  if (!Number.isFinite(m)) return ''; // a cached formatter throws on a bad date, where toLocaleDateString said "Invalid Date"
   if (m < 1) return 'just now';
   if (m < 60) return m + 'm ago';
   if (m < 60 * 24) return Math.round(m / 60) + 'h ago';
-  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return dtf({ month: 'short', day: 'numeric' }).format(d);
 };
 NBA.implied = odds => {
   const n = parseFloat(String(odds).replace('+', ''));
@@ -219,8 +230,8 @@ NBA.findTeams = text => {
 const SPOIL_RE = /\b(?:[6-9]\d|1\d\d)-(?:[6-9]\d|1\d\d)\b|\b(?:beat|beats|beaten|win|wins|won|victory|defeats?|defeated|routs?|routed|edges?|edged|tops|topped|snaps?|snapped|loses|lost|rall(?:y|ies|ied)|holds? (?:on|off)|triple-double)\b/i;
 NBA.newsSafe = a => !NBA.S.spoilers || a.type === 'Preview' || (a.type !== 'Recap' && a.type !== 'Media' && !SPOIL_RE.test(`${a.headline} ${a.description || ''}`));
 NBA.spoils = text => SPOIL_RE.test(String(text || ''));
-// A result stays hidden in spoiler mode for 2 days unless that game was opened. UI.st.revealed empties on every
-// reload, so without the window old results would stay hidden forever
+// A result stays hidden in spoiler mode for 2 days unless that game was opened. UI.st.revealed only remembers a week
+// of reveals (see UI.reveal), so without the window older results would stay hidden forever
 NBA.masked = (id, date) => !!NBA.S.spoilers && !(NBA.ui && NBA.ui.st.revealed.has(String(id))) && Date.now() - new Date(date).getTime() < 2 * 864e5;
 // ESPN sends '0.0 - 2nd' at the end of a period
 NBA.detail = g => String((g && g.detail) || '').replace(/^0\.0 - (\S+)/i, 'End of $1');
@@ -274,8 +285,44 @@ async function getJSON(url, ms = 15000) {
 NBA.getJSON = getJSON;
 const RES = new Map();
 const LOADERS = {};
-function def(prefix, ttl, load) { LOADERS[prefix] = { ttl, load }; }
+// keep: this feed is kept between launches (see "feeds kept between launches" below)
+function def(prefix, ttl, load, keep) { LOADERS[prefix] = { ttl, load, keep }; }
 NBA.def = def; // for the feeds other scripts add (social.js)
+/* ---------- feeds kept between launches ----------
+   iOS often closes a Home Screen app in the background, and each launch started empty: Home sat on Loading… cards
+   until two dozen feeds came back, the 6 MB players feed among them. The slow-changing feeds are kept in
+   localStorage after each good load, so a launch paints them at once. A kept copy is never taken as fresh: it goes in
+   with no load time, so it is fetched again straight away and replaced when that lands. Live data (scoreboards, game
+   summaries, months) is never kept, so live scores and spoiler mode work exactly as before.
+   keep: { enc(data, arg), dec(saved) } turn the data into plain JSON and back (arrays with a .type, Maps, the team
+   registry entries a loader fills in); arg() names the one argument kept, for feeds that take one (the favorite
+   team's schedule) */
+const SAVE = 'nba.res.v1.', SAVE_MAX = 12 * 3600000;
+// JSON writes NaN and Infinity as null, and stats like true shooting % are NaN for a player with no shots, so they go
+// in as marked strings. Turned back by a plain walk, only in copies that have one: a JSON.parse reviver took 3x as long
+const SAVE_REPL = (k, v) => typeof v === 'number' && !Number.isFinite(v) ? '\u0000' + v : v;
+const unmark = v => { if (typeof v === 'string') return v.charCodeAt(0) === 0 ? Number(v.slice(1)) : v; if (v && typeof v === 'object') for (const k in v) v[k] = unmark(v[k]); return v; };
+function saveRes(prefix, arg, data) {
+  const K = LOADERS[prefix].keep;
+  if (K.arg && String(K.arg()) !== arg) return;
+  // After the render that shows the new data, so a big feed's write doesn't hold up the paint
+  setTimeout(() => {
+    try { localStorage.setItem(SAVE + prefix, JSON.stringify({ season: NBA.SEASON, arg, t: Date.now(), d: K.enc ? K.enc(data, arg) : data }, SAVE_REPL)); }
+    catch (e) { try { localStorage.removeItem(SAVE + prefix); } catch (x) { /* storage blocked */ } } // full: no copy beats an old one
+  }, 1500);
+}
+function restoreRes(prefix) {
+  const K = LOADERS[prefix].keep, arg = K.arg ? String(K.arg()) : '', key = arg ? prefix + ':' + arg : prefix;
+  if (RES.has(key)) return;
+  let raw = null, s = null;
+  try { raw = localStorage.getItem(SAVE + prefix); s = JSON.parse(raw || 'null'); } catch (e) { return; }
+  if (!s || s.season !== NBA.SEASON || s.arg !== arg || !(Date.now() - s.t < SAVE_MAX)) return;
+  let data;
+  try { if (raw.includes('\\u0000')) unmark(s.d); data = K.dec ? K.dec(s.d) : s.d; } catch (e) { return; }
+  if (data == null) return;
+  RES.set(key, { t: 0, data, err: null, p: null, retry: 0 });
+  need(key).catch(() => {});
+}
 function need(key, force) {
   const i = key.indexOf(':');
   const prefix = i < 0 ? key : key.slice(0, i), arg = i < 0 ? '' : key.slice(i + 1);
@@ -290,7 +337,7 @@ function need(key, force) {
   if (!force && Date.now() < r.retry) return r.data === undefined ? Promise.reject(r.err) : Promise.resolve(r.data);
   r.p = L.load(arg, r.data)
     // r.t is only set by a successful load, so a failed refresh never makes old data look fresh
-    .then(data => { r.data = data; r.t = Date.now(); r.err = null; r.retry = 0; return data; })
+    .then(data => { r.data = data; r.t = Date.now(); r.err = null; r.retry = 0; if (L.keep) saveRes(prefix, arg, data); return data; })
     .catch(e => { r.err = e; r.retry = Date.now() + 30000; throw e; })
     .finally(() => { r.p = null; NBA.changed(); });
   r.p.catch(() => {});
@@ -410,6 +457,8 @@ function parseSchedule(j, id) {
       homeAbbr: ((me.homeAway === 'home' ? me : op).team || {}).abbreviation || '',
       oppName: op.team && (op.team.shortDisplayName || op.team.displayName),
       my: sc(me.score), their: sc(op.score), won: me.winner, tv: nat.join(', '),
+      // 2 regular season (the NBA Cup final too), 3 playoffs, 5 play-in
+      type: ev.seasonType && ev.seasonType.type,
     };
   });
 }
@@ -812,21 +861,21 @@ def('month', 2 * 3600000, async ym => {
   (j.events || []).map(parseGame).forEach(g => { const d = NBA.etDay(g.date); (days[d] = days[d] || []).push(g); });
   return { ym, days };
 });
-def('standings', 10 * 60000, async () => {
-  const conf = parseStandings(await getJSON(`https://site.api.espn.com/apis/v2/sports/basketball/nba/standings`));
-  conf.forEach(c => c.rows.forEach(r => mergeTeam({ id: r.id, abbr: r.abbr, name: r.name, full: r.full, location: r.location, logo: r.logo, logoDark: r.logoDark, conf: r.conf })));
-  return conf;
-});
+// The standings give every team its conference, which the header's team picker goes by, so a kept copy fills them in too
+const standingsTeams = conf => { conf.forEach(c => c.rows.forEach(r => mergeTeam({ id: r.id, abbr: r.abbr, name: r.name, full: r.full, location: r.location, logo: r.logo, logoDark: r.logoDark, conf: r.conf }))); return conf; };
+def('standings', 10 * 60000, async () => standingsTeams(parseStandings(await getJSON(`https://site.api.espn.com/apis/v2/sports/basketball/nba/standings`))), { dec: standingsTeams });
 def('news', 5 * 60000, async team => (await getJSON(`${API}/news?limit=${team ? 12 : 40}${team ? '&team=' + team : ''}`)).articles || []);
 def('injuries', 10 * 60000, async () => parseInjuries(await getJSON(`${API}/injuries`)));
 /* The stats feeds come in a regular-season and a playoff version. Each waits for today's scoreboard to say which part
    of the season it is (at launch it hasn't loaded yet), remembers the type it used, and loads again when that changes */
 async function typeNow() { await need('day:').catch(() => {}); return NBA.seasonType; }
 const typed = ttl => (a, d) => (d && d.type !== NBA.seasonType ? 0 : ttl);
+// How a typed list is kept between launches: JSON drops an array's own .type
+const KEEP_TYPED = { enc: d => ({ type: d.type, rows: d }), dec: s => Object.assign(s.rows, { type: s.type }) };
 def('players', typed(30 * 60000), async () => {
   const type = await typeNow();
   return Object.assign(parsePlayers(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byathlete?region=us&lang=en&contentorigin=espn&isqualified=false&page=1&limit=1000&sort=offensive.avgPoints%3Adesc&season=${NBA.SEASON}&seasontype=${type}`, 60000)), { type });
-});
+}, KEEP_TYPED);
 /* The core leaders feed: 100 PER rows, deep enough for the view to keep only rotation players.
    Rows carry the player id only; names and headshots come from NBA.playerById */
 def('per', typed(30 * 60000), async () => {
@@ -838,8 +887,8 @@ def('per', typed(30 * 60000), async () => {
 def('teamstats', typed(30 * 60000), async () => {
   const type = await typeNow();
   return Object.assign(parseTeamStats(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byteam?region=us&lang=en&season=${NBA.SEASON}&seasontype=${type}`)), { type });
-});
-def('futures', 15 * 60000, async () => parseFutures(await getJSON(`${CORE}/seasons/${NBA.SEASON}/futures?limit=100`)));
+}, KEEP_TYPED);
+def('futures', 15 * 60000, async () => parseFutures(await getJSON(`${CORE}/seasons/${NBA.SEASON}/futures?limit=100`)), {});
 def('athlete', 24 * 3600000, async id => {
   let a;
   try { a = await getJSON(`${CORE}/seasons/${NBA.SEASON}/athletes/${id}?lang=en&region=us`); }
@@ -850,15 +899,24 @@ def('athlete', 24 * 3600000, async id => {
 });
 // The feed is about 820 KB, so it isn't sped up during games: Home, Schedule and team pages lay the live state
 // from the 10 s scoreboard over it
+// ESPN lists a team's play-in (season type 5) and playoff (type 3) games apart from its 82, so from April of the
+// season's own year (it rolls over in September) those come too. Before they exist ESPN sends an empty list; a failed
+// one only leaves those games out. Only the favorite team's schedule is kept between launches, with the registry entry
+// (name, logo, colors) the loader fills in
 def('tsched', 15 * 60000, async id => {
-  const j = await getJSON(`${API}/teams/${id}/schedule?season=${NBA.SEASON}`);
+  const now = new Date(), url = `${API}/teams/${id}/schedule?season=${NBA.SEASON}`, post = now.getFullYear() === NBA.SEASON && now.getMonth() >= 3;
+  const [j, ...more] = await Promise.all([getJSON(url), ...(post ? [5, 3].map(t => getJSON(`${url}&seasontype=${t}`).catch(() => null)) : [])]);
   // Names and logo too, so a team page renders even when no scoreboard or standings have it
   if (j.team) mergeTeam({ id: String(id), abbr: j.team.abbreviation, name: j.team.shortDisplayName || j.team.name, full: j.team.displayName, location: j.team.location, logo: j.team.logo });
   // The schedule feed carries the team's main color, a fallback for the team-colors theme
   const reg = NBA.teams.get(String(id));
   if (j.team && j.team.color && !(reg && reg.color && reg.color !== '#888888')) mergeTeam({ id: String(id), color: '#' + j.team.color });
-  return { standing: j.team && j.team.standingSummary, record: j.team && j.team.recordSummary, events: parseSchedule(j, id) };
-});
+  // In date order, which the next-game and last-game lookups count on; a game in two lists shows once
+  const seen = new Set();
+  const events = [j, ...more].filter(Boolean).flatMap(x => parseSchedule(x, id)).filter(e => !seen.has(e.id) && seen.add(e.id))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  return { standing: j.team && j.team.standingSummary, record: j.team && j.team.recordSummary, events };
+}, { arg: () => NBA.S.myTeam, enc: (d, id) => ({ d, team: NBA.teams.get(String(id)) }), dec: s => { mergeTeam(s.team); return s.d; } });
 // A roster built without data/extras.json is rebuilt after 5 minutes instead of an hour, in case it has turned up
 def('roster', (id, d) => d && d.noExtras ? 5 * 60000 : 60 * 60000, async id => {
   const [j, extras] = await Promise.all([getJSON(`${API}/teams/${id}/roster`), need('extras').catch(() => NBA.data('extras') || null)]);
@@ -868,15 +926,15 @@ def('roster', (id, d) => d && d.noExtras ? 5 * 60000 : 60 * 60000, async id => {
 /* Built once a day by .github/workflows/extras.yml. Before its first run the file doesn't exist (404), which means
    ESPN alone, checked again in 5 minutes; any other failure retries in 30 seconds and keeps the last good copy. */
 def('extras', (a, d) => d && d.updated ? 3 * 3600000 : 5 * 60000,
-  () => getJSON('data/extras.json').catch(e => { if (e.message === 'HTTP 404') return { players: {} }; throw e; }));
+  () => getJSON('data/extras.json').catch(e => { if (e.message === 'HTTP 404') return { players: {} }; throw e; }), {});
 /* Full game highlights, matched to ESPN game ids every 10 minutes on game nights by .github/workflows/highlights.yml.
    The list lives on the repo's highlights branch, which raw.githubusercontent.com serves with CORS and a 5-minute cache.
    Before the job's first run it doesn't exist (404): no highlights yet */
 def('ythl', 5 * 60000, () => getJSON('https://raw.githubusercontent.com/dylpatty/shot-clock/highlights/highlights.json')
-  .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }));
+  .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }), {});
 // Each game's Canadian streaming service, refreshed every 3 hours by the same job, on the same branch
 def('catv', 30 * 60000, () => getJSON('https://raw.githubusercontent.com/dylpatty/shot-clock/highlights/catv.json')
-  .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }));
+  .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }), {});
 // ESPN posts the recap a while after the final, so a finished game without one is checked every 5 minutes until it turns
 // up or the game is 3 hours old (5 hours from tip-off when the end time is missing)
 def('summary', (id, d) => (!d || d.state !== 'post' ? 15000 : d.recap || Date.now() - Date.parse(d.ended || d.date) > (d.ended ? 3 : 5) * 3600000 ? 6 * 3600000 : 5 * 60000),
@@ -895,7 +953,7 @@ def('bpi', 3600000, async () => {
     m.set(id[1], s);
   });
   return m;
-});
+}, { enc: m => [...m], dec: a => new Map(a) });
 def('gamelog', 15 * 60000, async id => parseGameLog(await getJSON(`${WEB}/common/v3/sports/basketball/nba/athletes/${id}/gamelog?season=${NBA.SEASON}`)));
 // 'career:<id>.2' is the regular season, 'career:<id>.3' the playoffs
 def('career', 30 * 60000, async arg => {
@@ -954,6 +1012,10 @@ def('pmlead', (a, d) => (d && d.type !== NBA.seasonType ? 0 : d && d.length ? 6 
   if (rows.length) { try { localStorage.setItem(CACHE, JSON.stringify({ t: Date.now(), season: NBA.SEASON, type, rows })); } catch (e) { /* storage full or blocked */ } }
   return rows;
 });
+
+/* The kept copies go in now, before the first render, and each is fetched again at once (see restoreRes). The
+   standings come first, so the header's team picker has every team on the first frame */
+Object.keys(LOADERS).forEach(p => { if (LOADERS[p].keep) restoreRes(p); });
 
 /* ---------- derived data ---------- */
 NBA.standingsMap = () => {

@@ -642,7 +642,14 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .team-grid > .w12{grid-column:1/-1}
 @media (min-width:2200px){.team-grid > .w4x{grid-column:span 3}}
 @media (max-width:1300px){.team-grid > *{grid-column:span 6}.team-grid > .w8{grid-column:1/-1}}
-@media (max-width:800px){.team-grid > *{grid-column:1/-1}}
+/* One column on phones, in the order that matters there: the next game, who's out, the last results and the leaders
+   first, the payroll (well over a screen of salaries) last. A card without a tg- class lands just before the videos */
+@media (max-width:800px){
+  .team-grid > *{grid-column:1/-1;order:9}
+  .team-grid > .tg-next{order:1}.team-grid > .tg-inj{order:2}.team-grid > .tg-recent{order:3}.team-grid > .tg-lead{order:4}
+  .team-grid > .tg-up{order:5}.team-grid > .tg-stats{order:6}.team-grid > .tg-roster{order:7}.team-grid > .tg-news{order:8}
+  .team-grid > .vcard-team{order:10}.team-grid > .payroll{order:11}
+}
 .glist{list-style:none;margin:0;padding:2px 0}
 .glist li{display:grid;grid-template-columns:5.4em 1.6em 26px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px var(--pad);border-bottom:1px solid var(--line-2);cursor:pointer;font-size:13px}
 .glist li:last-child{border-bottom:0}
@@ -668,6 +675,13 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .tleader .v{font-family:var(--f-display);font-weight:900;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
 .tleader .k{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .tleader .nm{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Phones: two leaders a row rather than one, so the eight fit in half the height */
+@media (max-width:640px){
+  .tleaders{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tleader{grid-template-columns:40px minmax(0,1fr);gap:8px;padding:10px 12px}
+  .tleader img{width:40px;height:30px}
+  .tleader .v{font-size:24px}
+}
 .rankbars{list-style:none;margin:0;padding:8px 0}
 .rankbars li{display:grid;grid-template-columns:minmax(0,1fr) 4.4em 3.4em;gap:10px;align-items:center;padding:6px var(--pad);font-size:13px}
 .rankbars .bar{height:8px;border-radius:4px;background:var(--card-2);overflow:hidden;grid-column:1/-1;margin-top:-2px}
