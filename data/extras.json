@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-09T11:13:50.622Z",
+  "updated": "2026-11-10T11:06:07.933Z",
   "season": 2027,
   "sources": {"salary":"Basketball-Reference","wingspan":"Crafted NBA and the NBA Draft Combine"},
   "players": {
@@ -360,7 +360,7 @@
     "4702177": {"nm":"Keon Ellis","tid":"17","no":"1","pos":"G","pay":[[2027,8780488],[2028,9219512]],"gtd":8780488,"tm":"BKN","wing":80.5,"wht":75.5},
     "4702352": {"nm":"Kobe Sanders","tid":"12","no":"4","pos":"G","pay":[[2027,2622139],[2028,2753246],[2029,2884353],[2030,3019474,"T"]],"gtd":5375385,"tm":"LAC","wing":80.25,"wht":79},
     "4702382": {"nm":"Tristan da Silva","tid":"19","no":"23","pos":"F","pay":[[2027,3991200,"T"],[2028,6138466,"T"]],"gtd":10129666,"tm":"ORL","wing":82.25,"wht":80.25},
-    "4702384": {"nm":"Nique Clifford","tid":"25","pos":"G","wing":80,"wht":77.25},
+    "4702384": {"nm":"Nique Clifford","tid":"25","pos":"G","pay":[[2027,3263400],[2028,3418800,"T"],[2029,5979481,"T"]],"gtd":6682200,"tm":"OKC","wing":80,"wht":77.25},
     "4702656": {"nm":"Alijah Martin","tid":"28","no":"55","pos":"G","pay":[[2027,2185116],[2028,2571895,"P"]],"gtd":2185116,"tm":"TOR","wing":79.5,"wht":73.5},
     "4702670": {"nm":"Grant Nelson","tid":"17","no":"16","pos":"F","wing":84,"wht":82},
     "4702745": {"nm":"Amari Williams","tid":"2","no":"77","pos":"F"},
