@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-11T11:14:29.235Z",
+  "updated": "2026-11-12T11:18:31.797Z",
   "season": 2027,
   "sources": {"salary":"Basketball-Reference","wingspan":"Crafted NBA and the NBA Draft Combine"},
   "players": {
@@ -27,6 +27,7 @@
     "6589": {"nm":"Draymond Green","tid":"9","no":"23","pos":"F","pay":[[2027,27678571]],"gtd":27678571,"tm":"GS","wing":85.25,"wht":77.75},
     "6606": {"nm":"Damian Lillard","tid":"22","no":"0","pos":"G","wing":79.75,"wht":73.75},
     "6609": {"nm":"Khris Middleton","tid":"27","no":"22","pos":"F","pay":[[2027,5591122],[2028,5870678],[2029,6150234]],"gtd":6499000,"tm":"WSH","wing":82.75,"wht":78.75},
+    "2488653": {"nm":"Mason Plumlee","tid":"23","pos":"C"},
     "2490149": {"nm":"CJ McCollum","tid":"1","no":"3","pos":"G","pay":[[2027,21000000]],"gtd":21000000,"tm":"ATL","wing":78.25,"wht":74.25},
     "2528210": {"nm":"Tim Hardaway Jr.","tid":"14","no":"10","pos":"G","pay":[[2027,6500000]],"gtd":6500000,"tm":"MIA","wing":79,"wht":76.5},
     "2528426": {"nm":"Jordan Clarkson","tid":"18","no":"00","pos":"G","pay":[[2027,2449421]],"gtd":2449421,"tm":"NY","wing":80,"wht":75.25},
