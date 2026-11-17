@@ -937,16 +937,16 @@ def('month', 2 * 3600000, async ym => {
 });
 // The standings give every team its conference, which the header's team picker goes by, so a kept copy fills them in too
 const standingsTeams = conf => { conf.forEach(c => c.rows.forEach(r => mergeTeam({ id: r.id, abbr: r.abbr, name: r.name, full: r.full, location: r.location, logo: r.logo, logoDark: r.logoDark, conf: r.conf }))); return conf; };
-def('standings', 10 * 60000, async () => standingsTeams(parseStandings(await getJSON(`https://site.api.espn.com/apis/v2/sports/basketball/nba/standings`))), { dec: standingsTeams });
-def('news', 5 * 60000, async team => (await getJSON(`${API}/news?limit=${team ? 12 : 40}${team ? '&team=' + team : ''}`)).articles || []);
-def('injuries', 10 * 60000, async () => parseInjuries(await getJSON(`${API}/injuries`)));
+def('standings', 3 * 60000, async () => standingsTeams(parseStandings(await getJSON(`https://site.api.espn.com/apis/v2/sports/basketball/nba/standings`))), { dec: standingsTeams });
+def('news', 3 * 60000, async team => (await getJSON(`${API}/news?limit=${team ? 12 : 40}${team ? '&team=' + team : ''}`)).articles || []);
+def('injuries', 5 * 60000, async () => parseInjuries(await getJSON(`${API}/injuries`)));
 /* The stats feeds come in a regular-season and a playoff version. Each waits for today's scoreboard to say which part
    of the season it is (at launch it hasn't loaded yet), remembers the type it used, and loads again when that changes */
 async function typeNow() { await need('day:').catch(() => {}); return NBA.seasonType; }
 const typed = ttl => (a, d) => (d && d.type !== NBA.seasonType ? 0 : ttl);
 // How a typed list is kept between launches: JSON drops an array's own .type
 const KEEP_TYPED = { enc: d => ({ type: d.type, rows: d }), dec: s => Object.assign(s.rows, { type: s.type }) };
-def('players', typed(30 * 60000), async () => {
+def('players', typed(10 * 60000), async () => {
   const type = await typeNow();
   return Object.assign(parsePlayers(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byathlete?region=us&lang=en&contentorigin=espn&isqualified=false&page=1&limit=1000&sort=offensive.avgPoints%3Adesc&season=${NBA.SEASON}&seasontype=${type}`, 60000)), { type });
 }, KEEP_TYPED);
@@ -958,11 +958,11 @@ def('per', typed(30 * 60000), async () => {
   const cat = (j.categories || []).find(c => c.name === 'PER');
   return Object.assign(cat ? (cat.leaders || []).map(l => ({ id: (/athletes\/(\d+)/.exec((l.athlete && l.athlete.$ref) || '') || [])[1] || '', value: l.value, display: l.displayValue })).filter(r => r.id) : [], { type });
 });
-def('teamstats', typed(30 * 60000), async () => {
+def('teamstats', typed(10 * 60000), async () => {
   const type = await typeNow();
   return Object.assign(parseTeamStats(await getJSON(`${WEB}/common/v3/sports/basketball/nba/statistics/byteam?region=us&lang=en&season=${NBA.SEASON}&seasontype=${type}`)), { type });
 }, KEEP_TYPED);
-def('futures', 15 * 60000, async () => parseFutures(await getJSON(`${CORE}/seasons/${NBA.SEASON}/futures?limit=100`)), {});
+def('futures', 5 * 60000, async () => parseFutures(await getJSON(`${CORE}/seasons/${NBA.SEASON}/futures?limit=100`)), {});
 def('athlete', 24 * 3600000, async id => {
   let a;
   try { a = await getJSON(`${CORE}/seasons/${NBA.SEASON}/athletes/${id}?lang=en&region=us`); }
