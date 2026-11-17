@@ -859,7 +859,7 @@ V.home = () => {
   // repaints the hero and games strip, and leaves the fact deck and chart of the day alone
   // The players you follow (players.js) sit under today's games, in their own part: their lines tick with the scores
   homeParts = { hero, games: gamesSec, follow: NBA.followSection ? NBA.followSection() : '', rest: `<div class="home-grid">${standCard}${factCard}${teamCard}${hlCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div>` };
-  return '<div id="hm-hero"></div><section class="sec" id="hm-games"></section><section class="sec" id="hm-follow" hidden></section><section class="sec" id="hm-rest"></section>';
+  return '<div id="hm-hero"></div><section class="sec" id="hm-games"></section><section class="sec" id="hm-follow" hidden></section><section class="sec" id="hm-rest"></section><section class="sec" id="hm-dir"></section>';
 };
 NBA.after.home = view => {
   UI.paint(view.querySelector('#hm-hero'), homeParts.hero);
@@ -867,6 +867,8 @@ NBA.after.home = view => {
   const fw = view.querySelector('#hm-follow');
   if (fw) { UI.paint(fw, homeParts.follow); fw.hidden = !homeParts.follow; }
   UI.paint(view.querySelector('#hm-rest'), homeParts.rest);
+  // Where everything is, at the foot of the page
+  UI.paint(view.querySelector('#hm-dir'), `<div class="sec-h"><h2>Explore</h2><span class="sub">Everything in Full Court</span></div>${UI.directory('home')}`);
   // On phones the games strip scrolls sideways; keep it on the same games when the scores refresh
   const strip = view.querySelector('.hg-strip');
   if (strip && !strip._bound) {

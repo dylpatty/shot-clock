@@ -323,6 +323,16 @@ UI.route = () => {
   const [tab, arg] = h.split('/');
   return { tab: TABS.some(t => t.id === tab) ? tab : 'home', arg: arg || '' };
 };
+/* Every section with a line on what's in it, grouped the way you'd look for it: the phone's More sheet and the foot of
+   Home. One place that always says where everything is */
+const DIR = [
+  ['Tonight', [['home', 'Home', "Your team, tonight's games and the headlines"], ['schedule', 'Schedule', 'Live scores, the week ahead and every game left']]],
+  ['The league', [['standings', 'Standings', 'Conference, league and playoff odds'], ['stats', 'Stats', "League leaders and every player's numbers"], ['odds', 'Odds', 'Title, MVP and award favorites'], ['news', 'Injuries & News', "Who's out and the latest headlines"]]],
+  ['Teams and players', [['myteam', '', 'Record, roster, schedule and payroll'], ['teams', 'Teams', 'All 30 teams and the power rankings'], ['players', 'Players', 'Everyone on a roster, A to Z']]],
+  ['Watch and play', [['videos', 'Videos', 'Interviews, breakdowns and podcasts'], ['social', 'Social', 'Reddit and X, ranked by heat'], ['facts', 'Fun Facts', 'Charts, trends and oddities'], ['games', 'Games', "Stat games from this season's numbers"]]],
+];
+UI.directory = tab => DIR.map(([h, items]) => `<div class="dir-g"><div class="dir-h">${h}</div><div class="dir-grid">${items.map(([id, label, sub]) =>
+  `<a class="dir-i" href="#${id}"${tab === id ? ' aria-current="page"' : ''}><b>${esc(id === 'myteam' ? (NBA.T(NBA.S.myTeam).name || 'My team') : label)}</b><small>${esc(sub)}</small></a>`).join('')}</div></div>`).join('');
 let tabShown = null;
 function renderTabs() {
   const { tab } = UI.route();
@@ -347,14 +357,13 @@ function renderTabs() {
     ['myteam', mt.abbr || 'My team', mt.logo ? UI.logo(mt, 24) : ico(`<path d="M10 2.5l2.3 4.8 5.2.6-3.9 3.6 1.1 5.2L10 14l-4.7 2.7 1.1-5.2L2.5 7.9l5.2-.6z" ${ln}/>`)],
   ];
   UI.paint($('#botnav'), BN.map(([id, label, icon]) => `<a class="bn" href="#${id}"${tab === id ? ' aria-current="page"' : ''}>${icon}<span>${esc(label)}</span></a>`).join('')
-    + `<button class="bn" data-act="more" aria-expanded="${!!UI.moreOpen}" aria-controls="more"${UI.moreOpen ? ' aria-current="page"' : ''}>${ico('<circle cx="4.5" cy="10" r="1.7" fill="currentColor"/><circle cx="10" cy="10" r="1.7" fill="currentColor"/><circle cx="15.5" cy="10" r="1.7" fill="currentColor"/>')}<span>More</span></button>`);
+    + `<button class="bn" data-act="more" aria-expanded="${!!UI.moreOpen}" aria-controls="more"${UI.moreOpen || !BN.some(x => x[0] === tab) ? ' aria-current="page"' : ''}>${ico('<circle cx="4.5" cy="10" r="1.7" fill="currentColor"/><circle cx="10" cy="10" r="1.7" fill="currentColor"/><circle cx="15.5" cy="10" r="1.7" fill="currentColor"/>')}<span>More</span></button>`);
   // "More": every section as a labelled button, with Search and Settings, in a sheet that rises above the bar. Any tap
   // in it (a section, or the dimmed page behind) puts it away
   const sheet = $('#more');
   if (sheet) {
     if (sheet.hidden === !!UI.moreOpen) sheet.hidden = !UI.moreOpen;
-    if (UI.moreOpen) UI.paint(sheet, `<div class="more-sheet" role="dialog" aria-label="All sections"><div class="more-h">All sections</div><div class="more-grid">${TABS.map(t => `<a class="more-i" href="#${t.id}"${tab === t.id ? ' aria-current="page"' : ''}>${esc(t.id === 'myteam' ? (mt.name || 'My team') : t.label)}</a>`).join('')}
-      <button class="more-i" data-act="ask-open">Search</button><button class="more-i" data-act="settings">Settings</button></div></div>`);
+    if (UI.moreOpen) UI.paint(sheet, `<div class="more-sheet" role="dialog" aria-label="All sections">${UI.directory(tab)}<div class="more-grid"><button class="more-i" data-act="ask-open">Search</button><button class="more-i" data-act="settings">Settings</button></div></div>`);
     // A tap on the bottom bar puts the sheet away; a tap on the tab you're already on goes back to the top (and, on
     // the Schedule, back to today)
     const bn = $('#botnav');
