@@ -428,7 +428,9 @@ function renderUpdated() {
   if (el.className !== cls) el.className = cls;
   if (el.textContent !== txt) el.textContent = txt;
   // Up to 900px wide the note hangs under the header as a strip: the page and its sticky headings move down by its height
-  const sh = cls !== 'upd' && matchMedia('(max-width:900px)').matches ? el.offsetHeight + 'px' : '0px', rs = document.documentElement.style;
+  // The strip lies over the top of the page instead of pushing it down: moving the whole page by its height each time
+  // the app was reopened (stale for a moment, then fresh) made everything jump down and back
+  const sh = '0px', rs = document.documentElement.style;
   if (rs.getPropertyValue('--strip-h') !== sh) rs.setProperty('--strip-h', sh);
   // Stops the live dots blinking while the scores on screen may be old
   document.documentElement.classList.toggle('stale', stale || (NBA.failing && age > 30000));
@@ -558,7 +560,8 @@ window.addEventListener('popstate', () => { if (UI.drawer || UI.settingsOpen) UI
   el.addEventListener('touchend', e => {
     if (!armed || !UI.drawer) return;
     const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
-    if (Math.abs(dx) > 90 && Math.abs(dx) > 2 * Math.abs(dy)) UI.closeAll();
+    // Clearly sideways: a scroll that drifts sideways mustn't close the game
+    if (Math.abs(dx) > 110 && Math.abs(dx) > 3 * Math.abs(dy) && Math.abs(dy) < 50) UI.closeAll();
   }, { passive: true });
 })();
 /* Swiping the phone box score: remember which team is showing (repaints come back to it) and light its button */
