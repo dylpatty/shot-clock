@@ -173,6 +173,17 @@ html.stale .game.big::after{animation:none}
 html.stale .live-btn,html.stale .hchip.live{filter:saturate(.3)}
 
 /* bookmark tabs */
+/* While search is open its results are the page: the jump bar steps aside */
+html.srch .jump{display:none}
+/* The header and the bottom bar lift off the page a little, and the bottom bar marks the tab you're on */
+.top{box-shadow:0 8px 18px -14px rgba(0,0,0,.55)}
+@media (max-width:640px){
+  .botnav{box-shadow:0 -8px 18px -14px rgba(0,0,0,.55)}
+  .bn[aria-current="page"]::before{content:"";position:absolute;top:-5px;left:50%;width:26px;height:3px;margin-left:-13px;border-radius:0 0 3px 3px;background:var(--accent)}
+}
+/* The Players list is five hundred cards long: letters off the screen aren't laid out or painted until they come near,
+   which keeps scrolling light. The remembered size (auto) stops the page length from shifting once a letter has shown */
+.pl-group{content-visibility:auto;contain-intrinsic-size:auto 700px}
 /* The jump bar: one chip per section of a long page, under the header on phones and tablets */
 .jump{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-top:7px;padding-bottom:8px;border-top:1px solid var(--line-2)}
 .jump::-webkit-scrollbar{display:none}
@@ -1830,6 +1841,14 @@ a.hchip,button.hchip{cursor:pointer}
 .fd-lines{padding:0}
 .fd-lines .line{border:1px solid var(--line-2);border-radius:10px;background:var(--card);padding-inline:10px}
 .fd-lines .line+.line{margin-top:6px}
+/* In the search card's narrow game row the teams keep their names: the time column gives up its second line */
+@media (max-width:640px){
+  .fd-lines .line{grid-template-columns:auto minmax(0,1fr) 1em minmax(0,1fr);gap:6px;padding-inline:8px}
+  .fd-lines .ln-time small{display:none}
+  .fd-lines .ln-team{gap:6px}
+  .fd-lines .ln-team img{width:22px;height:22px}
+  .fd-lines .ln-score{font-size:17px}
+}
 .fd-evs,.fd-inj{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .fd-evs li{display:flex;flex-direction:column;gap:2px;min-width:0}
 .fd-inj li{display:grid;grid-template-columns:minmax(0,max-content) auto minmax(0,1fr);align-items:center;gap:8px;font-size:13px}
