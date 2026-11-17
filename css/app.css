@@ -173,6 +173,21 @@ html.stale .game.big::after{animation:none}
 html.stale .live-btn,html.stale .hchip.live{filter:saturate(.3)}
 
 /* bookmark tabs */
+/* Phones: the bottom bar (Home, Scores, Standings, your team, Search). It sits over the page, which keeps room for it */
+.botnav{display:none}
+@media (max-width:640px){
+  .botnav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;z-index:45;background:var(--chrome);border-top:1px solid var(--line);
+    padding:4px max(4px,env(safe-area-inset-right,0px)) calc(4px + env(safe-area-inset-bottom,0px)) max(4px,env(safe-area-inset-left,0px))}
+  .bn{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:48px;padding:0;border:0;border-radius:10px;background:none;color:var(--muted);
+    font:700 10px/1 var(--f-ui);letter-spacing:.04em;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  .bn span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bn[aria-current="page"]{color:var(--accent)}
+  .bn:active{background:var(--card-2)}
+  .bn img{width:24px;height:24px;object-fit:contain}
+  .bn .dot{position:absolute;top:7px;left:calc(50% + 9px);color:var(--live)}
+  html.srch .bn.srch-btn{background:none;color:var(--accent)}
+  body{padding-bottom:calc(58px + env(safe-area-inset-bottom,0px))}
+}
 .tabbar{display:flex;align-items:flex-end;gap:4px;overflow-x:auto;scrollbar-width:none;margin-bottom:-1px}
 .tabbar::-webkit-scrollbar{display:none}
 /* .more (set by ui.js) fades the right edge while tabs are still hidden past it */
@@ -478,7 +493,7 @@ html.stale .game.clutch::after{animation:none}
   .sched .games:not(.live-grid) .g-top{flex-direction:column;gap:3px;font-size:10.5px;letter-spacing:.05em}
   .sched .games:not(.live-grid) .g-top>span:first-child{color:var(--ink)}
   .sched .games:not(.live-grid) .g-top>.g-right{justify-content:flex-start}
-  .sched .games:not(.live-grid) .g-lead{display:none}
+  .sched .games:not(.live-grid) .g-lead,.sched .games:not(.live-grid) .g-end{display:none}
   .sched .games:not(.live-grid) .g-lead + .ca-tv::before{content:none}
   /* A finished game doesn't need where it streamed */
   .sched .games:not(.live-grid) .game:has(.sc:not(:empty)) .g-right{display:none}

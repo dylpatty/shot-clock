@@ -167,7 +167,7 @@ UI.gameCard = (g, big) => {
   else if (hide) status = '<span>Final</span>';
   else {
     const sum = NBA.data('summary:' + g.id);
-    status = `<span>${esc(g.detail)}${sum && sum.ended ? ' · ended ' + esc(NBA.fmtTime(sum.ended)) : ''}</span>`;
+    status = `<span>${esc(g.detail)}${sum && sum.ended ? `<span class="g-end"> · ended ${esc(NBA.fmtTime(sum.ended))}</span>` : ''}</span>`;
   }
   // Only finished games say when they started: on a live card the corner is better left to the Canadian TV label,
   // and the scheduled time isn't the real tip anyway
@@ -337,6 +337,17 @@ function renderTabs() {
     return `<a class="tab" role="tab" href="#${t.id}" aria-selected="${tab === t.id}">${inner}</a>`;
   }).join('');
   UI.paint($('#tabbar'), html);
+  // Phones: a bar at the bottom of the screen with the five places used most, so they're one thumb-tap from anywhere.
+  // The full list of sections stays in the tab bar at the top
+  const ico = d => `<svg viewBox="0 0 20 20" width="22" height="22" aria-hidden="true">${d}</svg>`, ln = 'fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
+  const BN = [
+    ['home', 'Home', ico(`<path d="M3 9.5 10 3l7 6.5V17h-4.5v-4.5h-5V17H3z" ${ln}/>`)],
+    ['schedule', 'Scores', ico(`<rect x="3" y="4" width="14" height="13" rx="2.5" ${ln}/><path d="M3 8h14M7 2.5v3M13 2.5v3" ${ln}/>`) + (live ? '<i class="dot blink"></i>' : '')],
+    ['standings', 'Standings', ico(`<path d="M4 16V9M10 16V4M16 16v-5" ${ln} stroke-width="2.2"/>`)],
+    ['myteam', mt.abbr || 'My team', mt.logo ? UI.logo(mt, 24) : ico(`<path d="M10 2.5l2.3 4.8 5.2.6-3.9 3.6 1.1 5.2L10 14l-4.7 2.7 1.1-5.2L2.5 7.9l5.2-.6z" ${ln}/>`)],
+  ];
+  UI.paint($('#botnav'), BN.map(([id, label, icon]) => `<a class="bn" href="#${id}"${tab === id ? ' aria-current="page"' : ''}>${icon}<span>${esc(label)}</span></a>`).join('')
+    + `<button class="bn srch-btn" data-act="ask-open" aria-label="Search">${ico(`<circle cx="8.5" cy="8.5" r="5.5" ${ln}/><path d="m13 13 4.5 4.5" ${ln}/>`)}<span>Search</span></button>`);
   // On phones most tabs are off-screen: bring a newly selected one to the middle of the bar
   const tb = $('#tabbar');
   if (tab !== tabShown) {
