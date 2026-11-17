@@ -63,7 +63,7 @@ const NICK = {
 // Words that say what you want rather than who: they steer the card, and don't have to match a name
 const FILLER = new Set(('vs v versus at game games tonight today todays score scores live stats stat line last night yesterday next '
   + 'schedule injury injured injuries status how many points pts did does do is are the a an of for what whats who when was where '
-  + 'watch channel play playing plays tv stream record he his and in on get scored much team tomorrow').split(' '));
+  + 'watch channel play playing plays tv stream record he his and in on get scored much team tomorrow out hurt healthy rebounds assists').split(' '));
 
 /* ---------- who and what can be found ---------- */
 // ESPN's NBA team ids are 1-30; the All-Star teams and NBA Cup placeholders aren't teams
@@ -71,7 +71,8 @@ const teamList = () => [...NBA.teams.values()].filter(t => t.abbr && t.full && +
 function teamAliases(t) {
   if (t._al && t._alKey === t.full + t.abbr) return t._al;
   t._alKey = t.full + t.abbr;
-  t._al = [...new Set([t.full, t.name, t.location, t.abbr, ...((NBA.TEAM_ALIASES || {})[t.abbr] || [])].filter(Boolean).map(norm))];
+  // ESPN's place for the Clippers is "LA", which is also how people start "LA Lakers": two-letter places don't count
+  t._al = [...new Set([t.full, t.name, t.location && t.location.length > 2 ? t.location : '', t.abbr, ...((NBA.TEAM_ALIASES || {})[t.abbr] || [])].filter(Boolean).map(norm))];
   return t._al;
 }
 function teamFit(q, t) {
@@ -178,7 +179,8 @@ function teamPair(text) {
   let rest = ' ' + text + ' ';
   teamAliases(found[0]).slice().sort((a, b) => b.length - a.length).forEach(a => { rest = rest.replace(new RegExp(` ${a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s? `), ' '); });
   rest = rest.trim();
-  if (rest.length < 2) return null;
+  // Three letters at least: "la lakers" is the Lakers, not Lakers against the Clippers (ESPN's "LA")
+  if (rest.length < 3) return null;
   const best = teamList().filter(t => t !== found[0]).map(t => [t, teamFit(rest, t)]).sort((x, y) => y[1] - x[1])[0];
   return best && best[1] >= 70 ? [found[0], best[0]] : null;
 }
@@ -206,8 +208,12 @@ F.search = raw => {
     const qw = (NICK[pq] || pq).split(' ');
     // A name with a team's word in it (P.J. Washington, Jalen Green... Kings?) still matches on every word typed
     const all = core.length > 1 && pw.length < core.length ? core : null;
+    const qset = new Set(qw);
     people().forEach(p => {
-      const fit = Math.max(nameFit(qw, p.words), all ? nameFit(all, p.words) + 1 : 0);
+      let fit = Math.max(nameFit(qw, p.words), all ? nameFit(all, p.words) + 1 : 0);
+      // In a sentence ("is paul george out", "embiid rebounds"): his whole name is in it, or a regular's last name is
+      const lastW = p.words[p.words.length - 1];
+      if (!fit && qw.length > 1) fit = p.words.length > 1 && p.words.every(w => qset.has(w)) ? p.words.length * 3 : lastW.length > 3 && qset.has(lastW) && p.stats && p.stats.pts >= 8 ? 3 : 0;
       if (!fit) return;
       let s = 46 + fit * 8 + Math.min(10, ((p.stats && p.stats.pts) || 0) / 3);
       if (p.n === qw.join(' ')) s += 22;
@@ -218,6 +224,7 @@ F.search = raw => {
     // Nobody here by that name: ask ESPN's own search once typing pauses (it fills in ESPN-only players)
     if (!items.some(i => i.k === 'p') && !items.some(i => i.score >= 70) && pq.length >= 3) {
       clearTimeout(F._rt);
+      F._pq = pq;
       F._rt = setTimeout(() => NBA.need('psearch:' + pq).catch(() => {}), 350);
     }
   }
@@ -402,7 +409,7 @@ F.panel = () => {
   try {
     if (cur) card = cur.k === 't' ? teamCard(cur.t) : cur.k === 'p' ? playerCard(cur.p) : matchupCard(cur.a, cur.b);
   } catch (e) { console.error('search card', e); }
-  const nobody = !items.some(isEntity) && NBA.status('psearch:' + norm(F.raw)).loading ? '<p class="fd-note">Looking for that player on ESPN…</p>' : '';
+  const nobody = !items.some(isEntity) && NBA.status('psearch:' + (F._pq || '')).loading ? '<p class="fd-note">Looking for that player on ESPN…</p>' : '';
   return `<div class="fd">${card}${nobody}<div class="fd-list" role="listbox" id="fd-list" aria-label="Results">${items.map((it, i) => row(it, i, F.sel)).join('')}</div>
     <p class="fd-hint">${matchMedia('(hover:hover)').matches ? '↑ ↓ to move · Enter opens it · click a result for its card, click again to open it' : 'Tap a result for its card, tap it again to open it'}</p></div>`;
 };

@@ -846,7 +846,7 @@ V.home = () => {
   const stories = (news || []).filter(a => a.links && a.links.web && NBA.newsSafe(a)).slice(0, 5);
   // Fresh stories say "In the last hour" rather than "5m ago", so the cards don't repaint every minute
   const ago = iso => Date.now() - new Date(iso) < 3600000 ? 'In the last hour' : NBA.relTime(iso);
-  const newsCard = `<div class="card hm hm-news"><div class="card-h"><h3>Latest news</h3><div class="end"><a class="chip" href="#news">More</a></div></div>
+  const newsCard = `<div class="card hm hm-news"><div class="card-h"><h3>Latest news</h3><div class="end"><a class="chip" href="#news" data-act="gonews">More</a></div></div>
     ${!news ? wait('news:', 'news') : stories.length ? `<ul class="hn-list">${stories.map(a => { const img = a.images && a.images[0] && a.images[0].url; return `<li><a href="${esc(a.links.web.href)}" target="_blank" rel="noopener">${img ? `<img src="${esc(NBA.img(img, 288))}" alt="" loading="lazy" decoding="async">` : ''}<span><b>${esc(a.headline)}</b><small>${esc(ago(a.published))}</small></span></a></li>`; }).join('')}</ul>`
       : '<p class="empty">No headlines right now.</p>'}</div>`;
 

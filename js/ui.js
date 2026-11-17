@@ -618,7 +618,9 @@ UI.ownsSwipe = el => !!(el && el.closest && el.closest('[data-noswipe], input, t
    normal render paints the newest of everything. A tap that doesn't scroll isn't held up */
 (() => {
   let down = false, moved = false, last = 0, timer = 0;
-  UI.pageMoving = () => (down && moved) || Date.now() - last < 150;
+  // A finger down only counts for a couple of seconds after the last movement: if the element it started on was
+  // repainted away, its touchend never arrives, and the page must not stay frozen until the next touch
+  UI.pageMoving = () => (down && moved && Date.now() - last < 2000) || Date.now() - last < 150;
   const settle = () => {
     clearTimeout(timer);
     timer = setTimeout(() => { if (UI.pageMoving()) settle(); else if (UI.viewHeld) NBA.changed(); }, 160);

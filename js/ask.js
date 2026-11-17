@@ -720,6 +720,8 @@ Object.assign(NBA.actions, {
 document.getElementById('ask-form').addEventListener('submit', e => {
   e.preventDefault();
   const inp = $('#ask-input');
+  if (NBA.find && inp.value !== NBA.find.raw) typed(inp.value);
+  if (!inp.value.trim()) return;
   if (A.mode === 'find' && NBA.find && NBA.find.count()) { NBA.find.go(); return; }
   ask(inp.value);
   inp.select();
@@ -736,8 +738,10 @@ document.getElementById('ask-input').addEventListener('keydown', e => {
 });
 document.getElementById('ask-input').addEventListener('focus', e => {
   if (A.open) return;
+  // The field is the truth: Esc can clear it without an input event, and stale results mustn't sit behind an empty box
   const v = e.target.value;
-  if (v.trim() && NBA.find && A.mode === 'find') NBA.find.typed(v);
+  if (NBA.find) NBA.find.typed(v);
+  if (A.mode !== 'answers' || v.trim()) A.mode = v.trim() && NBA.find ? 'find' : A.turns.length ? 'answers' : 'home';
   A.open = true;
   renderPanel();
 });

@@ -819,6 +819,8 @@ function gameLines(days) {
 }
 
 /* ================= Injuries & News ================= */
+// Home's "More" under the headlines opens on the News side of the phone's Injuries | News switch
+NBA.actions.gonews = () => { st.newsPane = 'news'; if (UI.route().tab === 'news') NBA.changed(); else location.hash = '#news'; };
 V.news = () => {
   const news = NBA.use('news:'), inj = NBA.use('injuries');
   NBA.use('standings');
