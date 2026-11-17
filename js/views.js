@@ -30,6 +30,7 @@ const conferenceName = c => c === 'East' ? 'East' : c === 'West' ? 'West' : c;
 // The view itself is a fixed frame; NBA.after.schedule paints the day's games and Upcoming into it separately,
 // so a live poll only rebuilds the part that changed
 let schParts = { main: '', up: '' };
+document.addEventListener('toggle', e => { const d = e.target; if (d.matches && d.matches('details.fold[data-fold="up"]')) { st.upOpen = d.open; if (d.open) d.querySelectorAll('.days').forEach(ruleRows); } }, true);
 V.schedule = () => {
   const key = 'day:' + NBA.dayParam;
   const day = NBA.use(key);
@@ -254,7 +255,10 @@ function upcoming() {
     if (!d) return `<div class="card day"><div class="card-h"><h3>${esc(NBA.fmtDay(iso))}</h3></div>${stateOf('day:' + NBA.paramOf(iso), 'games')}</div>`;
     return d.games.length ? dayCard(iso, NBA.sortGames(d.games)) : '';
   }).join('');
-  return `<div class="sec-h"><h2>Upcoming</h2><span class="sub">Next 7 days · times in ${esc(NBA.tzLabel())} · away team on the left, home team on the right</span></div><div class="days">${cards}</div>`;
+  // On a phone the list starts folded (the week strip above already gets you to any day); a tap on the heading opens
+  // it, and it stays as you left it through repaints
+  const open = st.upOpen == null ? !matchMedia('(max-width:640px)').matches : st.upOpen;
+  return `<details class="fold" data-fold="up"${open ? ' open' : ''}><summary class="sec-h"><h2>Upcoming</h2><span class="sub">Next 7 days · times in ${esc(NBA.tzLabel())} · away team on the left, home team on the right</span></summary><div class="days">${cards}</div></details>`;
 }
 
 /* ================= Rest of the season =================

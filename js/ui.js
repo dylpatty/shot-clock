@@ -355,6 +355,21 @@ function renderTabs() {
     if (sheet.hidden === !!UI.moreOpen) sheet.hidden = !UI.moreOpen;
     if (UI.moreOpen) UI.paint(sheet, `<div class="more-sheet" role="dialog" aria-label="All sections"><div class="more-h">All sections</div><div class="more-grid">${TABS.map(t => `<a class="more-i" href="#${t.id}"${tab === t.id ? ' aria-current="page"' : ''}>${esc(t.id === 'myteam' ? (mt.name || 'My team') : t.label)}</a>`).join('')}
       <button class="more-i" data-act="ask-open">Search</button><button class="more-i" data-act="settings">Settings</button></div></div>`);
+    // A tap on the bottom bar puts the sheet away; a tap on the tab you're already on goes back to the top (and, on
+    // the Schedule, back to today)
+    const bn = $('#botnav');
+    if (bn && !bn._bound) {
+      bn._bound = true;
+      bn.addEventListener('click', e => {
+        const a = e.target.closest('a.bn');
+        if (!a) return;
+        if (UI.moreOpen) { UI.moreOpen = false; renderTabs(); }
+        if (a.getAttribute('aria-current') !== 'page') return;
+        e.preventDefault();
+        if (UI.route().tab === 'schedule' && NBA.dayParam) { NBA.dayParam = ''; NBA.changed(); }
+        window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      });
+    }
     if (!sheet._bound) { sheet._bound = true; sheet.addEventListener('click', () => { UI.moreOpen = false; renderTabs(); }); }
   }
   // On phones most tabs are off-screen: bring a newly selected one to the middle of the bar

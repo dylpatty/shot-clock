@@ -193,6 +193,19 @@ html.stale .live-btn,html.stale .hchip.live{filter:saturate(.3)}
 @media (hover:hover){.game{transition:border-color .15s,transform .15s}.game:hover{transform:translateY(-1px)}}
 html{scrollbar-color:color-mix(in srgb,var(--muted) 50%,transparent) transparent}
 ::selection{background:color-mix(in srgb,var(--accent) 32%,transparent)}
+/* A section that folds behind its heading (the Schedule's Upcoming list on phones) */
+details.fold>summary{list-style:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary h2::after{content:"▾";margin-left:10px;font-size:.55em;color:var(--muted);vertical-align:middle}
+details.fold:not([open])>summary h2::after{content:"▸"}
+details.fold[open]>summary{margin-bottom:12px}
+/* Phones: navigation lives in the bottom bar and its More sheet, so the header is just the name, search, your team and
+   settings, and the Schedule opens straight on the date and the games */
+@media (max-width:640px){
+  .top .tabbar{display:none}
+  .sched .sec-h>h2,.sched .sec-h>.end.sub{display:none}
+  details.fold>summary .sub{display:none}
+}
 /* "More" on phones: every section in a sheet above the bottom bar */
 .allnav{position:fixed;inset:0;z-index:44;display:flex;align-items:flex-end;background:var(--scrim)}
 .allnav[hidden]{display:none}
