@@ -695,6 +695,49 @@ html.stale .game.clutch::after{animation:none}
 .tbl .sortb{border:0;background:none;padding:0;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer}
 .tbl .sortb.on{color:var(--accent)}
 .tbl .sticky{position:sticky;left:0;background:var(--card);z-index:1}
+/* The Stats tab's This season | All-time switch: two halves of one wide control */
+.stats-view{margin-top:-4px}
+.stats-view .seg{width:100%;max-width:420px}
+.stats-view .seg button{flex:1;height:36px;font-size:14px}
+/* All-time leaders (js/alltime.js): the filters across the top, then the table */
+.at-card{overflow:hidden}
+.at-tools{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 18px;padding:var(--pad);border-bottom:1px solid var(--line-2)}
+.at-f{display:flex;flex-direction:column;gap:6px;min-width:0}
+.at-f>span:first-child{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.at-f select.field{width:220px;height:34px;font-weight:600}
+.at-q input.field{width:180px;height:34px}
+.at-tog{flex-direction:row;align-items:center;gap:9px;height:34px;cursor:pointer;font-size:13px;font-weight:600}
+.at-tog input{position:absolute;opacity:0;width:1px;height:1px}
+.at-tog .sw{position:relative;width:40px;height:23px;border-radius:12px;background:var(--line);transition:background .15s;flex:none}
+.at-tog .sw::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+.at-tog input:checked+.sw{background:var(--accent)}
+.at-tog input:checked+.sw::after{transform:translateX(17px)}
+.at-tog input:focus-visible+.sw{outline:2px solid var(--accent);outline-offset:2px}
+.at-pager{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:10px var(--pad);font-size:13px}
+.at-pager .mut{margin-right:auto}
+.at-pager .ib:disabled{opacity:.35;cursor:default}
+.at-tbl th,.at-tbl td{padding:9px 8px}
+.at-tbl .rk{color:var(--muted);text-align:center;width:2.6em}
+.at-tbl th.pl{text-align:left;font-size:13px;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink);white-space:nowrap}
+.at-tbl thead th.pl{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.at-tbl .plink{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:none}
+@media (hover:hover){.at-tbl .plink:hover{color:var(--accent)}}
+.at-tbl td.on{font-weight:800;color:var(--ink);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.at-tbl th.on{color:var(--accent)}
+.at-tbl th.on .sortb::after{content:" ▼";font-size:8px}
+.at-tbl tbody tr:nth-child(even) td,.at-tbl tbody tr:nth-child(even) th{background-color:color-mix(in srgb,var(--card-2) 70%,var(--card))}
+.at-tbl .at-key{display:none}
+@media (max-width:640px){.at-tbl .at-key{display:table-cell;font-weight:800;color:var(--accent);border-right:1px solid var(--line-2)}.at-tbl th.at-key{color:var(--accent)}}
+.at-on{display:inline-block;width:6px;height:6px;margin-left:7px;border-radius:50%;background:var(--win);vertical-align:middle}
+@media (max-width:640px){
+  .at-tools{gap:12px}
+  .at-f{flex:1 1 100%}
+  .at-f .seg{width:100%}
+  .at-f .seg button{flex:1}
+  .at-f select.field,.at-q input.field{width:100%}
+  .at-tog{flex:1 1 auto}
+  .at-tbl th.pl{max-width:140px;overflow:hidden;text-overflow:ellipsis}
+}
 @media (hover:hover){.tbl tr.click:hover td.sticky{background:var(--card-2)}}
 .st-wrap{container-type:inline-size;min-width:0}
 /* A standings table narrower than "Timberwolves" needs (the phone conference swipe at 320px) shows abbreviations, so

@@ -633,12 +633,17 @@ NBA.actions.team = a => { location.hash = '#teams/' + a.dataset.id; };
 const HERO = { game: ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm'], total: ['pts', 'reb', 'ast', 'stl', 'blk', 'tpm'] };
 const MINI = { game: ['fgp', 'tpp', 'ftp', 'ts', 'efg', 'pra', 'stocks', 'astTo', 'min', 'dd', 'td', 'tov'], total: ['fgm', 'ftm', 'pra', 'stocks', 'min', 'dd', 'td', 'tov', 'pf', 'gp'] };
 V.stats = () => {
+  // This season's leaders, or every season (the all-time leaders, js/alltime.js)
+  const view = st.statsView === 'alltime' && NBA.allTimeView ? 'alltime' : 'season';
+  const viewSeg = seg('statsview', view, [['season', 'This season'], ['alltime', 'All-time']], 'Leaders from');
+  if (view === 'alltime') return NBA.allTimeView(viewSeg);
   const players = NBA.use('players');
   NBA.use('standings');
   const per = NBA.use('per'), teams = NBA.use('teamstats');
   const mode = NBA.S.statsMode === 'total' ? 'total' : 'game';
   const head = `<div class="sec-h"><h2>Stats</h2><span class="sub">${esc(NBA.SEASON_LABEL)} season leaders · ${mode === 'total' ? 'season totals' : 'per game, qualified players'}</span>
-    <div class="end">${seg('statsmode', mode, [['game', 'Per game'], ['total', 'Totals']], 'Stat type')}</div></div>`;
+    <div class="end">${seg('statsmode', mode, [['game', 'Per game'], ['total', 'Totals']], 'Stat type')}</div></div>
+    <div class="stats-view">${viewSeg}</div>`;
   if (!players) return `<section class="sec">${head}${stateOf('players', 'player stats')}</section>`;
   const heroes = HERO[mode].map(k => leadCard(k, mode)).join('');
   let minis = pmCard(NBA.use('pmlead'), mode) + MINI[mode].map(k => miniCard(k, mode)).join('');
@@ -723,6 +728,7 @@ function playerRows(players, mode) {
         ${PCOLS.map(([k]) => `<td>${NBA.statFmt(k, NBA.statValue(k, p, mode), mode)}</td>`).join('')}</tr>`).join('') || `<tr><td class="l" colspan="${PCOLS.length + 3}">No players match.</td></tr>`}</tbody></table></div>
       ${total > list.length ? `<div style="padding-top:12px"><button class="btn" data-act="pmore">Show ${Math.min(50, total - list.length)} more</button></div>` : ''}</div></div>`;
 }
+NBA.actions.statsview = a => { st.statsView = a.dataset.v; window.scrollTo(0, 0); NBA.changed(); };
 NBA.actions.statsmode = a => { NBA.S.statsMode = a.dataset.v; NBA.save(); NBA.changed(); };
 NBA.actions.tsort = a => { const k = a.dataset.k; st.tsSort = st.tsSort.k === k ? { k, desc: !st.tsSort.desc } : { k, desc: !['oppg', 'tov'].includes(k) }; NBA.changed(); };
 NBA.actions.psort = a => { const k = a.dataset.k; st.psort = st.psort.k === k ? { k, desc: !st.psort.desc } : { k, desc: true }; NBA.changed(); };
