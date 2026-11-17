@@ -173,7 +173,38 @@ html.stale .game.big::after{animation:none}
 html.stale .live-btn,html.stale .hchip.live{filter:saturate(.3)}
 
 /* bookmark tabs */
-/* Phones: the bottom bar (Home, Scores, Standings, your team, Search). It sits over the page, which keeps room for it */
+/* The Schedule's week strip: seven days around the one showing, with a dot under days that have games */
+.wk{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;max-width:560px}
+.wk-d{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 0 6px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--muted);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.wk-d small{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.wk-d b{font-family:var(--f-display);font-size:21px;font-weight:800;line-height:1;color:var(--ink)}
+.wk-d::after{content:"";width:5px;height:5px;border-radius:50%}
+.wk-d.has::after{background:var(--accent)}
+.wk-d:not(.has) b{color:var(--muted)}
+.wk-d.today small{color:var(--accent)}
+.wk-d[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+@media (hover:hover){.wk-d:hover{border-color:var(--accent)}}
+/* A tab picked by a tap fades in */
+@keyframes tab-in{from{opacity:.35}to{opacity:1}}
+.view.tab-in{animation:tab-in .16s ease-out}
+@media (prefers-reduced-motion:reduce){.view.tab-in{animation:none}}
+/* A press shows under the finger; on a computer, cards lift a touch under the mouse and scrollbars wear the site's colors */
+@media (hover:none){.game:active,.line:active,.hg:active,.fd-row:active,.more-i:active,.wk-d:active,.pl-card:active{filter:brightness(1.14)}}
+@media (hover:hover){.game{transition:border-color .15s,transform .15s}.game:hover{transform:translateY(-1px)}}
+html{scrollbar-color:color-mix(in srgb,var(--muted) 50%,transparent) transparent}
+::selection{background:color-mix(in srgb,var(--accent) 32%,transparent)}
+/* "More" on phones: every section in a sheet above the bottom bar */
+.allnav{position:fixed;inset:0;z-index:44;display:flex;align-items:flex-end;background:var(--scrim)}
+.allnav[hidden]{display:none}
+.more-sheet{width:100%;max-height:80vh;overflow-y:auto;background:var(--card);border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:14px 14px calc(72px + env(safe-area-inset-bottom,0px));box-shadow:var(--shadow);animation:more-up .18s ease-out}
+@keyframes more-up{from{transform:translateY(24px);opacity:.5}}
+@media (prefers-reduced-motion:reduce){.more-sheet{animation:none}}
+.more-h{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 2px 10px}
+.more-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.more-i{display:flex;align-items:center;justify-content:center;min-height:54px;padding:6px 8px;border:1px solid var(--line);border-radius:12px;background:var(--card-2);color:var(--ink);font:700 13px/1.2 var(--f-ui);text-align:center;text-decoration:none;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.more-i[aria-current="page"]{border-color:var(--accent);background:var(--accent-soft)}
+@media (min-width:641px){.allnav{display:none}}
+/* Phones: the bottom bar (Home, Scores, Standings, your team, More). It sits over the page, which keeps room for it */
 .botnav{display:none}
 @media (max-width:640px){
   .botnav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;z-index:45;background:var(--chrome);border-top:1px solid var(--line);

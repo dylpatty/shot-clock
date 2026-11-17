@@ -75,7 +75,13 @@ V.schedule = () => {
   // The phone band lives in its own spot above the view (#pband), painted in NBA.after.schedule, so live refreshes
   // of the games below don't rebuild it in the middle of a swipe
   st.bandHtml = perfBand(slate);
-  schParts = { main: `<div class="sched"><div class="sec" style="gap:12px">${head}${main}</div><aside class="sched-side">${side}</aside></div>`, up: upcoming() };
+  // A week at a glance around the day being shown: one tap for another day's games. The dot marks days with games
+  const hasGames = new Set(NBA.calendar || []);
+  const week = `<div class="wk" role="group" aria-label="Days around this one">${Array.from({ length: 7 }, (_, i) => {
+    const d = NBA.shiftIso(iso, i - 3);
+    return `<button class="wk-d${hasGames.has(d) ? ' has' : ''}${d === NBA.today ? ' today' : ''}" data-act="calday" data-v="${d}" aria-pressed="${d === iso}" aria-label="${esc(NBA.fmtDay(d, { weekday: 'long', month: 'long', day: 'numeric' }))}"><small>${esc(d === NBA.today ? 'Today' : NBA.fmtDay(d, { weekday: 'short' }))}</small><b>${+d.slice(8)}</b></button>`;
+  }).join('')}</div>`;
+  schParts = { main: `<div class="sched"><div class="sec" style="gap:12px">${head}${week}${main}</div><aside class="sched-side">${side}</aside></div>`, up: upcoming() };
   return '<section class="sec" id="sch-main"></section><section class="sec" id="sch-up"></section>';
 };
 /* Top performers come from the day being viewed. On today's slate, last night's leaders stay up until the

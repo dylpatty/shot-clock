@@ -347,7 +347,16 @@ function renderTabs() {
     ['myteam', mt.abbr || 'My team', mt.logo ? UI.logo(mt, 24) : ico(`<path d="M10 2.5l2.3 4.8 5.2.6-3.9 3.6 1.1 5.2L10 14l-4.7 2.7 1.1-5.2L2.5 7.9l5.2-.6z" ${ln}/>`)],
   ];
   UI.paint($('#botnav'), BN.map(([id, label, icon]) => `<a class="bn" href="#${id}"${tab === id ? ' aria-current="page"' : ''}>${icon}<span>${esc(label)}</span></a>`).join('')
-    + `<button class="bn srch-btn" data-act="ask-open" aria-label="Search">${ico(`<circle cx="8.5" cy="8.5" r="5.5" ${ln}/><path d="m13 13 4.5 4.5" ${ln}/>`)}<span>Search</span></button>`);
+    + `<button class="bn" data-act="more" aria-expanded="${!!UI.moreOpen}" aria-controls="more"${UI.moreOpen ? ' aria-current="page"' : ''}>${ico('<circle cx="4.5" cy="10" r="1.7" fill="currentColor"/><circle cx="10" cy="10" r="1.7" fill="currentColor"/><circle cx="15.5" cy="10" r="1.7" fill="currentColor"/>')}<span>More</span></button>`);
+  // "More": every section as a labelled button, with Search and Settings, in a sheet that rises above the bar. Any tap
+  // in it (a section, or the dimmed page behind) puts it away
+  const sheet = $('#more');
+  if (sheet) {
+    if (sheet.hidden === !!UI.moreOpen) sheet.hidden = !UI.moreOpen;
+    if (UI.moreOpen) UI.paint(sheet, `<div class="more-sheet" role="dialog" aria-label="All sections"><div class="more-h">All sections</div><div class="more-grid">${TABS.map(t => `<a class="more-i" href="#${t.id}"${tab === t.id ? ' aria-current="page"' : ''}>${esc(t.id === 'myteam' ? (mt.name || 'My team') : t.label)}</a>`).join('')}
+      <button class="more-i" data-act="ask-open">Search</button><button class="more-i" data-act="settings">Settings</button></div></div>`);
+    if (!sheet._bound) { sheet._bound = true; sheet.addEventListener('click', () => { UI.moreOpen = false; renderTabs(); }); }
+  }
   // On phones most tabs are off-screen: bring a newly selected one to the middle of the bar
   const tb = $('#tabbar');
   if (tab !== tabShown) {
@@ -476,8 +485,10 @@ function renderView() {
   if (tab !== lastTab) {
     view._html = null; lastTab = tab;
     // A tab reached by swiping slides in from the side the finger moved toward
-    view.classList.remove('sw-next', 'sw-prev');
-    if (UI.swipeDir) { void view.offsetWidth; view.classList.add('sw-' + UI.swipeDir); }
+    view.classList.remove('sw-next', 'sw-prev', 'tab-in');
+    void view.offsetWidth;
+    // A tab picked by a tap fades in softly; one reached by a swipe slides
+    view.classList.add(UI.swipeDir ? 'sw-' + UI.swipeDir : 'tab-in');
   }
   UI.swipeDir = null;
   // Lets the stylesheet give a tab its own page layout (the Schedule's right-hand performers rail)
@@ -635,7 +646,7 @@ UI.ownsSwipe = el => !!(el && el.closest && el.closest('[data-noswipe], input, t
 /* Touch screens: a quick sideways swipe anywhere else on the page moves to the next or previous tab, so the tab bar
    needn't be reached. Nothing happens while a game, settings, a video, the calendar or search is open */
 // Something on top of the page (a game, settings, a video, the calendar or search); the close-game alert waits for it too
-UI.busy = () => !!(UI.drawer || UI.settingsOpen || ($('#vid') && $('#vid').open) || ($('#calpop') && $('#calpop').open)
+UI.busy = () => !!(UI.drawer || UI.settingsOpen || ($('#vid') && $('#vid').open) || ($('#calpop') && $('#calpop').open) || UI.moreOpen
     || document.documentElement.classList.contains('srch') || (NBA.ask && NBA.ask.isOpen()));
 (() => {
   let x0 = 0, y0 = 0, t0 = 0, sy0 = 0, armed = false;
@@ -1308,6 +1319,8 @@ Object.assign(NBA.actions, {
   close: () => UI.closeAll(),
   settings: a => UI.openSettings(a),
   // The header's live button always lands on today's live games, even from another day or deep in the season list
+  // The bottom bar's More button
+  more: () => { UI.moreOpen = !UI.moreOpen; renderTabs(); },
   golive: () => {
     NBA.dayParam = '';
     if (UI.route().tab !== 'schedule') location.hash = '#schedule'; // the hashchange handler scrolls to the top and re-renders
