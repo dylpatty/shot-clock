@@ -1922,6 +1922,13 @@ a.hchip,button.hchip{cursor:pointer}
 @media (max-width:640px){.pc-stats div{padding:10px 8px}.pc-stats b{font-size:22px}.pc-stats small{font-size:10px}}
 .pc-stats span{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--muted)}
 .pc-stats small{font-size:11px;font-weight:700;color:var(--accent)}
+/* The percentile bar under each number */
+.pc-pct{display:block;height:4px;margin-top:auto;border-radius:2px;background:var(--line);overflow:hidden}
+.pc-pct i{display:block;height:100%;border-radius:2px;background:var(--muted)}
+.pc-pct.hi i{background:var(--accent)}
+.pc-pct.top i{background:var(--win)}
+.pc-stats div{gap:3px}
+.pc-pct-note{padding:8px var(--pad) 10px}
 .pc-money{display:flex;flex-wrap:wrap;gap:1px;background:var(--line-2)}
 .pc-money div{flex:1 1 180px;background:var(--card);padding:12px var(--pad);display:flex;flex-direction:column;gap:3px}
 .pc-money span{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}

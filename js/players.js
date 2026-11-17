@@ -276,11 +276,18 @@ NBA.playerCard = id => {
   // when the numbers arrive
   if (!stats) statsHtml = `<div class="pc-stats" aria-busy="true">${CARD_STATS.map(() => `<div aria-hidden="true"><b>${UI.skel.bar('62%')}</b><span>${UI.skel.bar('38%')}</span><small>${UI.skel.bar('70%')}</small></div>`).join('')}<span class="sr">Loading stats…</span></div>`;
   else if (!s || !s.gp) statsHtml = `<p class="empty">No games played yet this season.</p>`;
-  else statsHtml = `<div class="pc-stats">${CARD_STATS.map(k => {
-    const v = NBA.statValue(k, s, 'game');
-    const rank = RANKED.has(k) ? NBA.leaders({ stat: k, limit: 999 }).findIndex(x => x.id === id) + 1 : 0;
-    return `<div><b>${NBA.statFmt(k, v, 'game')}</b><span>${esc(NBA.STATS[k].short)}</span>${rank && rank <= 50 ? `<small>${NBA.ord(rank)} in NBA</small>` : ''}</div>`;
-  }).join('')}</div>`;
+  else {
+    // Under each number, where it sits among everyone in a rotation this season (3+ games, 10+ minutes a game): the
+    // share of them he's ahead of. Green from the 90th percentile, orange from the 65th
+    const pool = (NBA.players() || []).filter(x => x.gp >= 3 && x.min >= 10);
+    const pctOf = (k, v) => pool.length < 30 || !Number.isFinite(v) ? null : Math.round(pool.filter(x => { const w = NBA.statValue(k, x, 'game'); return Number.isFinite(w) && w < v; }).length / pool.length * 100);
+    statsHtml = `<div class="pc-stats">${CARD_STATS.map(k => {
+      const v = NBA.statValue(k, s, 'game');
+      const rank = RANKED.has(k) ? NBA.leaders({ stat: k, limit: 999 }).findIndex(x => x.id === id) + 1 : 0;
+      const p = pctOf(k, v);
+      return `<div><b>${NBA.statFmt(k, v, 'game')}</b><span>${esc(NBA.STATS[k].short)}</span>${rank && rank <= 50 ? `<small>${NBA.ord(rank)} in NBA</small>` : ''}${p == null ? '' : `<em class="pc-pct${p >= 90 ? ' top' : p >= 65 ? ' hi' : ''}" role="img" aria-label="${NBA.ord(Math.max(1, p))} percentile" title="${NBA.ord(Math.max(1, p))} percentile among rotation players"><i style="width:${Math.max(3, p)}%"></i></em>`}</div>`;
+    }).join('')}</div>${pool.length >= 30 ? '<p class="note pc-pct-note">Bars: percentile among rotation players this season (10+ minutes a game).</p>' : ''}`;
+  }
 
   let contract = '';
   if (r && (r.salary || r.pay.length)) {
