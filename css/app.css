@@ -203,6 +203,9 @@ details.fold[open]>summary{margin-bottom:12px}
    settings, and the Schedule opens straight on the date and the games */
 @media (max-width:640px){
   .top .tabbar{display:none}
+  /* Your team's live score rides just above the bottom bar, like a now-playing strip, instead of changing the
+     header's height (which moved the whole page when it came and went) */
+  .top .scorebug{position:fixed;left:0;right:0;bottom:calc(57px + env(safe-area-inset-bottom,0px));z-index:1;border-top:1px solid var(--line);box-shadow:0 -6px 16px rgba(0,0,0,.2)}
   .sched .sec-h>h2,.sched .sec-h>.end.sub{display:none}
   details.fold>summary .sub{display:none}
 }
