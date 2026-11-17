@@ -497,6 +497,62 @@ function renderAlert() {
     <button class="ib al-x" data-act="alertx" aria-label="Dismiss">${UI.I.close}</button>`);
 }
 NBA.actions.alertx = () => { alertCur = null; NBA.alerts.length = 0; renderAlert(); };
+/* Long pages on phones and tablets get a row of chips under the header, one per section of the page, in the order they
+   appear: a tap jumps to that section, and the one being read is lit. It makes a 7,000-pixel page as easy to get around
+   as a short one. Sections are the page's own headed cards and titled blocks, read off the page after each paint */
+const JUMP_TABS = new Set(['home', 'stats', 'odds', 'news', 'myteam', 'teams', 'facts']);
+const jumpMq = matchMedia('(max-width:900px)');
+let jumpList = [], jumpKey = '';
+const headText = h => ([...h.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ').trim() || h.textContent.trim()).replace(/\s+/g, ' ');
+function renderJump(tab) {
+  const bar = $('#jump');
+  if (!bar) return;
+  let list = [];
+  if (jumpMq.matches && JUMP_TABS.has(tab) && !UI.drawer) {
+    // A section without a heading of its own (your team's card, the chart of the day) names itself with data-jump
+    // The main sections only: not the small stat cards, nor each month of a team's schedule (its banner stands for them)
+    list = [...$('#view').querySelectorAll('.card > .card-h h3, .sec-h > h2, .sec-h > h3, .vshelf-h h3, .sbump h2, [data-jump]')]
+      .filter(h => h.offsetParent && !h.closest('.card .card, .card.mini, .sm-card'))
+      .map(h => h.dataset.jump ? { el: h, label: h.dataset.jump } : { el: h.closest('.card, .vshelf, .sbump') || h.closest('section') || h, label: headText(h), title: h.matches('.sec-h > h2') })
+      .filter((x, i, a) => x.label && a.findIndex(y => y.el === x.el) === i);
+    // In the order they sit on the page (a phone reorders Home's cards), and only when the page is long enough to need it
+    list.forEach(x => { x.top = x.el.getBoundingClientRect().top + scrollY; });
+    list.sort((a, b) => a.top - b.top);
+    // The page's own title, at the very top, isn't a section to jump to
+    if (list.length && list[0].title && list[0].top < 220) list.shift();
+    if (list.length < 4 || document.documentElement.scrollHeight < innerHeight * 2.5) list = [];
+  }
+  jumpList = list;
+  const key = tab + '|' + list.map(x => x.label).join('|');
+  if (key !== jumpKey) {
+    jumpKey = key;
+    if (bar.hidden !== !list.length) bar.hidden = !list.length;
+    UI.paint(bar, list.map((x, i) => `<button class="chip" data-act="jump" data-i="${i}">${esc(x.label.length > 24 ? x.label.slice(0, 23) + '…' : x.label)}</button>`).join(''));
+    jumpLit = -1;
+  }
+  lightJump();
+}
+// The chip for the section at the top of the screen is lit and brought into view in the bar
+let jumpLit = -1, jumpT = 0;
+function lightJump() {
+  const bar = $('#jump');
+  if (!bar || !jumpList.length) return;
+  const line = $('#top').getBoundingClientRect().bottom + 24;
+  let cur = 0;
+  jumpList.forEach((x, i) => { if (x.el.isConnected && x.el.getBoundingClientRect().top <= line) cur = i; });
+  if (cur === jumpLit) return;
+  jumpLit = cur;
+  [...bar.children].forEach((c, i) => { if (i === cur) c.setAttribute('aria-current', 'true'); else c.removeAttribute('aria-current'); });
+  const c = bar.children[cur];
+  if (c) bar.scrollTo({ left: Math.max(0, c.offsetLeft - (bar.clientWidth - c.offsetWidth) / 2), behavior: 'auto' });
+}
+addEventListener('scroll', () => { const now = Date.now(); if (now - jumpT > 120) { jumpT = now; lightJump(); } }, { passive: true });
+NBA.actions.jump = a => {
+  const x = jumpList[+a.dataset.i];
+  if (!x || !x.el.isConnected) return;
+  const y = x.el.getBoundingClientRect().top + scrollY - $('#top').getBoundingClientRect().bottom - 10;
+  window.scrollTo({ top: Math.max(0, y), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+};
 let lastTab = null, lastRoute = null;
 function renderView() {
   const { tab, arg } = UI.route();
@@ -532,6 +588,7 @@ function renderView() {
   // The rest-of-season list under the schedule only shows on that tab
   if (tab !== 'schedule') { UI.paint(season, ''); UI.paint($('#pband'), ''); }
   if (NBA.after[tab]) NBA.after[tab](view, changed);
+  renderJump(tab);
   if (t0 < 0) { const dy = season.getBoundingClientRect().top - t0; if (dy) window.scrollBy(0, dy); }
 }
 // Each part renders on its own, so one that throws on odd ESPN data can't leave the page frozen or stop an open game updating
@@ -555,9 +612,21 @@ NBA.render = () => {
   // Repaints recreate live dots and card glows; tying their pulse to the page clock lets a new one carry on mid-beat instead of restarting
   if (document.getAnimations) document.getAnimations().forEach(a => { if (a.animationName === 'blink' || a.animationName === 'glow') a.startTime = 0; });
 };
+/* A page opens at its top, except when you come Back to it (the browser's button, or a phone's back swipe): then it
+   returns to where you left it, like an app. The spot is noted as you scroll, per page */
+const scrollPos = new Map();
+const routeKey = () => { const r = UI.route(); return r.tab + '/' + r.arg; };
+let viaHistory = false;
+try { history.scrollRestoration = 'manual'; } catch (e) { /* older browsers restore it themselves */ }
+// popstate comes just before the hashchange of a Back or Forward; the game window's own Back has no hashchange after it
+window.addEventListener('popstate', () => { viaHistory = true; setTimeout(() => { viaHistory = false; }, 60); });
+addEventListener('scroll', () => { scrollPos.set(routeKey(), scrollY); }, { passive: true });
 window.addEventListener('hashchange', () => {
+  const y = viaHistory ? scrollPos.get(routeKey()) || 0 : 0;
+  viaHistory = false;
   window.scrollTo(0, 0);
   NBA.render();
+  if (y) window.scrollTo(0, y);
 });
 
 /* ---------- overlays ---------- */

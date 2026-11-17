@@ -173,6 +173,25 @@ html.stale .game.big::after{animation:none}
 html.stale .live-btn,html.stale .hchip.live{filter:saturate(.3)}
 
 /* bookmark tabs */
+/* The jump bar: one chip per section of a long page, under the header on phones and tablets */
+.jump{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-top:7px;padding-bottom:8px;border-top:1px solid var(--line-2)}
+.jump::-webkit-scrollbar{display:none}
+.jump[hidden]{display:none}
+.jump .chip{flex:none;height:28px;padding:0 11px;font-size:12px;color:var(--muted);background:transparent}
+.jump .chip[aria-current="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
+@media (min-width:901px){.jump{display:none}}
+/* Phones: shorter pages. Teams two to a row, and stat leader cards stop at the top five */
+@media (max-width:640px){
+  #view .team-pick{grid-template-columns:minmax(0,1fr)}
+  #view .tp-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:12px}
+  #view .tp{gap:8px;padding:8px 9px}
+  #view .tp img{width:28px;height:28px}
+  #view .tp b{font-size:13px}
+  #view .tp small{font-size:11px}
+  .lead-card .rank li:nth-child(n+5){display:none}
+}
+/* Buttons, tabs and cards behave like an app's: no text selection or long-press menu under a finger */
+.bn,.tab,.chip,.btn,.ib,.wk-d,.seg button,.more-i,.dir-i,.game,.line,.hg,.fd-row{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 /* The Schedule's week strip: seven days around the one showing, with a dot under days that have games */
 .wk{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;max-width:560px}
 .wk-d{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 0 6px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--muted);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -865,11 +884,19 @@ html.stale .game.clutch::after{animation:none}
 .hero-stats span{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
 .hero-stats small{font-size:11px;opacity:.75}
 .hero-side{display:flex;flex-direction:column;align-items:flex-end;gap:8px;position:relative;z-index:1}
-/* The team's star sits between the stats and the record, behind the text */
+/* The team's star stands in a column of his own between the stats and the record, feet on the banner's bottom edge.
+     Behind the numbers (as he used to be) they were hard to read and he was half hidden */
 .team-hero.has-star > :not(.team-star){position:relative;z-index:1}
-.team-hero .team-star{right:clamp(150px,15vw,320px);left:auto;top:auto;bottom:0;height:100%}
-/* Phones skip the player photo on team pages too; the banner's faded logo stays */
-@media (max-width:760px){.team-hero .team-star{display:none}}
+@media (min-width:1100px){
+  .team-hero.has-star{grid-template-columns:auto minmax(0,1fr) auto auto}
+  .team-hero.has-star > .big-logo{grid-column:1;grid-row:1}
+  .team-hero.has-star > div:not(.hero-side){grid-column:2;grid-row:1}
+  .team-hero.has-star > .hero-side{grid-column:4;grid-row:1}
+  .team-hero .team-star{position:relative;grid-column:3;grid-row:1;right:auto;left:auto;top:auto;bottom:auto;align-self:end;
+    height:clamp(170px,17vw,250px);width:auto;margin:calc(-1 * clamp(18px,2.4vw,36px)) 0 calc(-1 * clamp(18px,2.4vw,36px))}
+}
+/* Without the room for a column (narrow laptops, tablets, phones) the photo is left out; the banner's faded logo stays */
+@media (max-width:1099px){.team-hero .team-star{display:none}}
 .hero-rec{font-family:var(--f-display);font-weight:900;font-size:clamp(40px,5vw,84px);line-height:.9;font-variant-numeric:tabular-nums}
 .hero-btn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#F4F6F8}
 @media (hover:hover){.hero-btn:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.4)}}
@@ -1097,7 +1124,13 @@ a.hchip,button.hchip{cursor:pointer}
 @media (min-width:1300px){.home-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (min-width:2100px){.home-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 /* One column on phones: your team and last night's highlights come before the 30-team standings */
-@media (max-width:819px){.home-grid>.hm-team{order:-3}.home-grid>.hm-hl{order:-2}}
+/* Phones read Home top to bottom: your team, the highlights, the headlines, what to watch, then the tables and extras */
+@media (max-width:819px){.home-grid>.hm-team{order:-5}.home-grid>.hm-hl{order:-4}.home-grid>.hm-news{order:-3}.home-grid>.hm-videos{order:-2}}
+@media (min-width:820px){.hm-videos{grid-column:1/-1}}
+.hm-videos .card-b{padding:6px var(--pad) var(--pad)}
+/* The Top 25 shows 10 on a phone, with a button for the rest */
+.top25-more{display:none}
+@media (max-width:819px){.top25:not(.all) li:nth-child(n+11){display:none}.top25-more{display:flex;margin:10px var(--pad) 12px;width:calc(100% - 2 * var(--pad))}}
 .hm-facts .card-b{padding:6px var(--pad) var(--pad)}
 .hm-team{display:flex;flex-direction:column;gap:14px;padding:var(--pad);background:linear-gradient(160deg,color-mix(in srgb,var(--tc) 24%,var(--card)),var(--card) 58%)}
 .hm-team-top{display:flex;align-items:center;gap:14px}

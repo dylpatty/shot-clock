@@ -761,7 +761,7 @@ V.home = () => {
     const pw = b && Math.round(b.projectedw), pl = b && Math.round(b.projectedw + b.projectedl) - pw;
     // Top 6 is a straight playoff spot, without the play-in
     const bpi = b && Number.isFinite(pw) && Number.isFinite(pl) ? `<div class="mut hm-bpi">ESPN projects ${pw}-${pl}${b.probmakeplayoffsD ? ` · ${esc(b.probmakeplayoffsD)} playoff odds` : ''}${b.top6seedD ? ` · ${esc(b.top6seedD)} top 6` : ''}</div>` : '';
-    teamCard = `<div class="card hm hm-team" style="--tc:${esc(t.color || '#444')}"><div class="hm-team-top">${UI.logo(t, 56)}<div><div class="eyebrow">Your team</div><h3>${esc(t.full)}</h3>
+    teamCard = `<div class="card hm hm-team" data-jump="${esc(t.name || 'Your team')}" style="--tc:${esc(t.color || '#444')}"><div class="hm-team-top">${UI.logo(t, 56)}<div><div class="eyebrow">Your team</div><h3>${esc(t.full)}</h3>
       <div class="mut">${mine ? [`${mine.w}-${mine.l}`, mine.seed ? `${NBA.ord(mine.seed)} in the ${esc(mine.conf)}` : esc(mine.conf), NBA.S.spoilers ? '' : esc(mine.strk || '')].filter(Boolean).join(' · ') : esc((sch && sch.record) || '')}</div>${bpi}</div></div>
       <div class="hm-team-games">${last ? `<button class="hm-g" data-act="game" data-id="${last.id}"><span class="eyebrow">Last game</span><b>${NBA.masked(last.id, last.date) ? 'Final' : `<span class="${last.won ? 'w' : 'lo'}">${last.won ? 'W' : 'L'}</span> ${esc(last.my)}-${esc(last.their)}`}</b><small>${last.home ? 'vs' : '@'} ${esc(last.oppAbbr || '')} · ${esc(NBA.fmtDate(last.date, { month: 'short', day: 'numeric' }))}</small></button>` : ''}
         ${myNext ? `<button class="hm-g" data-act="game" data-id="${myNext.id}"><span class="eyebrow">Next game</span><b>${myNext.home ? 'vs' : '@'} ${esc(myNext.oppAbbr || '')}</b><small>${esc(NBA.fmtDate(myNext.date, { weekday: 'short', month: 'short', day: 'numeric' }))} · ${esc(nextTbd ? 'Time TBD' : NBA.fmtTime(myNext.date))}</small></button>` : ''}</div>
@@ -809,7 +809,8 @@ V.home = () => {
     return j > i ? `<span class="mv up">▲${j - i}</span>` : j < i ? `<span class="mv dn">▼${i - j}</span>` : '<span class="mv">–</span>';
   };
   const topCard = `<div class="card hm hm-top"><div class="card-h"><h3>Top 25 players</h3><div class="end"><span class="eyebrow">Game Score per game</span></div></div>
-    ${top.length ? `<ol class="top25">${top.map((x, i) => `<li data-act="player" data-id="${x.p.id}"><span class="rk">${i + 1}</span>${UI.hs(x.p.headshot)}<span class="nm"><b>${esc(x.p.name)}</b><small>${esc(x.p.team)} · ${f1(x.p.pts)} / ${f1(x.p.reb)} / ${f1(x.p.ast)}</small></span>${move(x.p.id, i)}<span class="v">${f1(x.v)}</span></li>`).join('')}</ol>
+    ${top.length ? `<ol class="top25${UI.st.topAll ? ' all' : ''}">${top.map((x, i) => `<li data-act="player" data-id="${x.p.id}"><span class="rk">${i + 1}</span>${UI.hs(x.p.headshot)}<span class="nm"><b>${esc(x.p.name)}</b><small>${esc(x.p.team)} · ${f1(x.p.pts)} / ${f1(x.p.reb)} / ${f1(x.p.ast)}</small></span>${move(x.p.id, i)}<span class="v">${f1(x.v)}</span></li>`).join('')}</ol>
+      ${top.length > 10 ? `<button class="btn top25-more" data-act="topall" aria-expanded="${!!UI.st.topAll}">${UI.st.topAll ? 'Show the top 10' : `Show all ${top.length}`}</button>` : ''}
       <p class="note" style="padding:0 var(--pad) var(--pad)">Game Score rolls a player's whole box score into one number per game. Regulars only (20+ minutes, most of their team's games).${prev ? ` Arrows show moves since ${esc(NBA.fmtDay(prev.day, { month: 'short', day: 'numeric' }))}.` : ' Come back tomorrow to see who moved.'}</p>`
       : NBA.data('players') ? '<p class="empty">No one has played enough games to rank yet.</p>' : wait('players', 'player stats')}</div>`;
 
@@ -834,7 +835,7 @@ V.home = () => {
   const ready = ['standings', ...DAY_CHARTS[want]].flatMap(k => k === 'week' ? week : [k]).every(settled);
   let cod = specs.find(s => s.id === want) || null;
   for (let i = 1; !cod && ready && i < pool.length; i++) cod = specs.find(s => s.id === pool[(at + i) % pool.length]) || null;
-  const chartDay = cod ? `<div class="hm hm-chart">${chartCard(cod, { chrome: 320, tag: 'Chart of the day' })}<a class="chip hm-more" href="#facts">Swipe all the charts</a></div>`
+  const chartDay = cod ? `<div class="hm hm-chart" data-jump="Chart of the day">${chartCard(cod, { chrome: 320, tag: 'Chart of the day' })}<a class="chip hm-more" href="#facts">Swipe all the charts</a></div>`
     : ready ? '' : '<div class="hm hm-chart"><p class="loading">Loading chart…</p></div>';
 
   // League leaders
@@ -858,9 +859,11 @@ V.home = () => {
   // The view itself is a fixed frame, so a poll only rebuilds the parts whose text changed: a score or clock tick
   // repaints the hero and games strip, and leaves the fact deck and chart of the day alone
   // The players you follow (players.js) sit under today's games, in their own part: their lines tick with the scores
-  homeParts = { hero, games: gamesSec, follow: NBA.followSection ? NBA.followSection() : '', rest: `<div class="home-grid">${standCard}${factCard}${teamCard}${hlCard}${topCard}${chartDay}${leadCard}${playCard}${newsCard}</div>` };
+  homeParts = { hero, games: gamesSec, follow: NBA.followSection ? NBA.followSection() : '', rest: `<div class="home-grid">${standCard}${factCard}${teamCard}${hlCard}${topCard}${newsCard}${NBA.homeVideos ? NBA.homeVideos() : ''}${chartDay}${leadCard}${playCard}</div>` };
   return '<div id="hm-hero"></div><section class="sec" id="hm-games"></section><section class="sec" id="hm-follow" hidden></section><section class="sec" id="hm-rest"></section><section class="sec" id="hm-dir"></section>';
 };
+// The Top 25 shows its first 10 on a phone until asked for the rest
+NBA.actions.topall = () => { UI.st.topAll = !UI.st.topAll; NBA.changed(); };
 NBA.after.home = view => {
   UI.paint(view.querySelector('#hm-hero'), homeParts.hero);
   UI.paint(view.querySelector('#hm-games'), homeParts.games, true);

@@ -71,6 +71,19 @@ Object.assign(NBA.actions, {
   vmore: () => { S.limit += 24; NBA.changed(); },
 });
 
+/* ---------- Home ---------- */
+// What's worth watching right now, as one strip: the last few days' interviews, breakdowns, podcasts and features, the
+// most interesting first (full game highlights have their own card on Home). Nothing until the list has loaded
+NBA.homeVideos = () => {
+  const d = NBA.use('videos');
+  if (!d || !(d.items || []).length) return '';
+  const rest = d.items.filter(v => v.kind !== 'highlights'), fresh = rest.filter(v => listNow() - v.t < 72 * HOUR);
+  const list = (fresh.length >= 6 ? fresh : rest).sort((a, b) => score(b) - score(a)).slice(0, 12);
+  if (!list.length) return '';
+  return `<div class="card hm hm-videos"><div class="card-h"><h3>Watch</h3><div class="end"><a class="chip" href="#videos">All videos</a></div></div>
+    <div class="card-b">${row(list, d, v => ({ hide: spoils(v) }), 'home-v')}</div></div>`;
+};
+
 /* ---------- team pages ---------- */
 // The team's own uploads and everything else about them: the last two days' interviews first, newest first, then the
 // most interesting of the rest
