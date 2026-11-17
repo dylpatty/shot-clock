@@ -147,7 +147,8 @@ const pbReduce = matchMedia('(prefers-reduced-motion: reduce)');
 // is scrolling, made the Schedule stutter on iPhones. tr._run is one run's width, 0 when it all fits
 function bandFits(tr) {
   const run = tr.firstElementChild ? tr.firstElementChild.offsetWidth : 0;
-  const fits = pbReduce.matches || !tr.offsetParent || run <= tr.clientWidth;
+  // The band stays put (it can still be swiped): drifting on its own kept the phone busy every frame
+  const fits = true;
   tr._run = fits ? 0 : run;
   tr.classList.toggle('fits', fits);
   return fits;
@@ -382,7 +383,7 @@ NBA.after.schedule = (view, changed) => {
   const season = document.getElementById('season'), up = view.querySelector('#sch-up');
   const anchor = changed ? null : season && season.getBoundingClientRect().top < 0 ? season : up && up.getBoundingClientRect().top < 0 ? up : null;
   const t0 = anchor ? anchor.getBoundingClientRect().top : 0;
-  UI.paint(view.querySelector('#sch-main'), schParts.main);
+  UI.paint(view.querySelector('#sch-main'), schParts.main, true);
   if (UI.paint(up, schParts.up) || changed) up.querySelectorAll('.days').forEach(ruleRows);
   paintBand(); paintSeason();
   if (anchor) { const dy = anchor.getBoundingClientRect().top - t0; if (dy) window.scrollBy(0, dy); }

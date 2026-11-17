@@ -182,7 +182,7 @@ UI.gameCard = (g, big) => {
     if (g.state === 'in' && S.card.winprob && g.homeWin != null) extra += UI.wpBar(g);
     if (g.state === 'pre') {
       // A team that also plays the day before (B2B) leads, since that's when stars sit; it shows before a line is posted too
-      const meta = [g.away, g.home].filter(t => NBA.restTag(g, t)).map(t => `<span class="tag b2b" title="${esc(t.name || t.abbr)}: second night of a back-to-back">${esc(t.name || t.abbr)} on a B2B</span>`).join('')
+      const meta = [g.away, g.home].filter(t => NBA.restTag(g, t)).map(t => `<span class="tag b2b" title="${esc(t.name || t.abbr)}: second night of a back-to-back">${esc(t.abbr === 'NO' ? 'NOP' : t.abbr)} B2B</span>`).join('')
         + (g.odds && g.odds.details ? `<span>Line <b>${esc(g.odds.details)}</b></span>` : '') + (g.odds && g.odds.ou ? `<span>O/U <b>${esc(g.odds.ou)}</b></span>` : '') + (g.venue ? `<span>${esc(g.venue)}</span>` : '');
       if (meta) extra += `<div class="pre-meta">${meta}</div>`;
       extra += UI.absences(g);
@@ -226,7 +226,23 @@ UI.line = g => {
 /* Re-rendering replaces nodes; skip identical HTML and put keyboard focus back on the equivalent control.
    A dropdown that's open (focused) is never rebuilt under the finger: on an iPhone that closes its menu, and focusing
    the new one opens the menu a second time. Its new HTML goes in when it loses focus, without taking focus back */
-UI.paint = (el, html) => {
+/* Makes el's content match html by swapping only the pieces that differ, so a live refresh that changes one score
+   leaves every other card (and its logos) alone. Replacing everything made the page flash and stutter on phones.
+   Game cards and rows are swapped whole; anything else is walked into */
+function sync(a, b) {
+  const A = [...a.childNodes], B = [...b.childNodes];
+  if (A.length !== B.length) { a.replaceChildren(...B); return; }
+  for (let i = 0; i < B.length; i++) {
+    const x = A[i], y = B[i];
+    if (x.isEqualNode(y)) continue;
+    if (x.nodeType === 1 && y.nodeType === 1 && x.tagName === y.tagName && x.id === y.id && x.childElementCount && y.childElementCount && !x.matches('.game, .line, .hg, svg, table')) {
+      for (const at of [...x.attributes]) if (!y.hasAttribute(at.name)) x.removeAttribute(at.name);
+      for (const at of [...y.attributes]) if (x.getAttribute(at.name) !== at.value) x.setAttribute(at.name, at.value);
+      sync(x, y);
+    } else a.replaceChild(y, x);
+  }
+}
+UI.paint = (el, html, morph) => {
   if (!el) return false;
   // A sideways strip under a finger, or still gliding, isn't rebuilt either (see UI.heldStrip below)
   if (UI.heldStrip && el.contains(UI.heldStrip)) return false;
@@ -258,7 +274,8 @@ UI.paint = (el, html) => {
   // Sideways strips marked data-sx (the video rows) keep their place when the part around them is rebuilt
   const sx = {};
   el.querySelectorAll('[data-sx]').forEach(n => { if (n.scrollLeft) sx[n.dataset.sx] = n.scrollLeft; });
-  el.innerHTML = html;
+  if (morph && el.firstChild) { const t = document.createElement('template'); t.innerHTML = html; sync(el, t.content); }
+  else el.innerHTML = html;
   UI.tick(el);
   for (const k in sx) { const n = el.querySelector(`[data-sx="${CSS.escape(k)}"]`); if (n) n.scrollLeft = sx[k]; }
   if (sel) {
@@ -605,7 +622,7 @@ UI.ownsSwipe = el => !!(el && el.closest && el.closest('[data-noswipe], input, t
 UI.busy = () => !!(UI.drawer || UI.settingsOpen || ($('#vid') && $('#vid').open) || ($('#calpop') && $('#calpop').open)
     || document.documentElement.classList.contains('srch') || (NBA.ask && NBA.ask.isOpen()));
 (() => {
-  let x0 = 0, y0 = 0, t0 = 0, armed = false;
+  let x0 = 0, y0 = 0, t0 = 0, sy0 = 0, armed = false;
   const busy = UI.busy;
   addEventListener('touchstart', e => {
     armed = false;
@@ -614,7 +631,7 @@ UI.busy = () => !!(UI.drawer || UI.settingsOpen || ($('#vid') && $('#vid').open)
     // In Safari itself (not the Home Screen app) a swipe in from the screen's edge is the browser's back and forward
     if (!navigator.standalone && (t.clientX < 24 || t.clientX > innerWidth - 24)) return;
     if (UI.ownsSwipe(e.target)) return;
-    x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); armed = true;
+    x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); sy0 = scrollY; armed = true;
   }, { passive: true });
   addEventListener('touchcancel', () => { armed = false; }, { passive: true });
   addEventListener('touchend', e => {
@@ -622,7 +639,9 @@ UI.busy = () => !!(UI.drawer || UI.settingsOpen || ($('#vid') && $('#vid').open)
     armed = false;
     const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
     // Far enough, mostly sideways and quick: a slow wander is someone reading or scrolling, not changing tabs
-    if (Math.abs(dx) < Math.max(70, innerWidth * 0.2) || Math.abs(dx) < 1.8 * Math.abs(dy) || Date.now() - t0 > 800) return;
+    // Clearly sideways, too: a flick up or down that drifts sideways used to change tabs mid-scroll, and so did any
+    // touch during which the page itself scrolled
+    if (Math.abs(dx) < Math.max(90, innerWidth * 0.28) || Math.abs(dx) < 3 * Math.abs(dy) || Math.abs(dy) > 45 || Math.abs(scrollY - sy0) > 6 || Date.now() - t0 > 600) return;
     if (String(getSelection ? getSelection() : '')) return;
     const ids = TABS.map(x => x.id), i = ids.indexOf(UI.route().tab), j = i + (dx < 0 ? 1 : -1);
     if (i < 0 || j < 0 || j >= ids.length) return;

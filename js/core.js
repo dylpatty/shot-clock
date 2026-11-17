@@ -19,7 +19,7 @@ const DEFAULTS = {
   myTeam: '9',
   card: { quarters: true, leaders: true, winprob: true, lastplay: true },
   spoilers: false,
-  refresh: 10,
+  refresh: 5,
   density: 'comfortable',
   theme: 'system',
   teamTheme: '',
@@ -45,7 +45,7 @@ function loadSettings() {
 // Only light/dark, team colors and spoiler mode are choices; everything else is fixed, and the
 // highlighted team is always the favorite team picked in the header
 function lockSettings(s) {
-  Object.assign(s, { refresh: 10, density: 'comfortable', boxCols: 'compact', tz: 'et', card: clone(DEFAULTS.card), favorites: [String(s.myTeam || '9')] });
+  Object.assign(s, { refresh: 5, density: 'comfortable', boxCols: 'compact', tz: 'et', card: clone(DEFAULTS.card), favorites: [String(s.myTeam || '9')] });
   if (s.theme !== 'light' && s.theme !== 'dark') s.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   return s;
 }
@@ -358,7 +358,7 @@ function need(key, force) {
     // r.t is only set by a successful load, so a failed refresh never makes old data look fresh
     .then(data => { r.data = data; r.t = Date.now(); r.err = null; r.retry = 0; if (L.keep) saveRes(prefix, arg, data); return data; })
     .catch(e => { r.err = e; r.retry = Date.now() + 30000; throw e; })
-    .finally(() => { r.p = null; NBA.changed(); });
+    .finally(() => { r.p = null; NBA.changedSoon(); });
   r.p.catch(() => {});
   return r.p;
 }
@@ -368,6 +368,10 @@ NBA.data = key => { const r = RES.get(key); return r ? r.data : undefined; };
 NBA.status = key => { const r = RES.get(key) || {}; return { loading: !!r.p, err: r.err, t: r.t || 0 }; };
 
 let pending = false;
+/* A feed that just loaded redraws the page too, but a burst of them (a dozen at launch, one per game summary) shares
+   one redraw: on a phone, rebuilding the page for each one was what made it stutter. Taps still redraw at once */
+let soon = 0;
+NBA.changedSoon = () => { if (!soon) soon = setTimeout(() => { soon = 0; NBA.changed(); }, 150); };
 NBA.changed = () => {
   if (pending) return;
   pending = true;
@@ -1007,7 +1011,7 @@ def('catv', 30 * 60000, () => getJSON('https://raw.githubusercontent.com/dylpatt
   .catch(e => { if (e.message === 'HTTP 404') return { games: {} }; throw e; }), {});
 // ESPN posts the recap a while after the final, so a finished game without one is checked every 5 minutes until it turns
 // up or the game is 3 hours old (5 hours from tip-off when the end time is missing)
-def('summary', (id, d) => (!d || d.state !== 'post' ? 15000 : d.recap || Date.now() - Date.parse(d.ended || d.date) > (d.ended ? 3 : 5) * 3600000 ? 6 * 3600000 : 5 * 60000),
+def('summary', (id, d) => (!d || d.state !== 'post' ? 8000 : d.recap || Date.now() - Date.parse(d.ended || d.date) > (d.ended ? 3 : 5) * 3600000 ? 6 * 3600000 : 5 * 60000),
   async id => parseSummary(await getJSON(`${API}/summary?event=${id}`), id));
 // The matchup preview and injuries, on a 10-minute cache so Home never pulls the 15-second live summary
 def('preview', 10 * 60000, async id => { const s = parseSummary(await getJSON(`${API}/summary?event=${id}`), id); return Object.assign({}, s.preview, { injuries: s.injuries }); });

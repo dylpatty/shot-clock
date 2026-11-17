@@ -367,6 +367,7 @@ select{height:36px;border-radius:10px;border:1px solid var(--line);background:va
 .games{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))}
 .games.live-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,500px),1fr))}
 .games > .game{max-width:1100px}
+.game,.line,.tab,.chip,.btn,.ib,.hg,button{touch-action:manipulation}
 .game{container-type:inline-size;display:flex;flex-direction:column;gap:10px;padding:var(--tile-pad);border:1px solid var(--line);border-radius:var(--r);background:var(--card);cursor:pointer;min-width:0;transition:border-color .15s, transform .15s}
 @media (hover:hover){.game:hover{border-color:var(--muted)}}
 /* Live cards pulse by fading a fixed glow layer in and out, which the graphics card handles without repainting */
@@ -468,6 +469,39 @@ html.stale .game.clutch::after{animation:none}
 @container (min-width:430px) and (max-width:599px){.last .lbl{line-height:1.885}}
 .pre-meta{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 .pre-meta b{color:var(--ink)}
+/* Phones: the Schedule's upcoming and finished games as a tidy two-up grid that reads at a glance: the time, where it
+   streams in Canada, the two teams and the score or the line. Quarter scores, top scorers, the venue, the over/under,
+   the recap and the injury list are one tap away in the game. Live games stay full width with everything showing */
+@media (max-width:640px){
+  .sched .games:not(.live-grid){grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .sched .games:not(.live-grid) .game{padding:11px 10px 10px;gap:8px;border-radius:12px}
+  .sched .games:not(.live-grid) .g-top{flex-direction:column;gap:3px;font-size:10.5px;letter-spacing:.05em}
+  .sched .games:not(.live-grid) .g-top>span:first-child{color:var(--ink)}
+  .sched .games:not(.live-grid) .g-top>.g-right{justify-content:flex-start}
+  .sched .games:not(.live-grid) .g-lead{display:none}
+  .sched .games:not(.live-grid) .g-lead + .ca-tv::before{content:none}
+  /* A finished game doesn't need where it streamed */
+  .sched .games:not(.live-grid) .game:has(.sc:not(:empty)) .g-right{display:none}
+  .sched .games:not(.live-grid) .ca-tv{color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sched .games:not(.live-grid) .ls{grid-template-columns:minmax(0,1fr) auto !important;row-gap:6px;column-gap:6px;--logo:24px}
+  .sched .games:not(.live-grid) .ls .hd,.sched .games:not(.live-grid) .ls .q,.sched .games:not(.live-grid) .ls>span:first-child:empty{display:none}
+  .sched .games:not(.live-grid) .team{gap:7px}
+  .sched .games:not(.live-grid) .team img{width:24px;height:24px}
+  .sched .games:not(.live-grid) .tn .ab{font-size:19px;gap:5px}
+  .sched .games:not(.live-grid) .tn .rec{font-size:10.5px}
+  .sched .games:not(.live-grid) .sc{font-size:24px;min-width:0}
+  .sched .games:not(.live-grid) .ldr-row,.sched .games:not(.live-grid) .last{display:none}
+  .sched .games:not(.live-grid) .pre-meta{font-size:11px;gap:3px 8px}
+  .sched .games:not(.live-grid) .pre-meta>span:not(.tag):not(:has(b)),.sched .games:not(.live-grid) .pre-meta>span:has(b)~span:has(b){display:none}
+  .sched .games:not(.live-grid) .hl-chip{width:100%;justify-content:center;height:28px;padding:0 6px;font-size:11px}
+  .sched .games:not(.live-grid) .reveal{width:100%;justify-content:center}
+  /* A lone last card doesn't stretch across both columns' height */
+  .sched .games:not(.live-grid){align-items:start}
+  /* Section labels read as headings, each with a rule running to the edge */
+  .sched .sub-h{margin:14px 0 0;font-size:12.5px;color:var(--ink)}
+  .sched .sub-h::after{content:"";flex:1;height:1px;background:var(--line)}
+  .sched .sub-h.live{color:var(--live)}
+}
 .reveal{align-self:flex-start}
 
 .perf{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}

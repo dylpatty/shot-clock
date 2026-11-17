@@ -863,7 +863,7 @@ V.home = () => {
 };
 NBA.after.home = view => {
   UI.paint(view.querySelector('#hm-hero'), homeParts.hero);
-  UI.paint(view.querySelector('#hm-games'), homeParts.games);
+  UI.paint(view.querySelector('#hm-games'), homeParts.games, true);
   const fw = view.querySelector('#hm-follow');
   if (fw) { UI.paint(fw, homeParts.follow); fw.hidden = !homeParts.follow; }
   UI.paint(view.querySelector('#hm-rest'), homeParts.rest);
