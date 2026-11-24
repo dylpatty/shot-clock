@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-19T11:17:26.628Z",
+  "updated": "2026-11-24T11:10:32.348Z",
   "season": 2027,
   "sources": {"salary":"Basketball-Reference","wingspan":"Crafted NBA and the NBA Draft Combine"},
   "players": {
@@ -83,6 +83,7 @@
     "3136195": {"nm":"Karl-Anthony Towns","tid":"18","no":"32","pos":"C","pay":[[2027,57078728],[2028,61015192,"P"]],"gtd":57078728,"tm":"NY","wing":87.5,"wht":83},
     "3136196": {"nm":"Trey Lyles","tid":"16","no":"41","pos":"F","pay":[[2027,2449421]],"gtd":2449421,"tm":"MIN","wing":85.5,"wht":81},
     "3136777": {"nm":"Jae'Sean Tate","tid":"10","no":"8","pos":"F","pay":[[2027,2449421]],"gtd":2449421,"tm":"HOU","wing":80,"wht":76},
+    "3137259": {"nm":"Gabe Vincent","tid":"23","pos":"G"},
     "3138160": {"nm":"Caleb Martin","tid":"6","no":"16","pos":"F","pay":[[2027,10001493],[2028,9371351,"P"]],"gtd":10001493,"tm":"DAL","wing":82.25,"wht":76},
     "3138196": {"nm":"Cameron Johnson","tid":"7","no":"23","pos":"F","pay":[[2027,23062500]],"gtd":23062500,"tm":"DEN","wing":82,"wht":79},
     "3146557": {"nm":"Jock Landale","tid":"1","no":"31","pos":"C","pay":[[2027,14100000]],"gtd":14100000,"tm":"ATL","wing":86,"wht":83},
