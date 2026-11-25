@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-24T11:10:32.348Z",
+  "updated": "2026-11-25T11:15:58.739Z",
   "season": 2027,
   "sources": {"salary":"Basketball-Reference","wingspan":"Crafted NBA and the NBA Draft Combine"},
   "players": {
@@ -83,7 +83,7 @@
     "3136195": {"nm":"Karl-Anthony Towns","tid":"18","no":"32","pos":"C","pay":[[2027,57078728],[2028,61015192,"P"]],"gtd":57078728,"tm":"NY","wing":87.5,"wht":83},
     "3136196": {"nm":"Trey Lyles","tid":"16","no":"41","pos":"F","pay":[[2027,2449421]],"gtd":2449421,"tm":"MIN","wing":85.5,"wht":81},
     "3136777": {"nm":"Jae'Sean Tate","tid":"10","no":"8","pos":"F","pay":[[2027,2449421]],"gtd":2449421,"tm":"HOU","wing":80,"wht":76},
-    "3137259": {"nm":"Gabe Vincent","tid":"23","pos":"G"},
+    "3137259": {"nm":"Gabe Vincent","tid":"23","pos":"G","pay":[[2027,1970799]],"gtd":0,"tm":"SAC"},
     "3138160": {"nm":"Caleb Martin","tid":"6","no":"16","pos":"F","pay":[[2027,10001493],[2028,9371351,"P"]],"gtd":10001493,"tm":"DAL","wing":82.25,"wht":76},
     "3138196": {"nm":"Cameron Johnson","tid":"7","no":"23","pos":"F","pay":[[2027,23062500]],"gtd":23062500,"tm":"DEN","wing":82,"wht":79},
     "3146557": {"nm":"Jock Landale","tid":"1","no":"31","pos":"C","pay":[[2027,14100000]],"gtd":14100000,"tm":"ATL","wing":86,"wht":83},
@@ -309,7 +309,7 @@
     "4593016": {"nm":"Quinten Post","tid":"29","no":"41","pos":"C","pay":[[2027,8285714],[2028,8700000],[2029,9114286]],"gtd":8285714,"tm":"MEM","wing":86.5,"wht":84},
     "4593034": {"nm":"Alex Morales","tid":"19","no":"30","pos":"G"},
     "4593043": {"nm":"John Tonje","tid":"22","no":"2","pos":"F","wing":81,"wht":76.75},
-    "4593049": {"nm":"Orlando Robinson","tid":"4","no":"00","pos":"C","pay":[[2027,2125647]],"gtd":0,"tm":"CHI"},
+    "4593049": {"nm":"Orlando Robinson","tid":"4","no":"00","pos":"C"},
     "4593125": {"nm":"Santi Aldama","tid":"6","no":"34","pos":"F","pay":[[2027,17007043],[2028,17007043,"T"]],"gtd":17007043,"tm":"DAL","wing":83,"wht":82.75},
     "4593803": {"nm":"Jalen Williams","tid":"25","no":"8","pos":"G","pay":[[2027,41500000],[2028,44820000],[2029,48140000],[2030,51460000],[2031,54780000]],"gtd":240700000,"tm":"OKC","wing":86.25,"wht":76.5},
     "4593841": {"nm":"Baylor Scheierman","tid":"2","no":"55","pos":"G","pay":[[2027,2744040,"T"],[2028,4952993,"T"]],"gtd":7697033,"tm":"BOS","wing":80.25,"wht":78.25},
