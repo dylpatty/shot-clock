@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-25T11:15:58.739Z",
+  "updated": "2026-11-26T11:14:19.196Z",
   "season": 2027,
   "sources": {"salary":"Basketball-Reference","wingspan":"Crafted NBA and the NBA Draft Combine"},
   "players": {
@@ -204,6 +204,7 @@
     "4397077": {"nm":"Jaxson Hayes","tid":"26","no":"11","pos":"C","pay":[[2027,6000000],[2028,6000000,"T"]],"gtd":6000000,"tm":"UTAH","wing":87.5,"wht":82.25},
     "4397114": {"nm":"Cormac Ryan","tid":"15","no":"30","pos":"G"},
     "4397136": {"nm":"Saddiq Bey","tid":"3","no":"41","pos":"F","pay":[[2027,6440678],[2028,17129630],[2029,18500000],[2030,19870370]],"gtd":61940678,"tm":"NO","wing":83,"wht":79},
+    "4397140": {"nm":"Kevin Porter Jr.","tid":"19","no":"7","pos":"G"},
     "4397183": {"nm":"Aaron Wiggins","tid":"1","no":"2","pos":"G","pay":[[2027,9224300],[2028,8345797],[2029,8345797,"T"]],"gtd":17570097,"tm":"ATL","wing":81.75,"wht":76.5},
     "4397189": {"nm":"Jalen Smith","tid":"4","no":"25","pos":"F","pay":[[2027,9428571]],"gtd":9428571,"tm":"CHI","wing":86.25,"wht":81.25},
     "4397204": {"nm":"Colin Castleton","tid":"19","no":"14","pos":"C","wing":87.5,"wht":83},
